@@ -45,6 +45,11 @@ const context = {
         const query = String(ref).trim().toLowerCase();
         return world.locations.find(location => location.id === ref || String(location.name).toLowerCase() === query) || null;
     },
+    resolveWorldExitTarget(world, exit) {
+        const ref = typeof exit === 'string' ? exit.replace(/^.*?\bto\s+/i, '').trim()
+            : exit?.targetLocationId || String(exit?.text || '').replace(/^.*?\bto\s+/i, '').trim();
+        return context.getLocationRef(world, ref);
+    },
     findFuzzyLocation(ref, locations) {
         if (!ref) return null;
         const query = String(ref).trim().toLowerCase();

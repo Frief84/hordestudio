@@ -4,12 +4,14 @@ const vm = require('node:vm');
 const fs = require('node:fs');
 const { buildContext } = require('./app_source.js');
 const appSource = fs.readFileSync(require('node:path').join(__dirname, '..', 'app.js'), 'utf8');
+const indexSource = fs.readFileSync(require('node:path').join(__dirname, '..', 'index.html'), 'utf8');
+const HordeWorldLore = require('../assets/worlds/world-lore.js');
 
-const context = { console: { log() {}, warn() {}, error() {} } };
+const context = { console: { log() {}, warn() {}, error() {} }, HordeWorldLore, isLocalProvider: () => false, localGenerationIdleTimeoutMs: () => 300000 };
 buildContext(vm, [
     'worldArchitectRequestedCounts', 'defaultWorldArchitectPlan', 'normalizeWorldArchitectPlan',
-    'normalizeWorldArchitectOperation', 'worldArchitectOperationCounts', 'applyWorldArchitectOperation', 'worldArchitectFingerprint',
-    'worldArchitectCountRecords', 'stageWorldArchitectJob', 'removeWorldGroupRecord', 'mergeWorldGroupRecords',
+    'normalizeWorldArchitectOperation', 'worldArchitectOperationCounts', 'applyWorldArchitectOperation', 'worldArchitectFingerprint', 'worldLoreModelTimeoutMs',
+    'worldArchitectCountRecords', 'worldArchitectIndex', 'stageWorldArchitectJob', 'removeWorldGroupRecord', 'mergeWorldGroupRecords',
     'parseWorldArchitectJSON', 'worldArchitectResponseCandidates', 'worldArchitectOperationArray'
 ], context);
 
@@ -305,6 +307,85 @@ test('Architect updates group metadata under the configured change policy', () =
     assert.equal(draft.groups[0].name, 'A', 'fill-gaps replaced an authored name');
     assert.equal(draft.groups[0].description, 'Expanded.');
     assert.equal(draft.groups[0].homeLocationId, 'loc_inn');
+});
+
+test('Architect updates place access, door state and the World Lore index', () => {
+    const draft = world();
+    draft.locations.push({ id: 'loc_door', name: 'Door Room', description: 'A room behind a door.', exits: [] });
+    draft.entities.push({ id: 'npc_guard', name: 'Guard', type: 'npc', factionId: 'fac_watch' });
+    draft.factions.push({ id: 'fac_watch', name: 'Watch' });
+    const access = context.applyWorldArchitectOperation(draft, { type: 'update_location', targetId: 'loc_inn', fields: {
+        access: { default: 'restricted', factions: { fac_watch: 'allow' }, npcs: { npc_guard: 'deny' } }
+    } }, 'allow_edits');
+    assert.equal(access.applied, true);
+    assert.equal(JSON.stringify(draft.locations[0].access), JSON.stringify({ default: 'restricted', factions: { fac_watch: 'allow' }, npcs: { npc_guard: 'deny' } }));
+    const connection = context.applyWorldArchitectOperation(draft, { type: 'connect_locations', from: 'loc_inn', to: 'loc_door', minutes: 3, lockState: 'locked' }, 'allow_edits');
+    assert.equal(connection.applied, true);
+    assert.equal(draft.locations[0].exits[0].lockState, 'locked');
+    assert.equal(draft.locations[1].exits[0].lockState, 'locked');
+    const index = JSON.parse(context.worldArchitectIndex(draft));
+    assert.equal(JSON.stringify(index.locations[0].access), JSON.stringify(draft.locations[0].access));
+    assert.equal(index.locations[0].exits[0].lockState, 'locked');
+});
+
+test('Architect can add and revise lorebook knowledge links under the safe-edit policy', () => {
+    const draft = world();
+    draft.entities.push({ id: 'npc_guard', name: 'Guard', type: 'npc' });
+    const add = context.applyWorldArchitectOperation(draft, { type: 'add_lore', record: {
+        keyword: 'Night Watch', text: 'The guard patrols at night.', knowledge: { visibility: 'assigned', npcIds: ['npc_guard'], factionIds: [] },
+        about: [{ kind: 'location', id: 'loc_inn' }]
+    } }, 'allow_edits');
+    assert.equal(add.applied, true);
+    const update = context.applyWorldArchitectOperation(draft, { type: 'update_lore', keyword: 'Night Watch', fields: {
+        text: 'The guard patrols after dusk.', knowledge: { visibility: 'public', npcIds: [], factionIds: [] }
+    } }, 'allow_edits');
+    assert.equal(update.applied, true);
+    assert.equal(draft.lorebook[0].text, 'The guard patrols after dusk.');
+    assert.equal(draft.lorebook[0].about[0].id, 'loc_inn');
+});
+
+test('AI Builder can replace matching lore fields and fully overwrite the authored world', () => {
+    assert.match(appSource, /EXISTING HORDE WORLD CANON/);
+    assert.match(appSource, /Default access is open to everyone/);
+    assert.match(appSource, /overwriteRecord\(existing, incoming\)/);
+    assert.match(appSource, /const currentLoreByKeyword/);
+    assert.match(appSource, /replacement\.authoringRevision = \(Number\(current\.authoringRevision\)/);
+    assert.match(appSource, /Object\.keys\(current\)\.forEach\(key => \{ if \(!\(key in replacement\)\) delete current\[key\]; \}\)/);
+    assert.match(indexSource, /Merge updates matching records with generated values/);
+    assert.match(indexSource, /Apply &amp; Overwrite replaces the complete authored world data/);
+    assert.match(appSource, /globalThis\.HordeWorldLore\?\.generate\(current\)/);
+});
+
+test('Explore World Structure exposes generation options and model-size-aware timeouts', () => {
+    assert.match(indexSource, /<strong>Explore World Structure<\/strong>[\s\S]*?data-world-lore-model-controls[\s\S]*?data-generate-world-structure/);
+    assert.match(appSource, /renderWorldStudioPanel\(activeTab\);\s*\/\/ World Structure options also live in the Overview[\s\S]*?renderWorldLoreModelControls\(\);/);
+    assert.equal(context.worldLoreModelTimeoutMs('provider/model-8b'), 180000);
+    assert.equal(context.worldLoreModelTimeoutMs('provider/model-70b'), 300000);
+    context.isLocalProvider = () => true;
+    context.localGenerationIdleTimeoutMs = () => 420000;
+    assert.equal(context.worldLoreModelTimeoutMs('local/model-70b'), 420000);
+});
+
+test('Architect can revise complete place, person, faction and lore fields', () => {
+    const draft = world();
+    draft.entities.push({ id: 'npc_guard', name: 'Guard', type: 'npc', description: 'Old', secrets: [{ label: 'Old', truth: 'Old truth' }] });
+    draft.factions.push({ id: 'fac_watch', name: 'Watch', description: 'Old description' });
+    const npc = context.applyWorldArchitectOperation(draft, { type: 'update_character', targetId: 'npc_guard', fields: {
+        description: 'Updated', secrets: [{ label: 'New', truth: 'New truth' }], knowledge: { visibility: 'assigned', npcIds: ['npc_guard'] }, inventory: ['lantern']
+    } }, 'allow_edits');
+    assert.equal(npc.applied, true);
+    assert.equal(draft.entities[0].secrets[0].truth, 'New truth');
+    assert.equal(draft.entities[0].inventory[0], 'lantern');
+    const faction = context.applyWorldArchitectOperation(draft, { type: 'update_faction', targetId: 'fac_watch', fields: {
+        description: 'Updated faction', goal: 'Protect the archive', secrets: [{ label: 'Secret', truth: 'A private pact.' }]
+    } }, 'allow_edits');
+    assert.equal(faction.applied, true);
+    assert.equal(draft.factions[0].goal, 'Protect the archive');
+    const place = context.applyWorldArchitectOperation(draft, { type: 'update_location', targetId: 'loc_inn', fields: {
+        appearance: 'The rebuilt inn has pale stone walls.', items: ['new table'], secrets: [{ label: 'Basement', truth: 'A sealed stair.' }]
+    } }, 'allow_edits');
+    assert.equal(place.applied, true);
+    assert.equal(draft.locations[0].appearance, 'The rebuilt inn has pale stone walls.');
 });
 
 test('job and undo metadata do not stale their own world fingerprint', () => {

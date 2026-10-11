@@ -212,7 +212,9 @@ test('complete argument objects and slightly truncated JSON are repaired', () =>
 
 function castWorld() {
     return {
-        locations: [{ id: 'hall', name: 'Hall' }, { id: 'forge', name: 'Forge' }],
+        locations: [{ id: 'hall', name: 'Hall', exits: [{ targetLocationId: 'forge' }],
+            placeAwareness: { npcs: { rowena: 'know' } } },
+        { id: 'forge', name: 'Forge', exits: [{ targetLocationId: 'hall' }] }],
         entities: [
             { id: 'rowena', name: 'Sister Rowena', type: 'npc', aliases: ['The Priestess'] },
             { id: 'ent_brannoc', name: 'Brannoc Ironvein', type: 'npc' }

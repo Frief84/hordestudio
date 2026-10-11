@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261009-v18-3-5">
+    <link rel="stylesheet" href="style.css?v=20261011-place-index-4">
     <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
 <link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
 </head>
@@ -755,6 +755,7 @@
                     </section>
                     <section class="world-status-section world-insight-section" data-world-panel="director" aria-label="World director">
                         <div class="world-insight-heading"><h3>Director</h3><span id="world-director-version" class="mini-tag">v0</span></div>
+                        <button id="world-lore-debug-btn" type="button" class="btn btn-ghost">World Lore · Author / Debug</button>
                         <p class="world-insight-hint">Private author view. See which world changes actually committed, what was rejected, and which people are pursuing goals. This does not change the story.</p>
                         <div id="world-director-health" class="world-history-health" role="status"></div>
                         <h3 class="world-director-subheading">Recent turn receipts</h3>
@@ -821,7 +822,7 @@
                         <button class="world-studio-tab" data-tab="w-items">Items</button>
                         <button class="world-studio-tab" data-tab="w-factions">Factions</button>
                         <button class="world-studio-tab" data-tab="w-sandbox">Sandbox</button>
-                        <button class="world-studio-tab" data-tab="w-lore">Global Lore</button>
+                        <button class="world-studio-tab" data-tab="w-lore">World Lore</button>
                         <button class="world-studio-tab" data-tab="w-note">Author's Note</button>
                         <button class="world-studio-tab" data-tab="w-ai">AI Config</button>
                         <button class="world-studio-tab" data-tab="w-hud">HUD, Stats &amp; Quests</button>
@@ -851,6 +852,18 @@
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-sandbox"><span>04</span><strong>Starting lives</strong><small>Define who players can begin as, including world-specific skills and perks.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-ai"><span>05</span><strong>Rules &amp; models</strong><small>Choose narrative-only play or optional RPG rules, checks and model behavior.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-visuals"><span>06</span><strong>Presentation</strong><small>Add optional banners, room art, portraits and visual styling.</small></button>
+                            <div class="creator-overview-card world-structure-card">
+                                <span>07</span>
+                                <strong>World Structure</strong>
+                                <small>Generate a map guide from your places, routes, access rules and door states.</small>
+                                <details class="world-structure-options">
+                                    <summary><span data-world-structure-mode-label>Without AI · options &amp; status</span></summary>
+                                    <div class="world-lore-model-controls" data-world-lore-model-controls></div>
+                                    <p class="world-structure-status" data-world-structure-status role="status"></p>
+                                </details>
+                                <button type="button" class="btn btn-primary" data-generate-world-structure>Generate World Structure</button>
+                                <button type="button" class="btn btn-ghost" data-clear-world-structure hidden>Remove generated structure</button>
+                            </div>
                             <details class="creator-advanced-card">
                                 <summary>Advanced world systems</summary>
                                 <div><button type="button" data-world-studio-target="w-items">Items &amp; objects</button><button type="button" data-world-studio-target="w-factions">Factions</button><button type="button" data-world-studio-target="w-lore">Lore</button><button type="button" data-world-studio-target="w-note">Author's Note</button><button type="button" data-world-studio-target="w-hud">HUD &amp; Stats</button><button type="button" data-world-studio-target="w-visual-map">World Architect</button><button type="button" data-world-studio-target="w-architect-agent">Architect Agent</button><button type="button" data-world-studio-target="w-builder">AI Builder</button></div>
@@ -1558,15 +1571,30 @@
                     <!-- Global Lore -->
                     <div id="tab-w-lore" class="studio-panel hidden">
                         <div class="panel-header">
-                            <h2>Global Lore & RAG</h2>
-                            <p>Upload a "World Bible" or define core lore entries for the DM.</p>
+                            <h2>World Lore</h2>
+                            <p>Browse every place, how rooms connect, who may enter, door states and what is inside.</p>
                         </div>
                         <div class="form-body">
-                            <div class="form-section">
-                                <label class="form-label">World Lore Entries</label>
+                            <section class="lore-text-editor" aria-labelledby="w-lore-editor-title">
+                                <div class="lore-text-editor-header">
+                                    <div><h3 id="w-lore-editor-title">Lore text editor</h3><p>Add or edit the original lore entries that guide the world and its characters.</p></div>
+                                    <button id="add-w-lore-btn" class="btn btn-ghost" type="button">+ Add Lore Entry</button>
+                                </div>
                                 <div id="w-lore-list" class="lore-list"></div>
-                                <button id="add-w-lore-btn" class="btn btn-ghost btn-full" style="margin-top:10px;">+ Add Lore Entry</button>
-                            </div>
+                            </section>
+                            <details class="world-lore-structure-panel">
+                                <summary><span><strong>Explore World Structure</strong><small>Browse places, rooms, routes, access and current world details.</small></span><span class="world-lore-structure-chevron" aria-hidden="true">⌄</span></summary>
+                                <div class="world-lore-explore-controls">
+                                    <p class="form-hint">Generate or update the connected place structure. Choose whether to use existing world data only, the world’s model, or another available model.</p>
+                                    <div class="world-lore-model-controls" data-world-lore-model-controls></div>
+                                    <div class="world-lore-explore-actions">
+                                        <button type="button" class="btn btn-primary" data-generate-world-structure>Generate World Structure</button>
+                                        <button type="button" class="btn btn-ghost" data-clear-world-structure hidden>Remove generated structure</button>
+                                    </div>
+                                    <p class="form-hint" data-world-structure-status role="status"></p>
+                                </div>
+                                <div id="w-lore-browser"></div>
+                            </details>
                         </div>
                     </div>
 
@@ -1596,13 +1624,14 @@
                                     <button type="button" data-world-architect-quick="Add new characters with homes, personalities, schedules and private goals.">Add characters</button>
                                     <button type="button" data-world-architect-quick="Find thin records and add missing useful detail without replacing authored writing.">Flesh things out</button>
                                     <button type="button" data-world-architect-quick="Connect inaccessible locations and repair the travel graph without changing intentional one-way routes.">Connect the map</button>
+                                    <button type="button" data-world-architect-quick="Review the existing location access rules. Keep everyone allowed by default, and only add person or faction restrictions when the authored lore explicitly supports them. Do not change unrelated routes or lore.">Review access</button>
                                     <button type="button" data-world-architect-quick="Add factions, memberships and meaningful relationships supported by the setting.">Build society</button>
                                 </div>
                                 <label class="form-label" for="w-architect-request">What should change?</label>
                                 <textarea id="w-architect-request" class="form-textarea" rows="7" placeholder="For example: Add 100 rooms across the existing city. Distribute them sensibly inside current buildings, make every room reachable, and add recurring staff where the fiction needs them."></textarea>
                                 <div class="world-architect-controls">
                                     <label><span>Scope</span><select id="w-architect-scope" class="form-select"><option value="whole">Whole world</option><option value="locations">Places &amp; map</option><option value="people">People &amp; society</option><option value="lore">Lore &amp; setting</option></select></label>
-                                    <label><span>Change policy</span><select id="w-architect-policy" class="form-select"><option value="add_only">Add only</option><option value="fill_gaps" selected>Fill gaps</option><option value="allow_edits">Allow safe edits</option></select></label>
+                                    <label><span>Change policy</span><select id="w-architect-policy" class="form-select"><option value="add_only">Add only</option><option value="fill_gaps">Fill gaps</option><option value="allow_edits" selected>Allow requested edits</option></select></label>
                                     <label><span>Detail</span><select id="w-architect-detail" class="form-select"><option value="draft">Draft</option><option value="standard" selected>Standard</option><option value="deep">Deep</option></select></label>
                                     <label><span>Batch size</span><select id="w-architect-batch-size" class="form-select"><option value="8">8 records</option><option value="12" selected>12 records</option><option value="20">20 records</option></select></label>
                                 </div>
@@ -1652,7 +1681,7 @@
                             <div class="form-section">
                                 <label class="form-label">Describe Your World in Detail</label>
                                 <textarea id="w-builder-prompt" class="form-textarea" rows="12" placeholder="Dump everything you want here! E.g. 'Build a cyberpunk dystopian metropolis called Neo-Chicago. There should be a neon-lit bar run by an ex-cop NPC, a high-tech corporate tower guarded by a combat drone, and an underground sewer system where hackers hide out. Add relevant lore about the corporate war...'"></textarea>
-                                <p class="form-hint" style="margin-top:8px;">Be as detailed, chaotic, or specific as you want. The builder handles connections, room designs, NPC attributes, and lorebooks automatically.</p>
+                                <p class="form-hint" style="margin-top:8px;">The builder reads the current world and lore. Merge updates matching records with generated values, adds new records and refreshes matching lore entries. Apply &amp; Overwrite replaces the complete authored world data. Both modes preserve the world ID and runtime save history.</p>
                             </div>
 
                             <!-- Action Buttons -->
@@ -1725,8 +1754,8 @@
                                     </div>
                                 </div>
                                 <div class="preview-action-row">
-                                    <button id="w-builder-apply-btn" class="btn btn-success" style="flex:1">Apply & Overwrite World</button>
-                                    <button id="w-builder-merge-btn" class="btn btn-primary" style="flex:1">Merge & Append to World</button>
+                                    <button id="w-builder-apply-btn" class="btn btn-success" style="flex:1">Apply &amp; Overwrite World</button>
+                                    <button id="w-builder-merge-btn" class="btn btn-primary" style="flex:1">Merge &amp; Update World</button>
                                 </div>
                             </div>
                         </div>
@@ -5329,12 +5358,12 @@
 <script src="pip-knowledge.js?v=20261010-rag"></script>
 <script src="pip-assistant.js?v=20261010-rag"></script>
 <script src="labs-guide.js?v=20261010-rag"></script>
-    <script src="help-system.js?v=20261010-pip-rag"></script>
+    <script src="help-system.js?v=20261011-place-index-4"></script>
 <script src="labs-ui.js?v=20261010-pip"></script>
 <script src="rpg-mechanics.js?v=20260823-v166-rpg-release"></script>
-<script src="multiplayer-engine.js?v=20261009-v18-3-5"></script>
-<script src="multiplayer.js?v=20261009-v18-3-5"></script>
-<script src="video-worlds.js?v=20261009-v18-3-5"></script>
+<script src="multiplayer-engine.js?v=20261010-world-lore-ai-4"></script>
+<script src="multiplayer.js?v=20261010-world-lore-ai-4"></script>
+<script src="video-worlds.js?v=20261010-world-lore-ai-4"></script>
     <script src="virtual_humans/engine/vh-conversation-engine.js?v=20260910-vh2-history"></script>
     <script src="virtual_humans/engine/vh-activity-engine.js?v=20260912-consolidated-life"></script>
     <script src="virtual_humans/engine/vh-world-engine.js?v=20260912-wardrobe-colors"></script>
@@ -5345,7 +5374,7 @@
     <script src="virtual_humans/engine/vh-mind-library.js?v=20260920-expanded-library"></script>
     <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
     <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
-    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261009-v18-3-5"></script>
+    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
     <script src="virtual_humans/frontend/vh-workspace.js?v=20261009-chat-diagnostics"></script>
     <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
     <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
@@ -5353,10 +5382,12 @@
     <script src="bundled-humans.js?v=20260913-v18-storage"></script>
     <script src="human-package.js?v=20260913-v18-storage"></script>
     <script src="large-archive.js?v=20261008-worlds-release"></script>
-    <script src="worlds/model-client.js?v=20261009-v18-3-5"></script>
+    <script src="assets/worlds/world-lore.js?v=20261011-place-index-4"></script>
+    <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
+    <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
     <script src="worlds/scene-draft.js?v=20261009-worlds-check-contract"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
-    <script src="app.js?v=20261010-pip-rag"></script>
+    <script src="app.js?v=20261011-place-index-4"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

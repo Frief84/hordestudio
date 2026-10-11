@@ -18,12 +18,20 @@ const context = buildContext(vm, [
     'worldFinalNarrativeConflicts', 'worldExitRequirement', 'findWorldTravelPath',
     'worldCheckScaffoldStart', 'worldImperativeCheckRequestStart',
     'worldNarrativeRequestsCheck', 'stripWorldCheckScaffolding',
-    'worldMissingCheckNotice', 'worldChecksDisabledNotice', 'worldResolvedCheckNotice'
+    'worldMissingCheckNotice', 'worldChecksDisabledNotice', 'worldResolvedCheckNotice',
+    'normalizeUnambiguousWorldEventTypes'
 ], {
     console: { log() {}, warn() {}, error() {} },
     showToast() {},
     state: { worldInstances: {} }
 });
+
+const abbreviatedMove = { events: [{ type: 'move', actor_id: 'mara', from_location_id: 'inn',
+    to_location_id: 'square', status: 'completed' }] };
+assert.equal(context.normalizeUnambiguousWorldEventTypes(abbreviatedMove).events[0].type, 'movement',
+    'an explicit local-model move must reach canonical route and access validation');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [{ type: 'move', actor_id: 'mara' }] })
+    .events[0].type, 'move', 'an ambiguous move must remain invalid');
 
 function session(id) {
     return {
