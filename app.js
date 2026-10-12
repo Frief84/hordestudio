@@ -16644,7 +16644,7 @@ function normalizeLocationSearchText(value) {
         .toLowerCase()
         .replace(/[’']/g, '')
         .replace(/[^a-z0-9]+/g, ' ')
-        .replace(/^(?:the|a|an)\s+/, '')
+        .replace(/^(?:the|a|an|den|die|das|dem|der|einen|eine|ein)\s+/, '')
         .trim();
 }
 
@@ -16745,6 +16745,19 @@ function worldPlayerHoldsExitItem(sess, exit) {
         const name = globalThis.HordeRpgMechanics?.itemName(item) || String(item || '');
         return questTextKey(name) === key && (typeof item !== 'object' || Number(item.quantity ?? 1) > 0);
     });
+}
+
+function worldExitDoorKeys(world, from, to, exit) {
+    const reverse = (to.exits || []).find(candidate => candidate && typeof candidate === 'object'
+        && resolveWorldExitTarget(world, candidate)?.id === from.id
+        && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim());
+    const directions = [{ from: from.id, to: to.id, exit }];
+    if (reverse) directions.push({ from: to.id, to: from.id, exit: reverse });
+    return [...new Set(directions.flatMap(direction => [
+        worldExitUnlockKey(direction.from, direction.to),
+        worldExitUnlockKey(direction.from,
+            direction.exit.targetLocationId || getExitTargetName(direction.exit))
+    ]))].filter(Boolean);
 }
 
 function worldExitRequirement(sess, exit, fromLocationId = '', npcId = '') {
@@ -28703,10 +28716,15 @@ function getObservationWindow(npcId) {
     return (entState.observations || []).map(o => typeof o === 'string' ? { text: o } : o);
 }
 
+function normalizeWorldPlayerCommandPronoun(value) {
+    return String(value || '').replace(/^(\s*)(?:y?you){1,4}\b/i, '$1You');
+}
+
 function extractUserMovementTarget(userInput) {
     const original = String(userInput || '').trim();
     if (!original) return '';
-    const text = original.replace(/[*_~]/g, ' ').replace(/\s+/g, ' ').trim();
+    const text = normalizeWorldPlayerCommandPronoun(original.replace(/[*_~]/g, ' '))
+        .replace(/\s+/g, ' ').trim();
     // Dialogue between action clauses is not part of the movement grammar.
     // Replace it with a sentence boundary so a later explicit player action
     // (… "wait" I enter the bathroom) can still be examined.
@@ -28787,6 +28805,12 @@ function extractUserMovementTarget(userInput) {
     // player moves just as surely as "I go to..." and must be committed before
     // narration begins, otherwise the prose and authoritative ledger diverge.
     const movementCandidates = [];
+    const draggedCompanion = worldDraggedCompanionIntent(actionText);
+    if (draggedCompanion) movementCandidates.push({ index: draggedCompanion.index, priority: 1,
+        target: trimTarget(draggedCompanion.target) });
+    const movingTogether = worldPlayerWithCompanionIntent(actionText);
+    if (movingTogether) movementCandidates.push({ index: movingTogether.index, priority: 1,
+        target: trimTarget(movingTogether.target) });
     const actorMovement = /(?:^|[.!?]\s+|,\s+(?:but\s+)?)(?:(?:then|so)\s+)?(?:(?:i|we)(?:(?:\s+(?:am|are))|['’]m)?\s+|let'?s\s+)(?:(?:turn(?:ed)?|start(?:ed)?|begin|began)\s+(?:to\s+|and\s+)?)?(?:go|went|walk(?:ed|ing)?|head(?:ed|ing)?|travel(?:l?ed|l?ing)?|moved?|moving|run|ran|running|ride|rode|riding|climb(?:ed|ing)?|return(?:ed|ing)?|enter(?:ed|ing)?|exit(?:ed|ing)?|leave|left|leaving|step(?:ped|ping)?|cross(?:ed|ing)?|ma[dk]e\s+(?:my|our)\s+way|sleep|slept)\b\s*(?:out\s+(?=(?:to|towards?)\b))?(?:(?:to|towards?|into|inside|through|across|up|down|for|in)\s+)?([^,.;!?]+)?/ig;
     for (const actorMatch of actionText.matchAll(actorMovement)) {
         const resolved = resolveMatch(actorMatch);
@@ -28877,7 +28901,7 @@ function extractUserMovementTarget(userInput) {
         }
     }
     if (movementCandidates.length) {
-        movementCandidates.sort((a, b) => a.index - b.index);
+        movementCandidates.sort((a, b) => a.index - b.index || (a.priority || 0) - (b.priority || 0));
         return movementCandidates[movementCandidates.length - 1].target;
     }
 
@@ -28894,9 +28918,74 @@ function extractUserMovementTarget(userInput) {
     return '';
 }
 
+function worldDraggedCompanionIntent(userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
+    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    if (coordinated) return { index: coordinated.index, person: coordinated[1].trim(), target: coordinated[2].trim() };
+    const direct = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led|escort(?:ed)?)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    return direct ? { index: direct.index, person: direct[1].trim(), target: direct[2].trim() } : null;
+}
+
+function worldPlayerWithCompanionIntent(userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
+    const patterns = [
+        // "I go with Linda" / "Ich gehe mit Linda an der Hand ..."
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|travel(?:l?ed)?|move(?:d)?|enter(?:ed)?|step(?:ped)?|gehe|gehen|laufe|laufen|betrete|betreten)\s+(?:with|mit)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "I take Linda by the hand and walk ..." / "Ich nehme Linda an der Hand und gehe ..."
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:take|took|hold|grab|nehme|nehmen|halte|halten|greife|greifen)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+hand|an\s+der\s+hand)\s+(?:and|und|then|dann)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "Linda follows me into the room" / "Linda folgt mir in den Raum"
+        /(?:^|[.!?]\s+)([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "I go into the room and Linda follows me" (also a second sentence).
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]{1,80}?)\s+(?:and|und)\s+([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))(?:[.!?]|$)/i,
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]{1,80})[.!?]\s+([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))(?:[.!?]|$)/i
+    ];
+    for (const [index, pattern] of patterns.entries()) {
+        const match = pattern.exec(actionText);
+        if (!match) continue;
+        const targetFirst = index >= 3;
+        const person = String(targetFirst ? match[2] : match[1])
+            .replace(/\s+(?:by\s+the\s+hand|an\s+der\s+hand)$/i, '').trim();
+        const target = String(targetFirst ? match[1] : match[2]).trim();
+        if (person && target) return { index: match.index, person, target };
+    }
+    return null;
+}
+
 function requestedWorldTravelCompanionIds(world, sess, userInput) {
-    const input = String(userInput || '').trim();
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
     if (!input || /^["'“‘]/.test(input)) return [];
+    const pairedMove = worldDraggedCompanionIntent(input) || worldPlayerWithCompanionIntent(input);
+    if (pairedMove) {
+        let matches = findReferencedWorldNpcs(world, sess, pairedMove.person);
+        // A one-letter slip in a single given name is safe only when exactly
+        // one present NPC matches. Never infer a distant or ambiguous escort.
+        if (!matches.length) {
+            const requested = normalizedNpcNameParts(pairedMove.person).clean;
+            const oneEdit = (left, right) => {
+                if (Math.abs(left.length - right.length) > 1) return false;
+                let i = 0, j = 0, edits = 0;
+                while (i < left.length && j < right.length) {
+                    if (left[i] === right[j]) { i++; j++; continue; }
+                    if (++edits > 1) return false;
+                    if (left.length >= right.length) i++;
+                    if (right.length >= left.length) j++;
+                }
+                return edits + (left.length - i) + (right.length - j) === 1;
+            };
+            if (requested.length >= 4 && !requested.includes(' ')) {
+                matches = sessionNpcs(world, sess).filter(npc =>
+                    sess.entityStates?.[npc.id]?.location === sess.playerLocation
+                    && npcReferenceVariants(npc).some(name => !name.includes(' ')
+                        && oneEdit(requested, name)));
+            }
+        }
+        return matches.length === 1 && sess.entityStates?.[matches[0].id]?.location === sess.playerLocation
+            ? [matches[0].id] : [];
+    }
     const request = input.match(/(?:^|[.!?]\s+)(?:i|we|you)\s+(?:take|bring|lead|escort)\s+([^,.;!?]{1,100}?)\s+with\s+(?:me|us|you)\s+(?:to|towards?|into|through|out(?:side)?(?:\s+of)?|inside)\b/i);
     if (!request) return [];
     const matches = findReferencedWorldNpcs(world, sess, request[1]);
@@ -28910,6 +28999,55 @@ function userRequestsWorldDoorRelock(userInput) {
     if (!match) return false;
     const preceding = input.slice(Math.max(0, match.index - 35), match.index);
     return !/\b(?:do\s+not|don't|did\s+not|didn't|never|without)\s+(?:\w+\s+){0,4}$/i.test(preceding);
+}
+
+function applyPlayerKeyDoorOpening(world, sess, userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:(?:use|used)\s+[^.!?]{1,60}?\s+to\s+)?(?:open|opened|unlock|unlocked)\s+(?:(?:the|a|an|this|that)\s+)?(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    if (!match) return null;
+    const clause = actionText.slice(match.index).split(/[.!?]/)[0];
+    if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
+    const view = worldForSession(world, sess);
+    const from = getLocationRef(view, sess.playerLocation);
+    if (!from) return null;
+    const targetName = normalizeLocationSearchText(String(match[1] || '').split(/\s+(?:and|then|before|after|while)\b/i)[0]);
+    const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+        .filter(candidate => candidate.to && (!targetName
+            || normalizeLocationSearchText(candidate.to.name) === targetName
+            || normalizeLocationSearchText(candidate.to.id) === targetName));
+    const distinct = [...new Map(choices.map(candidate => [
+        `${candidate.to.id}::${String(candidate.exit?.requiredItem || '')}::${candidate.exit?.lockState || ''}::${candidate.exit?.allowCheckUnlock === true}`,
+        candidate
+    ])).values()];
+    if (distinct.length !== 1) return { matched: true, committed: false,
+        reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
+    const { exit, to } = distinct[0];
+    const blockedRoute = worldLocationTravelBlock(sess, to.id);
+    if (blockedRoute) return { matched: true, committed: false, reason: 'sealed_route',
+        targetName: to.name, detail: blockedRoute.label };
+    const requirement = worldExitRequirement(sess, exit, from.id);
+    if (!requirement.ok) return { matched: true, committed: false,
+        reason: requirement.reason, targetName: to.name, requiredItem: requirement.requiredItem,
+        allowCheckUnlock: requirement.allowCheckUnlock };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    const keys = typeof exit === 'object' && worldPlayerHoldsExitItem(sess, exit)
+        ? worldExitDoorKeys(view, from, to, exit) : [];
+    const changed = keys.some(key => sess.unlockedExits[key] !== true);
+    keys.forEach(key => { sess.unlockedExits[key] = true; });
+    return { matched: true, committed: true, changed, fromId: from.id,
+        toId: to.id, targetName: to.name, requiredItem: requirement.requiredItem };
+}
+
+function worldDoorOpeningContext(result) {
+    if (!result?.matched) return '';
+    if (result.committed) return `\n[SYSTEM: The player opened the mapped door to ${result.targetName} from ${result.fromId}${result.changed ? ' with the required item; its lock is now unlocked' : '; its lock was already unlocked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate arrival in ${result.targetName} without a separate valid move.]`;
+    const obstacle = result.reason === 'sealed_route' ? `The route is blocked by ${result.detail}`
+        : result.reason === 'required_item' ? `The player lacks ${result.requiredItem}`
+        : result.reason === 'locked_exit' && result.allowCheckUnlock ? 'Opening this door requires a successful check'
+        : 'There is no unique adjacent door matching that request';
+    return `\n[SYSTEM: The requested door opening was not committed. ${obstacle}. Keep the player in the current place, do not claim the door opened, and explain the obstacle or propose the permitted next step.]`;
 }
 
 function buildWorldMicroFrameEnvelope(world, sess, userInput) {
@@ -29027,7 +29165,7 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
                 const blockedLocation = getLocationRef(view, blockedId);
                 const block = worldLocationTravelBlock(sess, blockedId);
                 showToast(`${blockedLocation?.name || blockedId} is impassable: ${block?.label || 'route closed'}.`, 'info');
-                return '';
+                return `\n[SYSTEM: The player tried to travel to ${knownButBlocked.name}, but ${blockedLocation?.name || blockedId} is impassable (${block?.label || 'route closed'}). No one moved. Explain this specific obstacle; do not narrate arrival or a completed passage.]`;
             }
             const guardedLeg = openWithoutRequirement?.slice(1).map((id, index) => {
                 const from = getLocationRef(view, openWithoutRequirement[index]);
@@ -29041,7 +29179,11 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
                 ? `${knownButBlocked.name} requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}.`
                 : requirement.allowCheckUnlock ? `${knownButBlocked.name} is locked. Describe how you try to open it.`
                 : `${knownButBlocked.name} has no valid route from here.`, 'info');
-            return '';
+            const obstacle = requirement.requiredItem
+                ? `the route requires ${requirement.requiredItem}`
+                : requirement.allowCheckUnlock ? 'the route requires a successful lock check'
+                : 'there is no connected route';
+            return `\n[SYSTEM: The player tried to travel to ${knownButBlocked.name}, but ${obstacle}. No one moved. Explain the specific obstacle; do not narrate arrival or a completed passage.]`;
         }
         // A line of roleplay is not a failed command. When the player is clearly
         // writing prose — dialogue, several clauses — the destination may simply
@@ -29062,6 +29204,10 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
         return '';
     }
     const companionIds = requestedWorldTravelCompanionIds(view, sess, userInput);
+    if ((worldDraggedCompanionIntent(userInput) || worldPlayerWithCompanionIntent(userInput)) && !companionIds.length) {
+        showToast('The named companion is not here or cannot be identified for this move.', 'info');
+        return `\n[SYSTEM: The player tried to travel with a named companion to ${targetLoc.name}, but that person is not present or cannot be identified. No one moved. Explain the obstacle; do not narrate arrival.]`;
+    }
     const result = movePlayerAlongWorldPath(world, sess, targetLoc, {
         companionIds, relockLastDoor: userRequestsWorldDoorRelock(userInput)
     });
@@ -29071,7 +29217,13 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
             : result.reason === 'companion_unavailable'
             ? `Your companion is not here or cannot travel with you right now.`
             : `${targetLoc.name} is not reachable from here.`, 'info');
-        return '';
+        const obstacle = result.reason === 'impassable_destination'
+            ? `${result.blockedLocationName || targetLoc.name} is impassable (${result.blockedLabel || 'route closed'})`
+            : result.reason === 'companion_unavailable' ? 'the named companion cannot travel right now'
+            : result.reason === 'required_item' ? `the route requires ${result.requiredItem}`
+            : result.reason === 'pending_check' ? 'a pending check must be resolved first'
+            : 'no valid route is currently available';
+        return `\n[SYSTEM: The player tried to travel to ${targetLoc.name}, but ${obstacle}. No one moved. Explain this specific obstacle; do not narrate arrival or a completed passage.]`;
     }
     if (!result.moved) return '';
     console.log(`Horde Engine: User-Initiated Move — ${targetLoc.name}`);
@@ -29172,6 +29324,8 @@ async function executeWorldTurn(commandOrReroll = null) {
     let restoredRerollSnapshot = false;
     let failureRestoreSnapshot = null;
     let committedMovement = null;
+    let committedDoor = null;
+    let doorAttempt = null;
     let committedOutfit = null;
     let currentTotalMinutes = null; // pre-turn clock is also needed by failure recovery
     let turnCallAudit = null;
@@ -29365,6 +29519,11 @@ async function executeWorldTurn(commandOrReroll = null) {
                     companionIds: requestedCompanionIds,
                     relockLastDoor: userRequestsWorldDoorRelock(userInput)
                 };
+            } else {
+                const doorResult = applyPlayerKeyDoorOpening(world, sess, userInput);
+                doorAttempt = doorResult;
+                if (doorResult?.committed) committedDoor = doorResult;
+                arrivalContext += worldDoorOpeningContext(doorResult);
             }
             const outfitResult = applyPlayerOutfitIntent(sess, userInput)
                 || (labsWorldFrame?.candidate?.intent === 'outfit'
@@ -29385,6 +29544,12 @@ async function executeWorldTurn(commandOrReroll = null) {
     if (isReroll && command !== "init" && command !== "look" && command !== "continue") {
         labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
         arrivalContext = applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
+        if (sess.playerLocation === turnSnapshot?.session?.playerLocation) {
+            const doorResult = applyPlayerKeyDoorOpening(world, sess, userInput);
+            doorAttempt = doorResult;
+            if (doorResult?.committed) committedDoor = doorResult;
+            arrivalContext += worldDoorOpeningContext(doorResult);
+        }
         applyPlayerOutfitIntent(sess, userInput)
             || (labsWorldFrame?.candidate?.intent === 'outfit'
                 && labsWorldFrame.candidate.phase === 'completed'
@@ -29830,7 +29995,7 @@ Player Condition: ${ruleModules.health || ruleModules.conditions
 Rules Profile: ${gameRules.profileId}. Enabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => ruleModules[key]).join(', ') || 'none'}. Disabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => !ruleModules[key]).join(', ') || 'none'}.
 Special rules: vital stat "${ruleModules.health ? (gameRules.vitalStatId || 'none') : 'disabled'}"; zero-health mode "${ruleModules.health ? gameRules.zeroHpMode : 'disabled'}"; currency stat "${ruleModules.commerce ? (gameRules.currencyStatId || 'none') : 'disabled'}" (${gameRules.currencyName}).
 Check Engine: ${ruleModules.checks ? `d${diceConfig.sides}, ${diceConfig.resolution} resolution, ${diceConfig.visibility} visibility, default difficulty ${diceConfig.defaultDifficulty}, stat modifier ${diceConfig.modifierMode}. Submit at most ONE check and put every result-dependent persistent mutation inside its on_success/on_failure object; completed top-level consequences beside a check are rejected. ${diceConfig.resolution === 'player' ? 'End at the moment of uncertainty. The player must resolve the queued check before any other action; the next response receives the canonical result.' : 'The engine resolves it immediately; never invent a roll.'}${diceConfig.visibility === 'hidden' ? ' Keep the die, target and modifier out of narration; reveal only fictional consequences.' : ''}` : 'Disabled — resolve through fiction without dice.'}
-Locked mapped exits: an item requirement is enforced before travel. A player carrying the required item opens a traversed door; it stays unlocked unless the player explicitly re-locks it, in which case the engine closes it after the move. The engine has already applied any player-directed travel and door steps reported below; narrate their actual result, never propose them again as effects. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
+Locked mapped exits: an item requirement is enforced before travel. A player carrying the required item can open an adjacent mapped door without moving; this is applied by the engine before narration. A key also opens a traversed door; it stays unlocked unless the player explicitly re-locks it, in which case the engine closes it after the move. The engine has already applied any player-directed travel and door steps reported below; narrate their actual result, never propose them again as effects. A physically sealed route remains blocked even with a key. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
 Player Outfit: ${sess.outfit || 'Standard attire'}
 ${questPrompt}${npcContext}${engineEventsPrompt}${threadsPrompt}${livingWorldPrompt}${societyPrompt}`;
     
@@ -30700,7 +30865,7 @@ ${modularMandate}
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
         const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Treat the player's instruction as a goal: attempt its necessary feasible steps in order without asking the player to repeat obvious steps. Use actions to cover the full request in order, with response_id referencing the passage answering each step. If a step is blocked, explain the actual obstacle and keep already verified steps; never claim success for a step the engine did not commit. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
         if (sceneDrafts) messages.push({ role: 'system', content:
-            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Player key use and re-locking during precommitted travel are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
+            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Precommitted player key-door opening and re-locking are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -31036,7 +31201,7 @@ ${modularMandate}
         const receiptContext = {
             playerStartLocationId: receiptPlayerStart,
             specialCommand: !resolveFirst,
-            precommittedAction: !!committedMovement || !!committedOutfit,
+            precommittedAction: !!committedMovement || !!committedDoor || !!committedOutfit,
             precommittedArrival: command === 'look'
                 && turnSnapshot?.receiptCheckpoint?.tail?.audit?.source === 'engine_travel'
                 ? (() => {
@@ -31398,7 +31563,7 @@ ${modularMandate}
         // provider failed the primary contract.
         let repairedReceiptApplied = false;
         let receiptRepairTimedOut = false;
-        const receiptRepairNeeded = resolveFirst || stateCallSeen || !!committedMovement || !!committedOutfit
+        const receiptRepairNeeded = resolveFirst || stateCallSeen || !!committedMovement || !!committedDoor || !!committedOutfit
             || shouldRepairMissingWorldReceipt(world, command, submittedInput || userInput, fullText);
         if (!successfulStateCall && !inlineStateApplied
             && (resolveFirst || fullText.trim() || rejectedCheckProposal || stateCallSeen) && receiptRepairNeeded) {
@@ -31427,7 +31592,8 @@ ${modularMandate}
                     ? `\nCRITICAL: ${rejectedCheckProposal ? 'A rejected tool proposal requested a dice check; no outcome was committed.' : 'The narrative explicitly requests a dice check.'} The requested roll IS pending state even before an outcome; state_updates:{} and a no-check receipt are invalid. Use state_updates:{"checks":[{"label":"specific action","stat_id":"exact rollable stat ID","difficulty":${diceConfig.defaultDifficulty},"on_success":{},"on_failure":{}}]} — checks MUST be an ARRAY with exactly one object, not a singleton object. The key is stat_id, NEVER rollable_stat_id. Rollable IDs: ${JSON.stringify(repairRollableStats)}. Use the narrative's numeric DC if present; otherwise use this World's default difficulty ${diceConfig.defaultDifficulty}. Put every result-dependent mutation inside the flat on_success/on_failure objects; never nest events, entity_updates or state_updates inside them and never supply a roll or force_resolve. An unresolved attempt has events:[] and entity_updates:[] unless an independent durable action already completed; do not invent an improvised inventory item from narrative materials. The engine will roll or queue the player roll according to this World's configured mode. Represent failure costs only with supported fields; do not invent an item or condition. Local check-unlockable exits: ${JSON.stringify(localCheckExits.map(exit => ({ from_location_id: currentRepairLocation.id, to_location_id: resolveWorldExitTarget(receiptView, exit).id })))}. If this is the gate-opening check, put exactly on_success:{"exit_unlocks":[{"from_location_id":"${currentRepairLocation?.id || ''}","to_location_id":"<exact local ID>"}]} inside the check, never at the receipt top level.`
                     : '';
                 const actionRepairInstruction = resolveFirst
-                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. Classify a request or permission for an NPC to do something as speech/question, not as a completed physical action by the player. A resolved physical act needs a completed player event or check. A pending check needs one structured check. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard or other role NPC. If the player asked for help, answer through a known NPC and do not claim an unrecorded transfer. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. Do not call a generic room description an answer to the action.'
+                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. Classify a request or permission for an NPC to do something as speech/question, not as a completed physical action by the player. A resolved physical act needs a completed player event or check, except for an action explicitly precommitted by the engine. A pending check needs one structured check. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard or other role NPC. If the player asked for help, answer through a known NPC and do not claim an unrecorded transfer. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. Do not call a generic room description an answer to the action.'
+                        + (committedDoor ? '\nThe player already opened the mapped door with the required item. Describe that result without adding a duplicate event or exit_unlocks effect.' : '')
                     : '';
                 const waitRepairInstruction = worldWaitReceiptRepairInstruction(submittedInput || userInput,
                     repairNarrative, currentTotalMinutes);
@@ -32088,6 +32254,12 @@ ${modularMandate}
                         ? ` Unscoped actor change: ${unscopedMutationField || '(field not reported)'}.${unscopedMutationGuidance}`
                     : verificationReason === 'missing_player_response'
                         ? ' The model did not record any response to your request. Your instruction is valid; no part of this draft was applied. Reroll to try again.'
+                    : verificationReason === 'uncommitted_player_action'
+                        ? doorAttempt?.reason === 'sealed_route'
+                            ? ` The key cannot open the door to ${doorAttempt.targetName} while that route is separately sealed (${doorAttempt.detail}).`
+                            : doorAttempt?.reason === 'required_item'
+                                ? ` Opening the door to ${doorAttempt.targetName} requires ${doorAttempt.requiredItem} in this timeline's inventory.`
+                                : ' The model described a completed physical action without a matching verified player action. The described change was not applied.'
                     : verificationReason === 'npc_access_denied' || verificationReason === 'unreachable_npc_destination'
                         ? ' An NPC movement conflicted with the saved map, access or place knowledge.'
                         : verificationReason ? ` Verification reason: ${verificationReason}.` : '';
@@ -32246,7 +32418,7 @@ ${modularMandate}
                     });
                 }
             }
-            if (sess.lastTurnStateSource === 'none' && (committedMovement || committedOutfit)) {
+            if (sess.lastTurnStateSource === 'none' && (committedMovement || committedDoor || committedOutfit)) {
                 sess.lastTurnStateSource = 'local_intent';
             }
             // The scene went somewhere this world has never heard of.
@@ -32444,8 +32616,31 @@ ${modularMandate}
                 if (input) input.value = '';
             }
         }
+        let doorPreserved = false;
+        if (world && sess && committedDoor && !isReroll && !movementPreserved) {
+            const door = applyPlayerKeyDoorOpening(world, sess, submittedInput);
+            if (door?.committed && door.toId === committedDoor.toId) {
+                doorPreserved = true;
+                sess.lastTurnStateSource = 'local_intent';
+                if (normalizeWorldGameRules(world).modules.livingWorld) {
+                    updatePlaystyleProfile(sess, submittedInput);
+                    runLivingWorldTick(world, sess);
+                }
+                sess.turnCount = Math.max(1, parseInt(sess.turnCount) || 1) + 1;
+                getWorldTimeData(world, sess);
+                syncNPCSchedules(world, sess);
+                addWorldMessage('user', submittedInput, {
+                    location: sess.playerLocation, deferPersist: true
+                }, sess, world);
+                addWorldMessage('system', `The door to ${door.targetName} was opened. The DM narration did not complete; continue from here or try again.`, {
+                    location: sess.playerLocation, deferPersist: true
+                }, sess, world);
+                const input = document.getElementById('world-user-input');
+                if (input) input.value = '';
+            }
+        }
         let waitPreserved = false;
-        if (world && sess && !isReroll && !committedMovement && !committedOutfit
+        if (world && sess && !isReroll && !committedMovement && !committedDoor && !committedOutfit
             && command !== 'init' && command !== 'look' && command !== 'continue') {
             const explicitWait = parseExplicitWorldWaitMinutes(submittedInput, currentTotalMinutes);
             if (explicitWait) {
@@ -32478,7 +32673,7 @@ ${modularMandate}
             // If movement already preserved the submitted action, its outfit
             // component belongs to that same action. Otherwise preserve a
             // clothing-only action on its own instead of returning it to the box.
-            if (!movementPreserved) {
+            if (!movementPreserved && !doorPreserved) {
                 addWorldMessage('user', submittedInput, {
                     location: sess.playerLocation,
                     deferPersist: true
@@ -32491,7 +32686,7 @@ ${modularMandate}
                 if (input) input.value = '';
             }
         }
-        if (!movementPreserved && !waitPreserved && !committedOutfit && !command && submittedInput) {
+        if (!movementPreserved && !doorPreserved && !waitPreserved && !committedOutfit && !command && submittedInput) {
             const input = document.getElementById('world-user-input');
             if (input) input.value = submittedInput;
         }
@@ -32514,7 +32709,8 @@ ${modularMandate}
             console.log('World turn aborted');
             if (generationTimedOut) {
                 const seconds = Math.max(1, Math.round(activeIdleTimeoutMs / 1000));
-                const prefix = movementPreserved ? 'Movement saved. ' : waitPreserved ? 'Wait saved. ' : '';
+                const prefix = movementPreserved ? 'Movement saved. ' : doorPreserved ? 'Door opening saved. '
+                    : waitPreserved ? 'Wait saved. ' : '';
                 const guidance = hostedDeadlineReached
                     ? `Hosted Worlds turn exceeded ${Math.round(WORLD_HOSTED_TURN_DEADLINE_MS / 1000)}s and was stopped. Retry or choose a faster model; the provider may still be processing the request.`
                     : worldTurnUsesLocalProvider
@@ -32523,6 +32719,7 @@ ${modularMandate}
                 showToast(prefix + guidance, 'error');
             } else {
                 showToast(movementPreserved ? 'Movement saved; DM generation stopped.'
+                    : doorPreserved ? 'Door opening saved; DM generation stopped.'
                     : waitPreserved ? 'Wait saved; DM generation stopped.' : 'Generation stopped.', 'info');
             }
             renderWorldPlayState();
@@ -32557,7 +32754,8 @@ ${modularMandate}
                 renderWorldPlayState();
             }
         } else {
-            showToast((movementPreserved ? 'Movement saved. ' : waitPreserved ? 'Wait saved. ' : '')
+            showToast((movementPreserved ? 'Movement saved. ' : doorPreserved ? 'Door opening saved. '
+                : waitPreserved ? 'Wait saved. ' : '')
                 + 'Horde Engine Error: ' + friendlyError, 'error');
             renderWorldPlayState();
         }
@@ -34917,16 +35115,7 @@ function applyPlayerTravelDoorStates(world, sess, path, options = {}) {
         if (!exit || typeof exit !== 'object' || !worldPlayerHoldsExitItem(sess, exit)) continue;
         // A carried key opens the traversed door. The matching reverse edge
         // describes the same physical door, so both directions share its state.
-        const reverse = (to.exits || []).find(candidate => candidate && typeof candidate === 'object'
-            && resolveWorldExitTarget(world, candidate)?.id === from.id
-            && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim());
-        const directions = [{ from: from.id, to: to.id, exit }];
-        if (reverse) directions.push({ from: to.id, to: from.id, exit: reverse });
-        const keys = [...new Set(directions.flatMap(direction => [
-            worldExitUnlockKey(direction.from, direction.to),
-            worldExitUnlockKey(direction.from,
-                direction.exit.targetLocationId || getExitTargetName(direction.exit))
-        ]))].filter(Boolean);
+        const keys = worldExitDoorKeys(world, from, to, exit);
         const fullyUnlocked = keys.every(key => sess.unlockedExits[key] === true);
         if (!fullyUnlocked) {
             keys.forEach(key => { sess.unlockedExits[key] = true; });

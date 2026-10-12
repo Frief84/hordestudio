@@ -124,7 +124,8 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             location: 'square', receiptCount: result.blocked.receiptCount,
             historyCount: result.blocked.historyCount
         });
-        assert.equal(result.typed, '');
+        assert.match(result.typed, /Marsh Causeway is impassable \(Impassable\).*No one moved/s,
+            'a blocked typed move gives the DM the actual route obstacle');
         assert.deepEqual(result.explicitFlag, { stored: true, blocked: true });
         assert.deepEqual(result.escape, { path: ['causeway', 'square'], buttonDisabled: false });
         assert.deepEqual(result.detour, ['square', 'gate']);
