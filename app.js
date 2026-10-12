@@ -4190,11 +4190,11 @@ function normalizeProviderCatalogModel(model, textCatalog = false) {
     return { ...model, name: typeof model.name === 'string' ? model.name : model.id, pricing, architecture, supported_parameters: parameters };
 }
 
-async function getOpenRouterModels() {
+async function getOpenRouterModels(force = false) {
     const provider = normalizedProviderId(state.globalSettings.apiProvider);
     const source = providerApiBase(provider);
-    if (openRouterModels.length && modelCatalogSource === source && Date.now() - modelCatalogFetchedAt < 300000) return openRouterModels;
-    const models = await getCompanionOutputModels('text', false, provider);
+    if (!force && openRouterModels.length && modelCatalogSource === source && Date.now() - modelCatalogFetchedAt < 300000) return openRouterModels;
+    const models = await getCompanionOutputModels('text', force, provider);
     // A provider switch during discovery must not poison the next catalog.
     if (provider === normalizedProviderId(state.globalSettings.apiProvider) && source === apiBase()) {
         openRouterModels = models;
@@ -38753,11 +38753,90 @@ function worldArchitectIndex(world) {
     return text.length > 90000 ? text.slice(0, 90000) + '…' : text;
 }
 
+const WORLD_ARCHITECT_EXACT_TYPES = {
+    regions: 'add_region', locations: 'add_location', rooms: 'add_location',
+    people: 'add_character', items: 'add_item', groups: 'add_group',
+    factions: 'add_faction', lore: 'add_lore'
+};
+
+function worldArchitectExactBatchKind(batch) {
+    const requested = Object.entries(batch?.expectedCounts || {})
+        .filter(([kind, count]) => WORLD_ARCHITECT_EXACT_TYPES[kind] && Number(count) > 0);
+    return requested.length === 1 ? requested[0][0] : '';
+}
+
+// Exact-count generation needs IDs and a few nearby names, not 90 KB of
+// character biographies and lore. Keep this valid JSON even for large worlds;
+// truncating serialized JSON mid-object caused small local models to ignore
+// the batch contract or return an empty operations array.
+function worldArchitectBatchIndex(world, batch, request = '') {
+    const kind = worldArchitectExactBatchKind(batch);
+    if (!kind) return worldArchitectIndex(world);
+    const clip = (value, max) => String(value || '').slice(0, max);
+    const words = [...new Set(`${request} ${batch.instruction || ''}`.toLowerCase()
+        .match(/[\p{L}\p{N}]{4,}/gu) || [])]
+        .filter(word => !['create', 'exactly', 'batch', 'items', 'rooms', 'people', 'initial', 'generate'].includes(word));
+    const select = (records, limit, compact) => {
+        const all = Array.isArray(records) ? records : [];
+        return all.map((record, index) => ({ record, index,
+            score: words.reduce((score, word) => score + (`${record?.name || ''} ${record?.description || ''}`
+                .toLowerCase().includes(word) ? 1 : 0), 0)
+                + (record?.id === world?.startLocationId ? 2 : 0) }))
+            .sort((a, b) => b.score - a.score || a.index - b.index)
+            .slice(0, limit).map(({ record }) => compact(record));
+    };
+    const places = select(world?.locations, kind === 'items' ? 65 : 75, item => ({
+        id: item.id, name: clip(item.name, 80), kind: item.mapType,
+        parent: item.parentLocationId || undefined, region: item.regionId || undefined
+    }));
+    const entities = Array.isArray(world?.entities) ? world.entities : [];
+    const summary = {
+        world: { name: clip(world?.name, 120), premise: clip(world?.description, 450),
+            startLocationId: world?.startLocationId },
+        counts: worldArchitectCountRecords(world),
+        regions: select(world?.regions, 40, item => ({ id: item.id, name: clip(item.name, 80) })),
+        places,
+        existingItems: select(entities.filter(item => item.type === 'item'), kind === 'items' ? 75 : 25,
+            item => ({ id: item.id, name: clip(item.name, 80), locationId: item.locationId || item.startLocation || undefined })),
+        people: ['people', 'groups', 'factions'].includes(kind)
+            ? select(entities.filter(item => item.type === 'npc'), 65,
+                item => ({ id: item.id, name: clip(item.name, 80), locationId: item.startLocation || undefined })) : [],
+        groups: ['people', 'groups'].includes(kind)
+            ? select(world?.groups, 35, item => ({ id: item.id, name: clip(item.name, 80) })) : [],
+        factions: ['people', 'factions'].includes(kind)
+            ? select(world?.factions, 35, item => ({ id: item.id, name: clip(item.name, 80) })) : []
+    };
+    const arrays = ['places', 'existingItems', 'people', 'regions', 'groups', 'factions'];
+    const characterBudget = kind === 'items' ? 6500 : 10000;
+    while (JSON.stringify(summary).length > characterBudget) {
+        const largest = arrays.filter(key => summary[key].length > (key === 'places' ? 12 : 0))
+            .sort((a, b) => JSON.stringify(summary[b]).length - JSON.stringify(summary[a]).length)[0];
+        if (!largest) break;
+        summary[largest].pop();
+    }
+    return JSON.stringify(summary);
+}
+
+function worldArchitectExactBatchContract(kind, count) {
+    const type = WORLD_ARCHITECT_EXACT_TYPES[kind];
+    if (!type || count < 1) return '';
+    const room = kind === 'rooms';
+    const example = kind === 'lore'
+        ? { type, keyword: 'Unique topic', text: 'Relevant lore text' }
+        : { type, record: { id: `${kind === 'people' ? 'npc' : kind === 'rooms' || kind === 'locations' ? 'loc' : kind === 'regions' ? 'reg' : kind === 'factions' ? 'fac' : kind === 'groups' ? 'grp' : 'item'}_unique_id`,
+            name: 'Unique name', description: 'Specific description', ...(room ? { mapType: 'room' } : {}) } };
+    return `Return JSON only: {"operations":[...]}. This call must contain exactly ${count} operations. Every operation must have type "${type}"${room ? ' and record.mapType "room"' : kind === 'locations' ? ' and record.mapType other than "room"' : ''}. Example shape: ${JSON.stringify(example)}. Put each new record in its own operation; do not put items in a location update or nested items list. Use unique IDs and names. Reference only listed existing place IDs; omit a location reference when none is specified. Do not return a plan, empty array, explanation or unrelated operation.`;
+}
+
 function worldArchitectOperationArray(raw) {
     if (Array.isArray(raw)) return raw;
     if (!isPlainObject(raw)) return [];
+    let empty = null;
     for (const key of ['operations', 'changes', 'actions', 'edits', 'proposals']) {
-        if (Array.isArray(raw[key])) return raw[key];
+        if (Array.isArray(raw[key])) {
+            if (raw[key].length) return raw[key];
+            empty ||= raw[key];
+        }
     }
     const domainTypes = {
         regions: 'add_region', locations: 'add_location', places: 'add_location', rooms: 'add_room',
@@ -38765,17 +38844,20 @@ function worldArchitectOperationArray(raw) {
         groups: 'add_group', households: 'add_household', families: 'add_family', factions: 'add_faction',
         relationships: 'add_relationship', lore: 'add_lore', lorebook: 'add_lore'
     };
-    return Object.entries(domainTypes).flatMap(([key, type]) =>
+    const domainOperations = Object.entries(domainTypes).flatMap(([key, type]) =>
         Array.isArray(raw[key]) ? raw[key].filter(isPlainObject).map(record => ({ type, record })) : []);
+    return domainOperations.length ? domainOperations : empty || [];
 }
 
 function parseWorldArchitectJSON(raw, expectedKey = '') {
     if (isPlainObject(raw)) {
-        if (!expectedKey || Array.isArray(raw[expectedKey])) return raw;
+        if (!expectedKey || Array.isArray(raw[expectedKey])
+            && (expectedKey !== 'operations' || raw[expectedKey].length)) return raw;
         if (expectedKey === 'operations') {
             const operations = worldArchitectOperationArray(raw);
             if (operations.length) return { ...raw, operations };
         }
+        if (Array.isArray(raw[expectedKey])) return raw;
         for (const key of ['result', 'output', 'data', 'response', 'arguments']) {
             if (raw[key] != null) {
                 const nested = parseWorldArchitectJSON(raw[key], expectedKey);
@@ -38852,17 +38934,23 @@ function worldArchitectResponseCandidates(payload) {
 async function worldArchitectJSON(world, model, messages, maxTokens = 8000, expectedKey = '') {
     let lastError = null;
     let previousRaw = '';
+    let outputTruncated = false;
     let useResponseFormat = true;
     for (let attempt = 0; attempt < 2; attempt++) {
         const retryMessages = attempt === 0 ? messages : [
             ...messages,
-            ...(previousRaw ? [{ role: 'assistant', content: previousRaw.slice(-6000) }] : []),
+            ...(previousRaw && !outputTruncated ? [{ role: 'assistant', content: previousRaw.slice(-6000) }] : []),
             { role: 'user', content: `Your previous reply was not valid structured output. Return ONLY one JSON object with a top-level "${expectedKey || 'result'}" field. No reasoning, prose or markdown fences.` }
         ];
+        const outputBudget = attempt && outputTruncated ? Math.min(maxTokens * 2, 16000) : maxTokens;
         const requestBody = {
-            model, max_tokens: maxTokens, temperature: attempt ? 0 : 0.2,
+            model, max_tokens: outputBudget, temperature: attempt ? 0 : 0.2,
             messages: sanitizeMessagesForProvider(retryMessages, model)
         };
+        // Ollama's Qwen3 defaults to thinking. With a bounded JSON reply the
+        // model can spend its entire completion budget on reasoning and leave
+        // message.content empty. Its OpenAI-compatible endpoint accepts "none".
+        if (isLocalProvider() && /^qwen3(?:[.\/:_-]|$)/i.test(model)) requestBody.reasoning_effort = 'none';
         if (useResponseFormat) requestBody.response_format = { type: 'json_object' };
         const { response, data: payload } = await HordeWorldModelClient.json({
             url: apiBase() + '/chat/completions', body: requestBody,
@@ -38881,11 +38969,26 @@ async function worldArchitectJSON(world, model, messages, maxTokens = 8000, expe
         }
         const candidates = worldArchitectResponseCandidates(payload);
         previousRaw = candidates.map(String).join('\n');
+        let emptyParsed = null;
         for (const candidate of candidates) {
             const parsed = parseWorldArchitectJSON(candidate, expectedKey);
-            if (parsed) return parsed;
+            if (!parsed) continue;
+            if (expectedKey === 'operations' && !worldArchitectOperationArray(parsed).length) {
+                emptyParsed ||= parsed;
+                continue;
+            }
+            return parsed;
         }
-        lastError = new Error(`The model returned no usable ${expectedKey || 'JSON'} object.`);
+        const choice = payload?.choices?.[0] || {};
+        outputTruncated = choice.finish_reason === 'length';
+        if (emptyParsed && !outputTruncated) return emptyParsed;
+        const reasoningOnly = !String(choice.message?.content || '').trim()
+            && !!String(choice.message?.reasoning_content || choice.message?.reasoning || '').trim();
+        lastError = new Error(outputTruncated
+            ? `The model reached its ${outputBudget}-token output limit before completing the ${expectedKey || 'JSON'} object.`
+            : reasoningOnly
+                ? `The model returned only reasoning and no ${expectedKey || 'JSON'} object.`
+                : `The model returned no usable ${expectedKey || 'JSON'} object.`);
     }
     throw new Error(`${lastError?.message || 'Invalid structured response'} A strict repair retry also failed.`);
 }
@@ -38909,19 +39012,22 @@ async function populateWorldArchitectModels(force = false) {
     const status = document.getElementById('w-architect-model-status');
     if (!input || !list) return;
     try {
-        if (force) { openRouterModels = []; modelCatalogSource = null; modelCatalogFetchedAt = 0; }
-        const catalog = await getOpenRouterModels();
-        const models = rankStructuredModels(catalog, 60);
-        list.innerHTML = models.map(model => `<option value="${escapeHTML(model.id)}">${escapeHTML(model.name)} · ${escapeHTML(model.note)}</option>`).join('');
+        const catalog = await getOpenRouterModels(force);
+        const models = [...new Map(catalog
+            .filter(model => typeof model?.id === 'string' && model.id.trim())
+            .map(model => [model.id, model])).values()]
+            .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+        list.innerHTML = models.map(model => `<option value="${escapeHTML(model.id)}">${escapeHTML(model.name || model.id)}</option>`).join('');
         // Do not make an expensive frontier model the silent default merely
         // because it tops the capability ranking. Choose the first strong,
-        // current option at or below $5/M while leaving the full list visible.
-        const automatic = models.find(model => model.price > 0 && model.price <= 5) || models[0];
+        // current option at or below $5/M. The picker still shows every model.
+        const ranked = rankStructuredModels(catalog, 60);
+        const automatic = ranked.find(model => model.price > 0 && model.price <= 5) || ranked[0];
         input.dataset.recommendedModel = automatic?.id || '';
         const fetched = modelCatalogFetchedAt ? new Date(modelCatalogFetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
         status.textContent = models.length
-            ? `${models.length} compatible models from the live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models catalog (${catalog.length} total), fetched ${fetched}. Blank auto-selects ${automatic.id} as a capable cost-balanced choice.`
-            : `The live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models endpoint returned no compatible structured models. You may type an exact model ID.`;
+            ? `${models.length} models from the live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models catalog, fetched ${fetched}.${automatic ? ` Blank auto-selects ${automatic.id} for structured work.` : ' Blank uses the configured structured-model fallback.'}`
+            : `The live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models endpoint returned no models. You may type an exact model ID.`;
     } catch (error) { status.textContent = `Catalog unavailable: ${error.message}. You may type an exact model ID.`; }
 }
 
@@ -39047,36 +39153,71 @@ async function runWorldArchitectJob() {
             renderWorldArchitectAgent(); return;
         }
         try {
-            const current = stageWorldArchitectJob(world, { ...job, plan: { requestedCounts: {} } }).world;
-            const batchMessages = [
-                { role: 'system', content: `You are a roleplay World Architect and World Lore editor. Return JSON only: {"operations":[]}. Allowed operation types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Never delete locations, people, items, factions or lore. delete_group and merge_groups are permitted only when the user's request explicitly asks for that and the change policy allows edits. You may fully revise existing World Lore when requested: places and regions, routes/travel times/locked state, access rules, appearance/room contents, people and their knowledge/secrets, items, groups, factions, relationships and lorebook entries. Use existing IDs exactly. New records need stable snake_case IDs. Put new data inside "record". A location operation is {"type":"add_location","record":{"id":"loc_example","name":"Example","description":"...","appearance":"...","items":[],"regionId":"existing_region_id","parentLocationId":"","mapType":"room","access":{"default":"open","npcs":{},"factions":{}},"tags":[]}}. A character uses record {id,name,description,persona,startLocation,homeLocation,goal,goalSteps,groupIds,factionId,factionIds,schedule,secrets,knowledge,tags}; a group uses {id,name,type,description,homeLocationId,secrets,tags}; factions can use add_faction or update_faction; connections use {type:"connect_locations",from,to,mode,minutes,oneWay,lockState}. To revise existing records, use update_region, update_location, update_character, update_item, update_group, update_faction or update_lore with exact targetId/keyword and values for changed fields. Locations may change name, description, appearance, hiddenDescription, visuals, items/contents, mapType, parentLocationId, regionId, access, exits and secrets. Characters may change persona, goals, schedule, group/faction membership, knowledge, inventory, privileges, secrets and visuals. Lore entries may change text, keyword, knowledge and about. For access use {default:"open"|"restricted",npcs:{existingPersonId:"allow"|"deny"},factions:{existingFactionId:"allow"|"deny"}}; default is everyone allowed, and individual permission overrides faction rules. For exits preserve exact existing destinations, direction, travel time and one-way behavior unless requested. Never invent keys or required items. Keep each change atomic, give a reason, preserve unrelated fields, and remember the user reviews every proposal before apply.` },
-                { role: 'system', content: 'Place existence knowledge is separate from entry access. To edit it on a location or region, use placeAwareness:{includeChildren:boolean,npcs:{existingPersonId:"know"|"unknown"},factions:{existingFactionId:"know"|"unknown"}}. Only change it when the author requests that knowledge. Do not infer it from lore prose.' },
-                { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nTHIS BATCH: ${batch.instruction}\nEXACT BATCH COUNTS: ${JSON.stringify(batch.expectedCounts)}\nCURRENT STAGED WORLD AND WORLD LORE INDEX: ${worldArchitectIndex(current)}\nGenerate only this batch. Respect exact counts. Treat this index as canon: reuse existing IDs and update the matching records when the request asks for edits. Do not alter unrelated existing data. A user request to change access, routes, secrets or lore authorizes precisely those requested edits.` }
-            ];
-            const maxTokens = Math.max(6000, Math.min(24000, (job.options.batchSize || 12) * 900));
-            let raw = await worldArchitectJSON(world, job.model, batchMessages, maxTokens, 'operations');
-            let operations = worldArchitectOperationArray(raw)
-                .map((operation, index) => normalizeWorldArchitectOperation(operation, job.operations.length + index)).filter(Boolean);
-            if (!operations.length) {
-                // A syntactically valid object used to bypass JSON repair and
-                // then die here if its operation vocabulary was slightly off.
-                // Give the model one validation-aware correction with the exact
-                // rejected payload and schema instead of asking the user to
-                // discard an otherwise healthy resumable job.
-                raw = await worldArchitectJSON(world, job.model, [
-                    ...batchMessages,
-                    { role: 'assistant', content: JSON.stringify(raw).slice(0, 12000) },
-                    { role: 'user', content: `That JSON parsed, but none of its entries used a supported operation schema. Rewrite the same requested changes as {"operations":[{"type":"one exact allowed type","record":{}}]}. Exact allowed types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Return only the corrected JSON object.` }
-                ], maxTokens, 'operations');
-                operations = worldArchitectOperationArray(raw)
+            const exactKind = worldArchitectExactBatchKind(batch);
+            const targetCount = exactKind ? Number(batch.expectedCounts[exactKind]) : 0;
+            let completedCount = exactKind
+                ? worldArchitectOperationCounts(job.operations.filter(operation => operation.batchId === batch.id))[exactKind] : 0;
+            if (completedCount > targetCount) throw new Error(`Saved partial batch already exceeds its ${targetCount} ${exactKind} target.`);
+            do {
+                if (job.cancelRequested) {
+                    job.status = 'cancelled'; job.updatedAt = Date.now();
+                    await persistWorldArchitectCheckpoint(world);
+                    renderWorldArchitectAgent(); return;
+                }
+                const chunkCount = exactKind ? Math.min(4, targetCount - completedCount) : 0;
+                if (exactKind && !chunkCount) break;
+                const current = stageWorldArchitectJob(world, { ...job, plan: { requestedCounts: {} } }).world;
+                const chunkBatch = exactKind ? { ...batch,
+                    instruction: `${batch.instruction} Create records ${completedCount + 1}–${completedCount + chunkCount} of ${targetCount} in this batch.`,
+                    expectedCounts: { [exactKind]: chunkCount } } : batch;
+                const batchMessages = exactKind ? [
+                    { role: 'system', content: `You are the World Architect for an existing roleplay world. Preserve its authored records. ${worldArchitectExactBatchContract(exactKind, chunkCount)}` },
+                    { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nBATCH: ${chunkBatch.instruction}\nCURRENT WORLD INDEX (valid JSON): ${worldArchitectBatchIndex(current, chunkBatch, job.request)}` }
+                ] : [
+                    { role: 'system', content: `You are a roleplay World Architect and World Lore editor. Return JSON only: {"operations":[]}. Allowed operation types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Never delete locations, people, items, factions or lore. delete_group and merge_groups are permitted only when the user's request explicitly asks for that and the change policy allows edits. You may fully revise existing World Lore when requested: places and regions, routes/travel times/locked state, access rules, appearance/room contents, people and their knowledge/secrets, items, groups, factions, relationships and lorebook entries. Use existing IDs exactly. New records need stable snake_case IDs. Put new data inside "record". A location operation is {"type":"add_location","record":{"id":"loc_example","name":"Example","description":"...","appearance":"...","items":[],"regionId":"existing_region_id","parentLocationId":"","mapType":"room","access":{"default":"open","npcs":{},"factions":{}},"tags":[]}}. A character uses record {id,name,description,persona,startLocation,homeLocation,goal,goalSteps,groupIds,factionId,factionIds,schedule,secrets,knowledge,tags}; a group uses {id,name,type,description,homeLocationId,secrets,tags}; factions can use add_faction or update_faction; connections use {type:"connect_locations",from,to,mode,minutes,oneWay,lockState}. To revise existing records, use update_region, update_location, update_character, update_item, update_group, update_faction or update_lore with exact targetId/keyword and values for changed fields. Locations may change name, description, appearance, hiddenDescription, visuals, items/contents, mapType, parentLocationId, regionId, access, exits and secrets. Characters may change persona, goals, schedule, group/faction membership, knowledge, inventory, privileges, secrets and visuals. Lore entries may change text, keyword, knowledge and about. For access use {default:"open"|"restricted",npcs:{existingPersonId:"allow"|"deny"},factions:{existingFactionId:"allow"|"deny"}}; default is everyone allowed, and individual permission overrides faction rules. For exits preserve exact existing destinations, direction, travel time and one-way behavior unless requested. Never invent keys or required items. Keep each change atomic, give a reason, preserve unrelated fields, and remember the user reviews every proposal before apply.` },
+                    { role: 'system', content: 'Place existence knowledge is separate from entry access. To edit it on a location or region, use placeAwareness:{includeChildren:boolean,npcs:{existingPersonId:"know"|"unknown"},factions:{existingFactionId:"know"|"unknown"}}. Only change it when the author requests that knowledge. Do not infer it from lore prose.' },
+                    { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nTHIS BATCH: ${batch.instruction}\nEXACT BATCH COUNTS: ${JSON.stringify(batch.expectedCounts)}\nCURRENT STAGED WORLD AND WORLD LORE INDEX: ${worldArchitectIndex(current)}\nGenerate only this batch. Respect exact counts. Treat this index as canon: reuse existing IDs and update the matching records when the request asks for edits. Do not alter unrelated existing data. A user request to change access, routes, secrets or lore authorizes precisely those requested edits.` }
+                ];
+                const maxTokens = exactKind ? (exactKind === 'items' ? Math.max(3200, chunkCount * 700) : Math.max(2400, chunkCount * 650))
+                    : Math.max(6000, Math.min(24000, (job.options.batchSize || 12) * 900));
+                const decode = raw => worldArchitectOperationArray(raw)
                     .map((operation, index) => normalizeWorldArchitectOperation(operation, job.operations.length + index)).filter(Boolean);
-            }
-            if (!operations.length) throw new Error('The model returned JSON, but no supported changes could be recovered after a schema repair retry.');
-            const generatedCounts = worldArchitectOperationCounts(operations);
-            const mismatch = Object.entries(batch.expectedCounts || {}).find(([key, expected]) => Number(expected) > 0 && generatedCounts[key] !== Number(expected));
-            if (mismatch) throw new Error(`The model produced ${generatedCounts[mismatch[0]] || 0} ${mismatch[0]}, but this batch requires exactly ${mismatch[1]}. Retry this batch or choose a stronger structured model.`);
-            operations.forEach(operation => { operation.batchId = batch.id; });
-            job.operations.push(...operations);
+                const issue = operations => {
+                    const counts = worldArchitectOperationCounts(operations);
+                    const mismatch = Object.entries(chunkBatch.expectedCounts || {})
+                        .find(([key, expected]) => Number(expected) > 0 && counts[key] !== Number(expected));
+                    if (mismatch) return `Expected ${mismatch[1]} ${mismatch[0]}, received ${counts[mismatch[0]] || 0}`;
+                    if (exactKind && operations.some(operation => operation.type !== WORLD_ARCHITECT_EXACT_TYPES[exactKind]
+                        || exactKind === 'rooms' && operation.record.mapType !== 'room'
+                        || exactKind === 'locations' && operation.record.mapType === 'room'))
+                        return `Expected only ${WORLD_ARCHITECT_EXACT_TYPES[exactKind]} operations for ${exactKind}`;
+                    return operations.length ? '' : 'No supported operations';
+                };
+                let raw = await worldArchitectJSON(world, job.model, batchMessages, maxTokens, 'operations');
+                let operations = decode(raw);
+                if (issue(operations)) {
+                    const firstIssue = issue(operations);
+                    raw = await worldArchitectJSON(world, job.model, [
+                        ...batchMessages,
+                        { role: 'assistant', content: JSON.stringify(raw).slice(0, 5000) },
+                        { role: 'user', content: `Your answer did not satisfy this batch: ${firstIssue}. ${exactKind ? worldArchitectExactBatchContract(exactKind, chunkCount) : `Rewrite the requested changes with supported types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}.`} Return only corrected JSON.` }
+                    ], maxTokens, 'operations');
+                    operations = decode(raw);
+                }
+                const remainingIssue = issue(operations);
+                if (remainingIssue) {
+                    const types = [...new Set(worldArchitectOperationArray(raw).map(operation =>
+                        String(operation?.type || operation?.operation || operation?.action || 'unknown')))].slice(0, 6);
+                    const modelReason = String(raw?.error || raw?.refusal || raw?.reason || raw?.message || '').slice(0, 180);
+                    throw new Error(`${remainingIssue}. Returned operation types: ${types.join(', ') || 'none'}.${modelReason ? ` Model response: ${modelReason}` : ''} Resume will retry only missing records; successful parts remain saved.`);
+                }
+                operations.forEach(operation => { operation.batchId = batch.id; });
+                job.operations.push(...operations);
+                completedCount += exactKind ? chunkCount : 0;
+                job.updatedAt = Date.now();
+                await persistWorldArchitectCheckpoint(world);
+                renderWorldArchitectAgent();
+            } while (exactKind && completedCount < targetCount);
             job.completedBatchIds.push(batch.id);
             job.updatedAt = Date.now();
             await persistWorldArchitectCheckpoint(world);

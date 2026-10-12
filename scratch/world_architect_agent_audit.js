@@ -11,7 +11,8 @@ const context = { console: { log() {}, warn() {}, error() {} }, HordeWorldLore, 
 buildContext(vm, [
     'worldArchitectRequestedCounts', 'defaultWorldArchitectPlan', 'normalizeWorldArchitectPlan',
     'normalizeWorldArchitectOperation', 'worldArchitectOperationCounts', 'applyWorldArchitectOperation', 'worldArchitectFingerprint', 'worldLoreModelTimeoutMs',
-    'worldArchitectCountRecords', 'worldArchitectIndex', 'stageWorldArchitectJob', 'removeWorldGroupRecord', 'mergeWorldGroupRecords',
+    'worldArchitectCountRecords', 'worldArchitectIndex', 'worldArchitectBatchIndex', 'worldArchitectExactBatchKind',
+    'worldArchitectExactBatchContract', 'stageWorldArchitectJob', 'removeWorldGroupRecord', 'mergeWorldGroupRecords',
     'parseWorldArchitectJSON', 'worldArchitectResponseCandidates', 'worldArchitectOperationArray'
 ], context);
 
@@ -184,13 +185,43 @@ test('Architect reads tool-call arguments when message content is empty', () => 
     assert.equal(context.parseWorldArchitectJSON(candidates[0], 'operations').operations.length, 0);
 });
 
+test('exact item batches use a small valid index and an explicit operation contract', () => {
+    const draft = world();
+    draft.description = 'A living world with authored places.';
+    for (let index = 0; index < 500; index++) {
+        draft.locations.push({ id: `loc_${index}`, name: `Room ${index}`,
+            mapType: 'room', description: 'A long description. '.repeat(40) });
+        draft.entities.push({ id: `item_${index}`, type: 'item', name: `Existing Object ${index}` });
+    }
+    const batch = { instruction: 'Initial furniture', expectedCounts: { items: 12 } };
+    assert.equal(context.worldArchitectExactBatchKind(batch), 'items');
+    const serialized = context.worldArchitectBatchIndex(draft, batch, 'Add 12 items');
+    const index = JSON.parse(serialized);
+    assert(serialized.length <= 6500, 'the staged index must fit a small local-model context');
+    assert.equal(index.counts.items, 500);
+    assert(index.places.some(place => place.id === 'loc_inn'));
+    assert(index.existingItems.length > 0, 'the model should see representative existing item names');
+    assert(!serialized.includes('A long description.'), 'unrelated room prose should stay out of the batch');
+    assert.match(context.worldArchitectExactBatchContract('items', 4), /exactly 4 operations/);
+    assert.match(context.worldArchitectExactBatchContract('items', 4), /"add_item"/);
+});
+
+test('empty operations do not hide valid item records in another field', () => {
+    const parsed = context.parseWorldArchitectJSON({ operations: [], items: [
+        { id: 'item_chair', name: 'Chair' }
+    ] }, 'operations');
+    assert.equal(parsed.operations.length, 1);
+    assert.equal(parsed.operations[0].type, 'add_item');
+});
+
 test('Architect structured requests retry malformed output before failing', () => {
     assert.match(appSource, /for \(let attempt = 0; attempt < 2; attempt\+\+\)/);
     assert.match(appSource, /A strict repair retry also failed/);
     assert.match(appSource, /useResponseFormat = false/);
     assert.match(appSource, /if \(hasExactCounts\)/);
     assert.doesNotMatch(appSource, /job\.error\s*=\s*`Planner fallback used:/);
-    assert.match(appSource, /none of its entries used a supported operation schema/);
+    assert.match(appSource, /Your answer did not satisfy this batch/);
+    assert.match(appSource, /Math\.min\(4, targetCount - completedCount\)/);
     assert.match(appSource, /await persistWorldArchitectCheckpoint\(world\)/,
         'Architect jobs must survive refresh while planning and generating');
     assert.doesNotMatch(appSource, /data-world-architect-action="apply"[^>]*disabled/,
