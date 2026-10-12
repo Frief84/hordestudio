@@ -16737,13 +16737,24 @@ function worldExitUnlockKey(fromLocationId, toLocationId) {
     return from && to ? `${from}::${to}` : '';
 }
 
+function worldPlayerHoldsExitItem(sess, exit) {
+    const requiredItem = String(exit?.requiredItem || '').trim();
+    if (!requiredItem) return false;
+    const key = questTextKey(requiredItem);
+    return Array.isArray(sess?.inventory) && sess.inventory.some(item => {
+        const name = globalThis.HordeRpgMechanics?.itemName(item) || String(item || '');
+        return questTextKey(name) === key && (typeof item !== 'object' || Number(item.quantity ?? 1) > 0);
+    });
+}
+
 function worldExitRequirement(sess, exit, fromLocationId = '', npcId = '') {
     const requiredItem = typeof exit === 'object'
         ? String(exit?.requiredItem || '').trim().slice(0, 160) : '';
     const allowCheckUnlock = typeof exit === 'object' && exit?.allowCheckUnlock === true;
     const unlockKey = worldExitUnlockKey(fromLocationId,
         typeof exit === 'object' ? (exit?.targetLocationId || getExitTargetName(exit)) : getExitTargetName(exit));
-    const unlocked = !!((allowCheckUnlock || exit?.lockState === 'locked') && unlockKey && sess?.unlockedExits?.[unlockKey] === true);
+    const unlocked = !!((requiredItem || allowCheckUnlock || exit?.lockState === 'locked')
+        && unlockKey && sess?.unlockedExits?.[unlockKey] === true);
     if (unlocked) return { ok: true, requiredItem, allowCheckUnlock, unlocked: true };
     if (!requiredItem && !allowCheckUnlock && exit?.lockState !== 'locked') return { ok: true, requiredItem: '', allowCheckUnlock: false };
     const key = questTextKey(requiredItem);
@@ -28885,6 +28896,14 @@ function requestedWorldTravelCompanionIds(world, sess, userInput) {
         ? [matches[0].id] : [];
 }
 
+function userRequestsWorldDoorRelock(userInput) {
+    const input = String(userInput || '');
+    const match = /\b(?:re[ -]?lock(?:s|ed|ing)?|lock(?:s|ed|ing)?\s+(?:(?:the|a|that|this|it|door|gate|lock)\s+){0,5}(?:again|behind\s+(?:me|us|you)|after\s+(?:me|us|you)))\b/i.exec(input);
+    if (!match) return false;
+    const preceding = input.slice(Math.max(0, match.index - 35), match.index);
+    return !/\b(?:do\s+not|don't|did\s+not|didn't|never|without)\s+(?:\w+\s+){0,4}$/i.test(preceding);
+}
+
 function buildWorldMicroFrameEnvelope(world, sess, userInput) {
     const view = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
     const locations = Array.isArray(view?.locations) ? view.locations : [];
@@ -29035,7 +29054,9 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
         return '';
     }
     const companionIds = requestedWorldTravelCompanionIds(view, sess, userInput);
-    const result = movePlayerAlongWorldPath(world, sess, targetLoc, { companionIds });
+    const result = movePlayerAlongWorldPath(world, sess, targetLoc, {
+        companionIds, relockLastDoor: userRequestsWorldDoorRelock(userInput)
+    });
     if (!result.ok) {
         showToast(result.reason === 'impassable_destination'
             ? `${result.blockedLocationName || targetLoc.name} is impassable: ${result.blockedLabel || 'route closed'}.`
@@ -29051,7 +29072,11 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
     const routeDescription = (result.travelLegs || []).map(describeWorldTravelLeg).filter(Boolean).join('; ');
     const companionNames = (result.explicitCompanionsMoved || []).map(id =>
         sessionNpcs(view, sess).find(npc => npc.id === id)?.name || id);
-    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${companionNames.length ? `${companionNames.join(', ')} accompanied the player and is already present; do not emit another movement event for this companion.` : ''} ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''} Using a carried key for this trip does not by itself permanently unlock the door; if the player relocked it, its locked state remains unchanged. Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
+    const doorContext = result.doorChanges.length
+        ? ` Door state committed: ${result.doorChanges.map(change => `${change.action} ${change.from_location_id}::${change.to_location_id}`).join(', ')}.` : '';
+    const relockContext = result.relockRequested && !result.relocked
+        ? ' The requested re-lock could not be completed; do not claim the door was locked.' : '';
+    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${companionNames.length ? `${companionNames.join(', ')} accompanied the player and is already present; do not emit another movement event for this companion.` : ''} ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''}${doorContext}${relockContext} A key-opened door stays unlocked unless an explicit re-lock was committed. These route and door steps are already applied; do not duplicate their state changes. Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
 }
 
 function classifyWorldArrivalPacing(world, sess, location, snapshot, presentNpcs, absoluteMinute, hadEngineEvents = false) {
@@ -29329,7 +29354,8 @@ async function executeWorldTurn(commandOrReroll = null) {
                 committedMovement = {
                     originId: movementOrigin,
                     destinationId: sess.playerLocation,
-                    companionIds: requestedCompanionIds
+                    companionIds: requestedCompanionIds,
+                    relockLastDoor: userRequestsWorldDoorRelock(userInput)
                 };
             }
             const outfitResult = applyPlayerOutfitIntent(sess, userInput)
@@ -29796,7 +29822,7 @@ Player Condition: ${ruleModules.health || ruleModules.conditions
 Rules Profile: ${gameRules.profileId}. Enabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => ruleModules[key]).join(', ') || 'none'}. Disabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => !ruleModules[key]).join(', ') || 'none'}.
 Special rules: vital stat "${ruleModules.health ? (gameRules.vitalStatId || 'none') : 'disabled'}"; zero-health mode "${ruleModules.health ? gameRules.zeroHpMode : 'disabled'}"; currency stat "${ruleModules.commerce ? (gameRules.currencyStatId || 'none') : 'disabled'}" (${gameRules.currencyName}).
 Check Engine: ${ruleModules.checks ? `d${diceConfig.sides}, ${diceConfig.resolution} resolution, ${diceConfig.visibility} visibility, default difficulty ${diceConfig.defaultDifficulty}, stat modifier ${diceConfig.modifierMode}. Submit at most ONE check and put every result-dependent persistent mutation inside its on_success/on_failure object; completed top-level consequences beside a check are rejected. ${diceConfig.resolution === 'player' ? 'End at the moment of uncertainty. The player must resolve the queued check before any other action; the next response receives the canonical result.' : 'The engine resolves it immediately; never invent a roll.'}${diceConfig.visibility === 'hidden' ? ' Keep the die, target and modifier out of narration; reveal only fictional consequences.' : ''}` : 'Disabled — resolve through fiction without dice.'}
-Locked mapped exits: an item requirement is enforced before travel. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
+Locked mapped exits: an item requirement is enforced before travel. A player carrying the required item opens a traversed door; it stays unlocked unless the player explicitly re-locks it, in which case the engine closes it after the move. The engine has already applied any player-directed travel and door steps reported below; narrate their actual result, never propose them again as effects. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
 Player Outfit: ${sess.outfit || 'Standard attire'}
 ${questPrompt}${npcContext}${engineEventsPrompt}${threadsPrompt}${livingWorldPrompt}${societyPrompt}`;
     
@@ -30664,9 +30690,9 @@ ${modularMandate}
             !Array.isArray(sess.revealedSecrets) || !sess.revealedSecrets.includes(secret.label));
         const escapeHatch = `\n\n[TURN RECEIPT DELIVERY FAILSAFE]\nUse commit_world_turn as a real tool call. If and only if this provider cannot emit that tool call, append exactly one block at the end instead:\n<world_turn_receipt>{"scene":{"player_location_id":"${sess.playerLocation}","player_location_changed":false,"present_character_ids":[]},"events":[],"entity_updates":[],"state_updates":{}${resolveFirst ? ',"action_resolution":{"kind":"other","status":"needs_clarification","outcome":"The action needs one more detail before the world can respond."}' : ''}}</world_turn_receipt>\nThe receipt is mandatory even when nothing changes. Fill it with the same actor-scoped events, full ending cast and updates you would have sent to the tool. Never send both a successful tool call and the tagged block.${resolveFirst ? '\nBefore any final scene is shown, decide how the current player action resolves. Put that concrete disposition in action_resolution. A physical success needs a completed player event or check; a risky unresolved attempt needs a check or an actor-scoped attempt. A question or speech act can be answered without changing durable state. Your initial prose, if any, is a PRIVATE draft; the engine will request final prose only after accepting the receipt.' : ''}${knownToolShy ? '\nThis model has previously failed to deliver tool calls, so use the tagged receipt rather than dropping state.' : ''}`;
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
-        const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Use actions to cover the exact full player request in order, with response_id referencing the passage answering each request. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Treat the player's instruction as a goal: attempt its necessary feasible steps in order without asking the player to repeat obvious steps. Use actions to cover the full request in order, with response_id referencing the passage answering each step. If a step is blocked, explain the actual obstacle and keep already verified steps; never claim success for a step the engine did not commit. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
         if (sceneDrafts) messages.push({ role: 'system', content:
-            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Put lasting door/passage changes in effects.location_state_updates or effects.exit_unlocks.' });
+            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Player key use and re-locking during precommitted travel are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -32385,7 +32411,8 @@ ${modularMandate}
         if (world && sess && committedMovement && !isReroll) {
             const target = world.locations.find(location => location.id === committedMovement.destinationId);
             const movement = target ? movePlayerAlongWorldPath(world, sess, target, {
-                showTravelToast: false, companionIds: committedMovement.companionIds || [] }) : null;
+                showTravelToast: false, companionIds: committedMovement.companionIds || [],
+                relockLastDoor: committedMovement.relockLastDoor === true }) : null;
             if (movement?.ok && movement.moved) {
                 movementPreserved = true;
                 if (normalizeWorldGameRules(world).modules.livingWorld) {
@@ -34863,6 +34890,49 @@ function getWorldPathTravelTime(world, path) {
     return total;
 }
 
+function applyPlayerTravelDoorStates(world, sess, path, options = {}) {
+    const changes = [];
+    const relockRequested = options.relockLastDoor === true;
+    let relocked = false;
+    if (!Array.isArray(path) || path.length < 2) return { changes, relockRequested, relocked };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    for (let index = 1; index < path.length; index++) {
+        const from = getLocationRef(world, path[index - 1]);
+        const to = getLocationRef(world, path[index]);
+        if (!from || !to) continue;
+        const candidates = (from.exits || []).filter(exit =>
+            resolveWorldExitTarget(world, exit)?.id === to.id
+            && worldExitRequirement(sess, exit, from.id).ok);
+        const exit = index === 1 && options.exit && candidates.includes(options.exit)
+            ? options.exit : candidates.sort((a, b) =>
+                (Number(a?.travelTime) || 0) - (Number(b?.travelTime) || 0))[0];
+        if (!exit || typeof exit !== 'object' || !worldPlayerHoldsExitItem(sess, exit)) continue;
+        // A carried key opens the traversed door. The matching reverse edge
+        // describes the same physical door, so both directions share its state.
+        const reverse = (to.exits || []).find(candidate => candidate && typeof candidate === 'object'
+            && resolveWorldExitTarget(world, candidate)?.id === from.id
+            && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim());
+        const directions = [{ from: from.id, to: to.id, exit }];
+        if (reverse) directions.push({ from: to.id, to: from.id, exit: reverse });
+        const keys = [...new Set(directions.flatMap(direction => [
+            worldExitUnlockKey(direction.from, direction.to),
+            worldExitUnlockKey(direction.from,
+                direction.exit.targetLocationId || getExitTargetName(direction.exit))
+        ]))].filter(Boolean);
+        const fullyUnlocked = keys.every(key => sess.unlockedExits[key] === true);
+        if (!fullyUnlocked) {
+            keys.forEach(key => { sess.unlockedExits[key] = true; });
+            changes.push({ action: 'unlocked', from_location_id: from.id, to_location_id: to.id });
+        }
+        if (relockRequested && index === path.length - 1) {
+            keys.forEach(key => { delete sess.unlockedExits[key]; });
+            changes.push({ action: 'relocked', from_location_id: from.id, to_location_id: to.id });
+            relocked = true;
+        }
+    }
+    return { changes, relockRequested, relocked };
+}
+
 function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     if (!world || !sess || !targetLocation) return { ok: false, moved: false, reason: 'unknown_destination', path: [] };
     if (sess.pendingChecks?.length || sess.pendingCheck) {
@@ -34948,6 +35018,7 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
                 && (explicitCompanions.includes(npc.id)
                     || path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok));
         }).map(npc => npc.id);
+    const doorState = applyPlayerTravelDoorStates(travelWorld, sess, path, options);
     sess.playerLocation = targetLocation.id;
     // A monotonic marker lets short-lived conditional promises distinguish
     // "the player never left" from "the player went away and quietly returned".
@@ -34974,6 +35045,9 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         path,
         travelMinutes,
         travelLegs,
+        doorChanges: doorState.changes,
+        relockRequested: doorState.relockRequested,
+        relocked: doorState.relocked,
         followersMoved,
         explicitCompanionsMoved: followersMoved.filter(id => explicitCompanions.includes(id))
     };

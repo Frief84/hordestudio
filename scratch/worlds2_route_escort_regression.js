@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { app, buildContext } = require('./app_source.js');
+const worldLore = require('../assets/worlds/world-lore.js');
 
 const world = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
     'worlds2-rpg-live.horde_world'), 'utf8'));
@@ -22,7 +23,7 @@ reverseExit.allowCheckUnlock = true;
 const ctx = buildContext(vm, [
     'extractUserMovementTarget', 'resolveWorldMovementTarget',
     'worldExitRequirement', 'findWorldTravelPath', 'movePlayerAlongWorldPath',
-    'requestedWorldTravelCompanionIds',
+    'requestedWorldTravelCompanionIds', 'userRequestsWorldDoorRelock',
     'applyWorldExitUnlocks',
     'validateWorldTurnReceipt', 'applyWorldEntityPatches'
 ], {
@@ -59,6 +60,9 @@ assert.equal(ctx.extractUserMovementTarget('You take Cassy with you.'), '',
     'taking somebody along without a destination must not authorize a move');
 assert.equal(ctx.extractUserMovementTarget('"You take Cassy with you into the round room," she says.'), '',
     'quoted dialogue must not become player movement');
+assert.equal(ctx.userRequestsWorldDoorRelock(directEscortInput), true);
+assert.equal(ctx.userRequestsWorldDoorRelock('You take Cassy into the round room and unlock the door.'), false);
+assert.equal(ctx.userRequestsWorldDoorRelock('You do not lock it again behind you.'), false);
 
 const session = { id: 'route_test', playerLocation: 'gate', inventory: [],
     entityStates: { tomas: { location: 'gate', followingPlayer: true } }, turnCount: 8 };
@@ -125,13 +129,36 @@ ctx.globalThis.HordeWorldLore = {
     rememberPlace: () => {}
 };
 const accompaniedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, accompaniedSession, accompaniedTarget,
-    { companionIds: accompaniedIds });
+    { companionIds: accompaniedIds, relockLastDoor: ctx.userRequestsWorldDoorRelock(directEscortInput) });
 assert.equal(accompaniedMove.ok, true);
+assert.equal(accompaniedMove.relocked, true, 'the explicitly requested final step re-locks the door');
+assert.deepEqual(Array.from(accompaniedMove.doorChanges, change => change.action), ['unlocked', 'relocked']);
+assert.equal(accompaniedSession.unlockedExits?.['gate::cellar'], undefined);
+assert.equal(accompaniedSession.unlockedExits?.['cellar::gate'], undefined);
+assert.equal(worldLore.exitLock(guardedExit, accompaniedSession, 'gate', 'cellar').currentState, 'locked',
+    'World Lore must show the final closed state after re-locking');
 assert.equal(accompaniedSession.playerLocation, 'cellar');
 assert.equal(accompaniedSession.entityStates.cassy.location, 'cellar',
     'a named companion passes through the door opened by the player key');
 assert.equal(accompaniedSession.entityStates.cassy.followingPlayer, false,
     'one escorted move does not silently create a durable escort agreement');
+const openDoorSession = { id: 'door_left_open', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { cassy: { location: 'gate' } }, turnCount: 8 };
+const openDoorMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, openDoorSession, accompaniedTarget,
+    { companionIds: ['cassy'] });
+assert.equal(openDoorMove.ok, true);
+assert.equal(openDoorMove.relocked, false);
+assert.deepEqual(Array.from(openDoorMove.doorChanges, change => change.action), ['unlocked']);
+assert.equal(openDoorSession.unlockedExits['gate::cellar'], true,
+    'without a re-lock instruction, the traversed keyed door remains open');
+assert.equal(openDoorSession.unlockedExits['cellar::gate'], true,
+    'the two directions of one physical door have the same state');
+assert.equal(worldLore.exitLock(guardedExit, openDoorSession, 'gate', 'cellar').currentState, 'unlocked',
+    'World Lore must show a key-opened door when the player omits re-locking');
+openDoorSession.inventory = [];
+assert.equal(ctx.worldExitRequirement(openDoorSession, reverseExit, 'cellar').ok, true,
+    'an opened key-only door can be used without a second key until it is re-locked');
 ctx.globalThis.HordeWorldLore = undefined;
 const echoedMove = ctx.validateWorldTurnReceipt(accompaniedWorld, accompaniedSession, {
     scene: { player_location_id: 'cellar', player_location_changed: true,
