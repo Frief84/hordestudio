@@ -22,6 +22,7 @@ reverseExit.allowCheckUnlock = true;
 const ctx = buildContext(vm, [
     'extractUserMovementTarget', 'resolveWorldMovementTarget',
     'worldExitRequirement', 'findWorldTravelPath', 'movePlayerAlongWorldPath',
+    'requestedWorldTravelCompanionIds',
     'applyWorldExitUnlocks',
     'validateWorldTurnReceipt', 'applyWorldEntityPatches'
 ], {
@@ -50,6 +51,14 @@ for (const [from, input, expected] of phrases) {
 }
 assert.equal(ctx.extractUserMovementTarget('I tell Tomas to follow the mapped causeway.'), '',
     'ordering someone else to move must not move the player');
+const directEscortInput = 'You take Cassy with you into the round room, unlock the door, and lock it again behind you';
+const directEscortTarget = ctx.extractUserMovementTarget(directEscortInput);
+assert.equal(directEscortTarget, 'the round room',
+    'a direct second-person player action must identify the mapped destination');
+assert.equal(ctx.extractUserMovementTarget('You take Cassy with you.'), '',
+    'taking somebody along without a destination must not authorize a move');
+assert.equal(ctx.extractUserMovementTarget('"You take Cassy with you into the round room," she says.'), '',
+    'quoted dialogue must not become player movement');
 
 const session = { id: 'route_test', playerLocation: 'gate', inventory: [],
     entityStates: { tomas: { location: 'gate', followingPlayer: true } }, turnCount: 8 };
@@ -93,6 +102,48 @@ assert.equal(ctx.worldExitRequirement(keyOnlySession, guardedExit, 'gate').ok, f
 keyOnlySession.inventory.push({ name: 'brass tower key', quantity: 1 });
 assert.equal(ctx.worldExitRequirement(keyOnlySession, guardedExit, 'gate').ok, true,
     'the explicitly authored key still permits travel');
+const accompaniedWorld = structuredClone(world);
+accompaniedWorld.locations.find(location => location.id === 'cellar').name = 'Round Room';
+accompaniedWorld.entities.push({ id: 'cassy', type: 'npc', name: 'Cassy' });
+const unkeyedCompanionSession = { id: 'unkeyed_companion', playerLocation: 'gate', inventory: [],
+    entityStates: { cassy: { location: 'gate' } }, turnCount: 8 };
+assert.equal(ctx.movePlayerAlongWorldPath(accompaniedWorld, unkeyedCompanionSession,
+    accompaniedWorld.locations.find(location => location.id === 'cellar'),
+    { companionIds: ['cassy'] }).ok, false,
+    'taking a companion must not bypass the locked route when the player lacks its key');
+assert.equal(unkeyedCompanionSession.entityStates.cassy.location, 'gate');
+const accompaniedSession = { id: 'keyed_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { cassy: { location: 'gate', followingPlayer: false } }, turnCount: 8 };
+const accompaniedIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, accompaniedSession, directEscortInput);
+assert.deepEqual(Array.from(accompaniedIds), ['cassy']);
+const accompaniedTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate', directEscortTarget, true, accompaniedSession);
+assert.equal(accompaniedTarget?.id, 'cellar');
+ctx.globalThis.HordeWorldLore = {
+    access: () => ({ ok: false, reason: 'authored denial' }),
+    placeAwareness: () => ({ known: false }),
+    rememberPlace: () => {}
+};
+const accompaniedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, accompaniedSession, accompaniedTarget,
+    { companionIds: accompaniedIds });
+assert.equal(accompaniedMove.ok, true);
+assert.equal(accompaniedSession.playerLocation, 'cellar');
+assert.equal(accompaniedSession.entityStates.cassy.location, 'cellar',
+    'a named companion passes through the door opened by the player key');
+assert.equal(accompaniedSession.entityStates.cassy.followingPlayer, false,
+    'one escorted move does not silently create a durable escort agreement');
+ctx.globalThis.HordeWorldLore = undefined;
+const echoedMove = ctx.validateWorldTurnReceipt(accompaniedWorld, accompaniedSession, {
+    scene: { player_location_id: 'cellar', player_location_changed: true,
+        present_character_ids: ['cassy'] },
+    events: [{ type: 'movement', actor_id: 'player', status: 'completed',
+        from_location_id: 'gate', to_location_id: 'cellar', movement_mode: 'voluntary',
+        evidence: 'You take Cassy with you into the round room.' }],
+    entity_updates: [], state_updates: {}
+}, { playerStartLocationId: 'gate', committedPlayerDestinationId: 'cellar',
+    playerMovementAuthorized: true, authorizedPlayerDestinationId: 'cellar' });
+assert(!echoedMove.rejectedEvents.some(item => item.reason === 'player_movement_not_authorized'),
+    'the precommitted player move must remain authorized in the receipt');
 guardedExit.allowCheckUnlock = true;
 
 const checkOnly = { targetLocationId: 'cellar', text: 'down to Tower Cellar', allowCheckUnlock: true };

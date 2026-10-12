@@ -19,6 +19,23 @@ const world = {
     lorebook: [{ keyword: 'Custom', text: 'Visitors leave gifts.', knowledge: { visibility: 'public' }, about: [{ kind: 'location', id: 'grove' }] }]
 };
 L.migrate(world);
+assert.equal(L.exitLock({}).state, 'unlocked', 'an unspecified route uses the open default');
+assert.equal(L.exitLock({ lockState: 'unknown' }).state, 'unknown', 'an explicit unknown remains reviewable');
+assert(!L.validate(world).some(issue => issue.message.includes('Knowledge audience not yet assigned')),
+    'narrator-only defaults should not flood place structure lint');
+world.locations[2].placeType = 'room';
+world.locations[1].exits = [{ targetLocationId: 'grove' }];
+assert(!L.validate(world).some(issue => issue.message.includes('Initial lock state unspecified')),
+    'an ordinary unspecified route should not be treated as a broken lock');
+world.locations[1].exits[0].lockState = 'invalid';
+assert(L.validate(world).some(issue => issue.message.includes('Invalid lock state')),
+    'explicit invalid lock values should remain lint errors');
+world.locations[1].exits[0].lockState = 'unknown';
+assert(L.validate(world).some(issue => issue.message.includes('Initial lock state unspecified')),
+    'an explicitly unknown lock state should remain reviewable');
+delete world.locations[1].exits[0].lockState;
+world.locations[2].placeType = 'landmark';
+world.locations[1].exits = [{ targetLocationId: 'grove', travelTime: 10 }, { targetLocationId: 'road', travelTime: 15 }];
 const once = JSON.stringify(world); L.migrate(world); assert.equal(JSON.stringify(world), once);
 assert.equal(L.access(world, 'warden', 'grove').ok, true);
 assert.equal(L.access(world, 'visitor', 'grove').ok, false);
@@ -124,7 +141,7 @@ assert.equal(lockWorld.locations[0].exits[0].lockState, 'locked');
 assert.equal(L.stageProposals(lockWorld, [{ ...lockProposal, value: [{ ...lockExit, travelTime: 500 }] }]).added, 0, 'AI may not rewrite routes through lock proposals');
 lockWorld.locations[0].exits[0].lockState = 'unlocked';
 assert(L.health(lockWorld).some(i => i.message.includes('Unlocked access conflicts')));
-assert.equal(L.structureStatus(lockWorld).state, 'stale');
+assert.equal(L.structureStatus(lockWorld).state, 'current', 'explicit unlocked and the implicit open default have the same route semantics');
 const runtime = buildContext(vm, ['worldExitRequirement'], { questTextKey: s => s.toLowerCase(), getExitTargetName: e => e.targetLocationId });
 assert.equal(runtime.worldExitRequirement({}, { targetLocationId: 'room', lockState: 'locked' }, 'hall').ok, false);
 assert.equal(runtime.worldExitRequirement({ unlockedExits: { 'hall::room': true } }, { targetLocationId: 'room', lockState: 'locked' }, 'hall').ok, true);

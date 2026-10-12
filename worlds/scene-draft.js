@@ -10,6 +10,30 @@ const text = (description, maxLength = 2000) => ({ type: 'string', description, 
 const list = items => ({ type: 'array', items, maxItems: 32 });
 const shape = (properties, required = Object.keys(properties)) =>
     ({ type: 'object', properties, required, additionalProperties: false });
+function closeDeclaredObjectFields(node) {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'object' && object(node.properties)
+        && Object.keys(node.properties).length && node.additionalProperties === undefined)
+        node.additionalProperties = false;
+    Object.values(node).forEach(closeDeclaredObjectFields);
+}
+function rejectUnknownFields(value, spec, path, fail) {
+    if (!spec || typeof spec !== 'object') return;
+    if (Array.isArray(value)) {
+        value.forEach((entry, index) => rejectUnknownFields(entry, spec.items, `${path}.${index}`, fail));
+        return;
+    }
+    if (!object(value) || !object(spec.properties)) return;
+    Object.entries(value).forEach(([key, entry]) => {
+        const childPath = path ? `${path}.${key}` : key;
+        if (Object.prototype.hasOwnProperty.call(spec.properties, key))
+            rejectUnknownFields(entry, spec.properties[key], childPath, fail);
+        else if (spec.additionalProperties === false)
+            fail(childPath, childPath.startsWith('effects.') ? 'unsupported_draft_effect' : 'unsupported_draft_field');
+        else if (object(spec.additionalProperties))
+            rejectUnknownFields(entry, spec.additionalProperties, childPath, fail);
+    });
+}
 
 function schema(legacy) {
     const excluded = new Set(['summary', 'scene', 'events', 'entity_updates', 'state_updates',
@@ -31,24 +55,38 @@ function schema(legacy) {
         effects.npc_introduced.items.properties.id.description = 'New stable actor ID used in speech/events, e.g. npc_examiner. Required for named or role-identified speakers not already registered.';
     }
     if (effects.location_introduced?.items) {
+        effects.location_introduced.description = 'Introduce a genuinely new mapped place only when the scene visits it. Give it a stable ID and an exact existing connects_to ID; a separate actor-scoped movement event records any completed arrival.';
         effects.location_introduced.items.required = ['id', 'name', 'connects_to'];
         effects.location_introduced.items.additionalProperties = false;
         effects.location_introduced.items.properties.connects_to.description = 'Exact existing location ID to connect to. Do not introduce locations merely mentioned in speech.';
     }
-    const passage = text('ID of the narrative passage that evidences this entry. Reference it; do not repeat its text.', 80);
+    const passage = text('Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.', 80);
     const events = copy(legacy.events);
     if (events?.items?.properties) {
+        // Tool-only providers may treat this as advice; JSON-schema transports
+        // enforce it so invented event keys never enter a scene proposal.
+        events.items.additionalProperties = false;
+        if (events.items.properties.type) events.items.properties.type.description =
+            'Required. Use exactly one canonical event type: movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. A movement event means changing mapped places: include exact actor_id, from_location_id and to_location_id from WORLD LORE movementOptions. Ordinary movement within the current room/place needs no location event or ID and may be narrated normally. If no mapped destination is allowed, do not emit a place-to-place movement event or narrate an arrival at another place. Do not invent types such as door, lock, open, close, travel, speech, gain, take or posture. Describe a momentary pose in narrative; for a completed pose that must persist as current NPC state, use type activity with actor_id, status completed and activity describing the pose. Use type inventory with action add/gain/take/remove/lose/consume/give/drop for item transfers; use dialogue for speech, and effects.location_state_updates or effects.exit_unlocks for lasting door or passage changes.';
+        if (events.items.properties.from_location_id) events.items.properties.from_location_id.description =
+            'Movement only: exact current location ID for this actor, as shown in WORLD LORE movementOptions.';
+        if (events.items.properties.to_location_id) events.items.properties.to_location_id.description =
+            'Required only when changing mapped places: exact allowed destination ID from this actor’s WORLD LORE movementOptions. Ordinary movement within the current room/place needs no movement event.';
+        if (events.items.properties.activity) events.items.properties.activity.description =
+            'For type activity: the actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. Momentary posture and gestures belong in narrative without a state event.';
+        if (events.items.properties.outfit) events.items.properties.outfit.description =
+            'Required for an outfit event. Describe the resulting complete outfit. If no outfit is established and the scene establishes or changes clothing, invent a plausible outfit consistent with the character, setting, weather and story; never leave blank.';
         delete events.items.properties.evidence;
         events.items.properties.passage_id = passage;
         events.items.required = [...new Set([...(events.items.required || []).filter(k => k !== 'evidence'), 'actor_id', 'passage_id'])];
         if (events.items.properties.action) events.items.properties.action.description =
             'Required for inventory events: add/gain/take or remove/lose/consume/give/drop. Other events may describe the action. Never record an offered-but-unaccepted item as gained.';
     }
-    return shape({
+    const contract = shape({
         protocol: { type: 'string', enum: ['scene_draft_v2'] },
         narrative: { type: 'array', minItems: 1, maxItems: 16,
             description: 'The complete player-facing scene in ordered passages. Write each passage once and reference its ID below. For a pending check stop before its outcome.',
-            items: shape({ id: text('Unique passage ID, e.g. p1', 80), text: text('One paragraph of player-facing narrative or dialogue.', 4000) }) },
+            items: shape({ id: text('Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.', 80), text: text('One paragraph of player-facing narrative or dialogue.', 4000) }) },
         actions: list(shape({
             request: text('Exact contiguous excerpt of the player input. In order, requests must cover the complete input; split compound actions where useful.'),
             kind: { type: 'string', enum: kinds },
@@ -56,7 +94,8 @@ function schema(legacy) {
             response_id: { ...passage, description: 'Passage that RESPONDS to this request: the answer, refusal, result or check setup. Not a passage merely repeating the player’s question.' }
         })),
         events,
-        effects: shape(effects, []),
+        effects: { ...shape(effects, []),
+            description: 'Only changed fields listed in this effects schema are supported. Use {} for no lasting change. Put actor movement, inventory and outfit changes in events, not in invented effect keys.' },
         speech: list(shape({
             speaker: text('Exact present NPC ID or player', 120),
             listeners: list(text('Exact present listener ID or player', 120)),
@@ -79,6 +118,10 @@ function schema(legacy) {
             event_index: { type: 'integer', minimum: 0, description: 'Index of its completed, evidenced event in events. Declare any lasting mechanical changes in effects as well.' }
         }))
     }, ['protocol', 'narrative', 'actions', 'events', 'effects', 'speech', 'commitments']);
+    // Preserve schema-defined dynamic maps while closing every object with
+    // named fields. A constrained backend can then block unknown nested keys.
+    closeDeclaredObjectFields(contract);
+    return contract;
 }
 
 function isDraft(value) { return object(value) && value.protocol === 'scene_draft_v2'; }
@@ -119,6 +162,38 @@ function compile(draft, context) {
         detail: explanation ? `${path}: ${explanation}` : path });
     if (!isDraft(draft)) return { ok: false, errors: [{ reason: 'invalid_scene_protocol' }] };
     draft = copy(draft);
+    // One recorded provider typo has an exact, lossless destination. Keep the
+    // witness IDs; do not guess when both spellings are present or malformed.
+    (Array.isArray(draft.events) ? draft.events : []).forEach((event, index) => {
+        if (!object(event) || !Object.prototype.hasOwnProperty.call(event, 'witnessed_by__')) return;
+        if (Object.prototype.hasOwnProperty.call(event, 'witnessed_by')) {
+            fail(`events.${index}.witnessed_by__`, 'conflicting_event_field');
+            return;
+        }
+        if (!Array.isArray(event.witnessed_by__)
+            || event.witnessed_by__.some(id => typeof id !== 'string')) return;
+        event.witnessed_by = event.witnessed_by__;
+        delete event.witnessed_by__;
+    });
+    (Array.isArray(draft.events) ? draft.events : []).forEach(event => {
+        if (!object(event) || event.type !== 'posture' || event.status !== 'completed'
+            || typeof event.actor_id !== 'string' || !event.actor_id.trim()
+            || !Object.keys(event).every(key => [
+                'id', 'type', 'actor_id', 'status', 'activity', 'posture', 'action',
+                'passage_id', 'participants', 'witnessed_by', 'visibility'
+            ].includes(key))) return;
+        const descriptions = [event.activity, event.posture, event.action]
+            .filter(value => typeof value === 'string' && value.trim());
+        if (descriptions.length !== 1) return;
+        event.type = 'activity';
+        event.activity = descriptions[0].trim();
+        if (Object.prototype.hasOwnProperty.call(event, 'posture')) delete event.posture;
+    });
+    if (errors.length) return { ok: false, errors };
+    if (context.contract) {
+        rejectUnknownFields(draft, context.contract, '', fail);
+        if (errors.length) return { ok: false, errors };
+    }
     // Some compatible providers flatten explicitly named effect fields at the
     // root. This is a structural adapter, never a prose inference: relocate only
     // enabled, known fields, reject conflicting duplicates, and validate every
@@ -137,18 +212,32 @@ function compile(draft, context) {
     // matching, quote duplication, or model-generated end-state checksum.
     if (Array.isArray(draft.narrative)) {
         const passages = new Map();
+        const passageAliases = new Map();
         if (!draft.narrative.length || draft.narrative.length > 16) fail('narrative', 'invalid_passages');
         for (const p of draft.narrative) {
             if (!object(p) || typeof p.id !== 'string' || !p.id.trim() || p.id.length > 80
-                || passages.has(p.id) || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 4000)
+                || passages.has(p.id.trim()) || passageAliases.has(p.id.trim().toLowerCase())
+                || typeof p.text !== 'string' || !p.text.trim() || p.text.length > 4000)
                 fail('narrative', 'invalid_passage');
-            else passages.set(p.id, p.text.trim());
+            else {
+                const id = p.id.trim();
+                passages.set(id, p.text.trim());
+                passageAliases.set(id.toLowerCase(), id);
+            }
         }
         const bind = (items, source, target, path) => {
             if (!Array.isArray(items)) return;
             items.forEach((item, i) => {
-                if (!object(item) || !passages.has(item[source])) { fail(`${path}.${i}`, 'unknown_passage_id'); return; }
-                item[target] = passages.get(item[source]);
+                if (!object(item)) { fail(`${path}.${i}`, 'unknown_passage_id'); return; }
+                const reference = typeof item[source] === 'string' ? item[source].trim() : '';
+                // Providers occasionally alter the passage token while copying
+                // the rest of a valid one-passage draft. In that case there is
+                // exactly one possible target, so bind locally instead of
+                // spending another model call or rejecting the complete turn.
+                const resolvedId = passageAliases.get(reference.toLowerCase())
+                    || (passages.size === 1 ? passages.keys().next().value : null);
+                if (!resolvedId) { fail(`${path}.${i}`, 'unknown_passage_id'); return; }
+                item[target] = passages.get(resolvedId);
                 delete item[source];
             });
         };
@@ -174,7 +263,8 @@ function compile(draft, context) {
     const effects = copy(draft.effects);
     const effectKeys = new Set(context.effectKeys || []);
     Object.keys(effects).forEach(key => {
-        if (!effectKeys.has(key) || ['npc_observations', 'world_events'].includes(key)) fail(`effects.${key}`, 'unsupported_draft_effect');
+        if (!effectKeys.has(key) || ['npc_observations', 'world_events'].includes(key))
+            fail(`effects.${key}`, 'unsupported_draft_effect');
     });
     const actions = draft.actions;
     const compact = value => String(value || '').replace(/[\s,]+/g, '');

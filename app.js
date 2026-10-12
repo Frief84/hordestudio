@@ -10190,6 +10190,16 @@ function normalizeUnambiguousWorldEventTypes(rawReceipt) {
     let changed = false;
     const events = rawReceipt.events.map(event => {
         if (!isPlainObject(event)) return event;
+        // Local models sometimes use the inventory verb as the event type.
+        // Salvage only a clearly actor-scoped player item gain; the normal
+        // inventory reducer still verifies completion, refusal, and rules.
+        if (['gain', 'take'].includes(event.type)
+            && /^(?:player|user|pc|protagonist)$/i.test(String(event.actor_id || '').trim())
+            && typeof event.item === 'string' && event.item.trim()
+            && (!event.action || ['add', 'gain', 'take'].includes(String(event.action).toLowerCase()))) {
+            changed = true;
+            return { ...event, type: 'inventory', action: event.action || (event.type === 'take' ? 'take' : 'add') };
+        }
         // Some OpenAI-compatible local models abbreviate the canonical type.
         // Normalize only when the actor and destination are explicit; the
         // ordinary route, permission, door and time checks still decide canon.
@@ -10197,6 +10207,23 @@ function normalizeUnambiguousWorldEventTypes(rawReceipt) {
             && (event.to_location_id || event.to || event.location_id)) {
             changed = true;
             return { ...event, type: 'movement' };
+        }
+        // A completed, explicitly described pose is the actor's current
+        // activity. Preserve its wording; never infer one from scene prose or
+        // discard additional proposed state from an ambiguous event.
+        if (event.type === 'posture' && typeof event.actor_id === 'string'
+            && event.actor_id.trim() && event.status === 'completed'
+            && Object.keys(event).every(key => [
+                'id', 'type', 'actor_id', 'status', 'activity', 'posture', 'action',
+                'evidence', 'passage_id', 'participants', 'witnessed_by', 'visibility'
+            ].includes(key))) {
+            const descriptions = [event.activity, event.posture, event.action]
+                .filter(value => typeof value === 'string' && value.trim())
+                .map(value => value.trim());
+            if (descriptions.length === 1) {
+                changed = true;
+                return { ...event, type: 'activity', activity: descriptions[0] };
+            }
         }
         if (event.type) return event;
         const movement = !!(event.actor_id && event.from_location_id && event.to_location_id);
@@ -21679,6 +21706,46 @@ function worldNpcCanMove(world, sess, npcId, destinationId, teleport = false, ex
     return teleport || (!!origin && !!findWorldTravelPath(view, origin, destinationId, { npcId, session: sess, explore }));
 }
 
+function buildWorldMovementOptions(world, sess, presentNpcIds = [], userInput = '') {
+    if (!world || !sess || !globalThis.HordeWorldLore?.placeIndex) return [];
+    const view = worldForSession(world, sess);
+    const build = () => {
+        const actors = [{ id: 'player', from: String(sess.playerLocation || '') },
+            ...[...new Set(presentNpcIds)].map(id => ({ id, from: String(sess.entityStates?.[id]?.location || '') }))]
+            .filter(actor => actor.from);
+        const playerTargetPhrase = extractUserMovementTarget(userInput);
+        const playerTarget = playerTargetPhrase
+            ? resolveWorldMovementTarget(view, sess.playerLocation, playerTargetPhrase, true, sess) : null;
+        const playerPath = playerTarget
+            ? findWorldTravelPath(view, sess.playerLocation, playerTarget.id, { session: sess }) : null;
+        return actors.map(actor => {
+            const origin = getLocationRef(view, actor.from);
+            if (!origin) return null;
+            let edges = [];
+            if (actor.id === 'player') {
+                const routeIds = Array.isArray(playerPath) && playerPath.length > 1
+                    ? new Set(playerPath.slice(1)) : null;
+                edges = (origin.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+                    .filter(({ exit, to }) => to && (!routeIds || routeIds.has(to.id))
+                        && !worldLocationTravelBlock(sess, to.id)
+                        && worldExitRequirement(sess, exit, origin.id).ok)
+                    .map(({ exit, to }) => ({ to: to.id,
+                        mode: String(exit?.mode || 'walk').slice(0, 32),
+                        minutes: Math.max(0, Number(exit?.travelTime) || 0) }));
+            } else {
+                edges = (origin.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+                    .filter(({ to }) => to && worldNpcJourneyEdge(view, sess, actor.id, origin.id, to.id))
+                    .map(({ exit, to }) => ({ to: to.id,
+                        mode: String(exit?.mode || 'walk').slice(0, 32),
+                        minutes: Math.max(0, Number(exit?.travelTime) || 0) }));
+            }
+            return { actor_id: actor.id, from: origin.id, allowed_next: edges.slice(0, 8) };
+        }).filter(Boolean);
+    };
+    return globalThis.HordeWorldLore.withIndex
+        ? globalThis.HordeWorldLore.withIndex(view, build) : build();
+}
+
 async function suggestWorldLore(row) {
     await ensureWorldLoreModules();
     const world = state.editingWorld;
@@ -24658,6 +24725,18 @@ function normalizeWorldKernelConfig(world) {
     return config;
 }
 
+function worldReceiptRepairOutputLimit(configuredLimit, providerLimit = 0, contextLimit = 0, promptCharacters = 0) {
+    const configured = Math.max(1024, parseInt(configuredLimit, 10) || 4096);
+    const desired = Math.max(4096, Math.min(8192, configured * 2));
+    const providerCap = Number(providerLimit) > 0 ? Number(providerLimit) : Infinity;
+    const contextTokens = Number(contextLimit) > 0 ? Number(contextLimit) : Infinity;
+    const promptTokens = Math.ceil(Math.max(0, Number(promptCharacters) || 0) / 3.2);
+    const contextCap = Number.isFinite(contextTokens)
+        ? Math.max(256, contextTokens - promptTokens - Math.max(1000, Math.ceil(contextTokens * 0.01)))
+        : Infinity;
+    return Math.max(1, Math.floor(Math.min(desired, providerCap, contextCap)));
+}
+
 function normalizeWorldDiceConfig(world) {
     if (world) world.gameRules = isPlainObject(world.gameRules) ? world.gameRules : {};
     const raw = isPlainObject(world?.gameRules?.dice) ? world.gameRules.dice : {};
@@ -26765,7 +26844,9 @@ function recordEngineWorldTravel(world, sess, movement) {
         movement_mode: 'voluntary', caused_by_actor_id: null,
         participants: ['player'], witnessed_by: witnesses,
         evidence: `${sessionNpcs(worldForSession(world, sess), sess).find(npc => npc.id === id)?.name || id} accompanied the player to ${getLocationRef(world, toId)?.name || toId}.`,
-        cause: 'Active escort followed the player through a mapped exit.'
+        cause: movement.explicitCompanionsMoved?.includes(id)
+            ? 'The player took this companion through a mapped exit.'
+            : 'Active escort followed the player through a mapped exit.'
     }))];
     const receipt = {
         version: 1, turn_id: `engine_travel_${version}`,
@@ -28725,6 +28806,18 @@ function extractUserMovementTarget(userInput) {
         }
     }
 
+    // Players also use direct second-person commands in the story composer:
+    // "You take Cassy with you into the round room" is a player move to that
+    // mapped room. The named companion is handled separately by the travel
+    // reducer; never treat "take Cassy with you" alone as a destination.
+    if (!/^["'“‘]/.test(original)) {
+        const accompaniedMove = /(?:^|[.!?]\s+)(?:i|we|you)\s+(?:take|bring|lead|escort)\s+[^,.;!?]{1,100}?\s+with\s+(?:me|us|you)\s+(?:to|towards?|into|through|out(?:side)?(?:\s+of)?|inside)\s+([^,.;!?]+)/ig;
+        for (const match of actionText.matchAll(accompaniedMove)) {
+            const target = trimTarget(match[1]);
+            if (target) movementCandidates.push({ index: match.index, target });
+        }
+    }
+
     // A player may name a mapped edge rather than use "go": "I take the
     // single east-road exit to Marsh Causeway". Do not mistake an ordinary
     // "take the strap" inventory action for a move.
@@ -28780,6 +28873,16 @@ function extractUserMovementTarget(userInput) {
         }
     }
     return '';
+}
+
+function requestedWorldTravelCompanionIds(world, sess, userInput) {
+    const input = String(userInput || '').trim();
+    if (!input || /^["'“‘]/.test(input)) return [];
+    const request = input.match(/(?:^|[.!?]\s+)(?:i|we|you)\s+(?:take|bring|lead|escort)\s+([^,.;!?]{1,100}?)\s+with\s+(?:me|us|you)\s+(?:to|towards?|into|through|out(?:side)?(?:\s+of)?|inside)\b/i);
+    if (!request) return [];
+    const matches = findReferencedWorldNpcs(world, sess, request[1]);
+    return matches.length === 1 && sess.entityStates?.[matches[0].id]?.location === sess.playerLocation
+        ? [matches[0].id] : [];
 }
 
 function buildWorldMicroFrameEnvelope(world, sess, userInput) {
@@ -28931,10 +29034,13 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
         }
         return '';
     }
-    const result = movePlayerAlongWorldPath(world, sess, targetLoc);
+    const companionIds = requestedWorldTravelCompanionIds(view, sess, userInput);
+    const result = movePlayerAlongWorldPath(world, sess, targetLoc, { companionIds });
     if (!result.ok) {
         showToast(result.reason === 'impassable_destination'
             ? `${result.blockedLocationName || targetLoc.name} is impassable: ${result.blockedLabel || 'route closed'}.`
+            : result.reason === 'companion_unavailable'
+            ? `Your companion is not here or cannot travel with you right now.`
             : `${targetLoc.name} is not reachable from here.`, 'info');
         return '';
     }
@@ -28943,7 +29049,9 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
     showToast(`Heading to ${targetLoc.name}...`, 'info');
     rollForScenePopulation(sess.playerLocation, false);
     const routeDescription = (result.travelLegs || []).map(describeWorldTravelLeg).filter(Boolean).join('; ');
-    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''} Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
+    const companionNames = (result.explicitCompanionsMoved || []).map(id =>
+        sessionNpcs(view, sess).find(npc => npc.id === id)?.name || id);
+    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${companionNames.length ? `${companionNames.join(', ')} accompanied the player and is already present; do not emit another movement event for this companion.` : ''} ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''} Using a carried key for this trip does not by itself permanently unlock the door; if the player relocked it, its locked state remains unchanged. Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
 }
 
 function classifyWorldArrivalPacing(world, sess, location, snapshot, presentNpcs, absoluteMinute, hadEngineEvents = false) {
@@ -29212,6 +29320,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         if (command !== "init" && command !== "look" && command !== "continue") {
             labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
             const movementOrigin = sess.playerLocation;
+            const requestedCompanionIds = requestedWorldTravelCompanionIds(worldForSession(world, sess), sess, userInput);
             const originWitnesses = sessionNpcs(world, sess)
                 .filter(npc => sess.entityStates?.[npc.id]?.location === movementOrigin && isNpcActive(sess.entityStates[npc.id]))
                 .map(npc => npc.id);
@@ -29219,7 +29328,8 @@ async function executeWorldTurn(commandOrReroll = null) {
             if (sess.playerLocation !== movementOrigin) {
                 committedMovement = {
                     originId: movementOrigin,
-                    destinationId: sess.playerLocation
+                    destinationId: sess.playerLocation,
+                    companionIds: requestedCompanionIds
                 };
             }
             const outfitResult = applyPlayerOutfitIntent(sess, userInput)
@@ -29322,8 +29432,9 @@ async function executeWorldTurn(commandOrReroll = null) {
     if (globalThis.HordeWorldLore) {
         const packet = globalThis.HordeWorldLore.context(worldForSession(world, sess), { locationId: sess.playerLocation,
             npcIds: presentNPCs.map(n => n.id), query: userInput, session: sess });
+        packet.movementOptions = buildWorldMovementOptions(world, sess, presentNPCs.map(n => n.id), userInput);
         worldLoreContextSnapshots.set(sess.id, packet);
-        relevantLore = '\n[WORLD LORE — local place IDs, connections, doors and access. placeIndex contains only relevant places, not the whole world. npcPlaces lists which of those IDs each present NPC knows; other place names in this narrator packet are not NPC knowledge. Respect directed routes, locked doors and travel time. Do not invent places. Authored access, durable grants and this game’s current state remain authoritative.]\n' + JSON.stringify(packet);
+        relevantLore = '\n[WORLD LORE — authoritative source for movement between mapped places. Before proposing a place-to-place move, check movementOptions for that actor. Use only listed outgoing route IDs, modes and travel times. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcPlaces lists place IDs each present NPC knows.]\n' + JSON.stringify(packet);
         if (turnCallAudit?.metrics) turnCallAudit.metrics.loreCharacters = relevantLore.length;
     } else {
         relevantLore = (world.lorebook || []).filter(entry => entry.keyword && entry.text
@@ -29641,6 +29752,7 @@ Every response MUST submit exactly one commit_world_turn receipt, including pure
 - "walks toward", "tries", "plans", "starts", and hypothetical actions are intended/attempted/in_progress, not completed.
 - ${ruleModules.checks ? `If the player's attempted action has a meaningful failure risk established in the scene (especially a dangerous mechanism, locked obstacle, combat or rescue), request a check rather than choosing success in prose. If your prose requests or requires a check, the SAME commit_world_turn tool call MUST include root checks:[{label,stat_id,difficulty,on_success,on_failure}] (an inline <world_turn_receipt> fallback instead uses state_updates.checks as that same ARRAY). Use this World's default difficulty ${diceConfig.defaultDifficulty} when no DC was stated. Put durable success/failure state changes only in on_success/on_failure. Put prose-only possible consequences in success_text/failure_text at the check root, NEVER in on_success.summary or on_failure.summary. Do not narrate an outcome before resolution or ask the player for a raw die roll. Keep unresolved attempts as non-completed events; do not add an improvised inventory item without a separately valid completed transfer.` : 'Checks are disabled in this World; do not request a dice roll in prose.'}
 - scene.player_location_id and entity_updates.location_id are checksums only. They cannot move anyone.
+- Never emit root-level npc_moves or location_id to move someone. For a transition between mapped places, use WORLD LORE movementOptions and an exact actor/from/to ID. Movement within the current room/place needs no movement event or location ID and may be narrated normally.
 - A completed player move requires events[type=movement, actor_id=player] and must match the player's own intent, unless an explicit forced/carried/fall/vehicle event names its cause and responsible actor.
 - A completed NPC arrival/departure requires its own movement event.
 - When an NPC explicitly agrees to accompany the player, commit an escort event with actor_id=that NPC, target_id=player, action=join, status=completed, and evidence of their agreement. A request alone is not agreement. The engine then carries this NPC along mapped player travel; action=leave ends it. Do not narrate an absent NPC as accompanying the player unless the escort is already canonical.
@@ -29649,7 +29761,7 @@ Every response MUST submit exactly one commit_world_turn receipt, including pure
 - Include the complete ending cast in scene.present_character_ids, even when it did not change.
 - If the narrative visits a new place, register it with location_introduced in state_updates and use an actor-scoped movement event.
 - A named route is physically closed only when its location has an explicit route-blocking condition. If authoritative narration says a mapped route is impassable, severed, washed out or gone, commit state_updates.location_state_updates using the exact location ID and add_conditions:["impassable"]. A generic hazard such as "flooded" does not disable travel. A scout's or NPC's report is testimony, not physical fact: keep it attributed and uncertain until observed; never silently turn a claim into a blocked exit.
-- If an unnamed person becomes a named or recurring speaker, register them in state_updates.npc_introduced with a unique id, name, description and persona. They begin at the current scene; use that same id in scene.present_character_ids and entity_updates. Do not invent a new id for an already-authored NPC.
+- Use only people present in the authored world or explicitly introduced by the player. Do not invent a role NPC such as a porter, guard, driver, servant or helper to make a scene convenient. A role mentioned in prose is not evidence that the person exists. Background crowds may be brief scenery, but must not speak, act on the player's behalf, or become persistent NPCs. Add state_updates.npc_introduced only when the player explicitly introduces or requests a new person, or authored world data requires that introduction; then use the same exact ID in the scene and events. Never duplicate an authored NPC under a new ID.
 - When the player truly gains or loses a title, rank, allegiance, legal status, privilege, duty or holding, persist it with player_identity_update. Aspirations, disguises and rumors are not identity changes.
 - If the player asks about a deadline, action_resolution.outcome must answer with the actual deadline or explicitly say the NPC has not answered; merely recording the question is not a resolution. If a character gives the player a concrete urgent deadline or a choice with imminent stakes, register it with state_updates.world_events using a stable id, due_in_minutes or due_in_turns, and urgent:true. This is a PLAYER-KNOWN pressure, not proof that a rumor is true: describe the deadline neutrally and add condition_on_trigger only when the threatened change is already established as inevitable. When the player averts, fulfils or redirects it, update/cancel that SAME event id and commit the resulting observable change. If a reported warning already fired, cancelling its reminder alone does not erase the reached consequence: on a later turn supply a specific observed resolution and resolution_event_id naming its completed, evidenced event in this receipt; the resolution must describe the same evidence. Do not leave a claimed urgent threat as prose only or silently forget a choice to help, defer or refuse.
 
@@ -29802,6 +29914,7 @@ ${questPrompt}${npcContext}${engineEventsPrompt}${threadsPrompt}${livingWorldPro
         ].join('\n');
 
         let finalMandate = `\n\n[FINAL MANDATE]\n1. Stay in character as the DM. No OOC meta-talk.\n2. Current Environment: ${locName}. Exits: ${locExits}.\n3. NPC Integrity: honor each NPC's KNOWLEDGE BOUNDARY strictly. An NPC knows ONLY their listed observations and events they witnessed. Someone who just arrived or just woke perceived at most the trigger (a sound, a smell, a scream) — NEVER its cause, backstory, or details from scenes they missed. They enter asking questions, not reciting answers. Information moves between characters on-screen only.\n4. Turn Commit: Every response MUST emit one real commit_world_turn tool call. Even when nothing changes, submit the ending scene checksum with empty events and entity updates for the on-screen cast. Never print the receipt as ordinary prose.\n4a. Actor Integrity: Every durable action names its actor. NPC motion updates only that NPC. Never use a mentioned destination, another character's movement, or a scene-opening sentence to move the player.\n4b. Presence Is State: Record completed arrivals and departures as actor-scoped movement events and give the complete ending cast in scene.present_character_ids. Directional intention is not arrival.\n4c. Appearance Is State: Record dressing, stripping, equipment and lasting garment condition as outfit events for the correct actor. entity_updates reports what each on-screen person is wearing now.\n4d. Reality Levels: intended, attempted, in_progress and completed are different. Only completed events mutate reality. Dialogue, rumor, belief, plans and hypotheticals are not physical facts.\n4e. Movement Integrity: Known destinations require a valid route. New destinations must be introduced and connected first. Forced player movement must state its mode, cause and responsible actor.\n5. Narrative Requirement: ALWAYS include descriptive prose explaining what is happening. The receipt records the same reality as the prose.\n6. Chronological Integrity: Time is exactly ${exactTimeStr} (${period}). Do NOT describe lighting, meals, or events that contradict this exact time.\n7. Time Passage: Record meaningful elapsed time as a completed time event and in state_updates.time_skip_minutes when applicable.
+        finalMandate += '\n4c. Outfit detail: An outfit event must include a non-empty outfit description. If the actor has no established outfit and the scene establishes or changes their clothing, invent a plausible complete outfit consistent with their role, setting, weather and story. Do not emit an outfit event with outfit omitted or blank.';
 ${modularMandate}
 10. Permanence & Threads: When an NPC dies or leaves the world permanently, call 'npc_status_changes' — death is real and permanent. When the story plants a hook (an unopened letter, an unanswered question, a promise), register it with 'threads_update' and pay it off later; never let a planted hook silently evaporate.
 10a. CHRONICLE: Whenever canon changes, include one concise factual sentence in state_updates.ledger_update. Pure description, repetition, and small talk need no ledger entry. Never log plans as completed facts.
@@ -29977,7 +30090,7 @@ ${modularMandate}
                                     change: { type: "number" },
                                     label: { type: "string" },
                                     item: { type: "string" },
-                                    outfit: { type: "string" },
+                                    outfit: { type: "string", description: "Required for an outfit event. Describe the resulting complete outfit in a concise phrase. If no outfit is established, invent one that fits the character, setting, weather and story; never leave blank." },
                                     condition: { type: "string" },
                                     minutes_elapsed: { type: "integer" },
                                     observation: { type: "string" },
@@ -30006,7 +30119,7 @@ ${modularMandate}
                                     location_id: { type: "string" },
                                     activity: { type: "string" },
                                     interacting_with: { type: "array", items: { type: "string" } },
-                                    outfit: { type: "string" },
+                                    outfit: { type: "string", description: "Required for an outfit event. Describe the resulting complete outfit in a concise phrase. If no outfit is established and the scene establishes or changes clothing, invent one consistent with the character, setting, weather and story. Never leave this blank." },
                                     conditions: { type: "array", items: { type: "string" } }
                                 },
                                 required: ["entity_id", "location_id", "activity", "interacting_with"]
@@ -30473,7 +30586,7 @@ ${modularMandate}
                 type: 'object',
                 description: 'Required answer to the CURRENT player action. This outcome is committed before final player-facing narration.',
                 properties: {
-                    kind: { type: 'string', enum: ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'] },
+                    kind: { type: 'string', enum: ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'], description: 'Classify what the player actually did. A request or permission for an NPC to do something is speech, not a completed physical action by the player.' },
                     status: { type: 'string', enum: ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'] },
                     outcome: { type: 'string', description: 'One concrete, second-person player-facing sentence (you/your, not “the player”) saying what happened or why the action cannot yet resolve. Never merely repeat the request.' }
                 },
@@ -30532,6 +30645,9 @@ ${modularMandate}
             worldStateTool.function.parameters = HordeWorldSceneDraft.schema(worldStateProperties);
             worldStateTool.function.description = 'Submit one provisional scene draft with narrative and proposed changes. The engine builds the final receipt and ending scene.';
         }
+        const sceneDraftFieldGuide = sceneDrafts
+            ? `\n[SCENE DRAFT FIELD GUIDE — authoritative for this world]\nTop level: ${Object.keys(worldStateTool.function.parameters.properties).join(', ')}.\neffects may contain only these enabled fields: ${Object.keys(worldStateTool.function.parameters.properties.effects.properties).join(', ') || '(none)'}. Use effects:{} if there is no lasting change.\nAn event uses only these fields: ${Object.keys(worldStateTool.function.parameters.properties.events.items.properties).join(', ')}. Always give its type, actor_id, status and passage_id; include action/item for a transfer, from_location_id/to_location_id for a mapped move, outfit for a clothing change. Use exact IDs from WORLD LORE. Never create a new field to describe an action; use narrative for appearance and non-durable detail.`
+            : '';
 
         // Tool calling across OpenAI-compatible providers is not uniform. Give
         // every action turn an explicit textual emergency channel from turn
@@ -30548,7 +30664,9 @@ ${modularMandate}
             !Array.isArray(sess.revealedSecrets) || !sess.revealedSecrets.includes(secret.label));
         const escapeHatch = `\n\n[TURN RECEIPT DELIVERY FAILSAFE]\nUse commit_world_turn as a real tool call. If and only if this provider cannot emit that tool call, append exactly one block at the end instead:\n<world_turn_receipt>{"scene":{"player_location_id":"${sess.playerLocation}","player_location_changed":false,"present_character_ids":[]},"events":[],"entity_updates":[],"state_updates":{}${resolveFirst ? ',"action_resolution":{"kind":"other","status":"needs_clarification","outcome":"The action needs one more detail before the world can respond."}' : ''}}</world_turn_receipt>\nThe receipt is mandatory even when nothing changes. Fill it with the same actor-scoped events, full ending cast and updates you would have sent to the tool. Never send both a successful tool call and the tagged block.${resolveFirst ? '\nBefore any final scene is shown, decide how the current player action resolves. Put that concrete disposition in action_resolution. A physical success needs a completed player event or check; a risky unresolved attempt needs a check or an actor-scoped attempt. A question or speech act can be answered without changing durable state. Your initial prose, if any, is a PRIVATE draft; the engine will request final prose only after accepting the receipt.' : ''}${knownToolShy ? '\nThis model has previously failed to deliver tool calls, so use the tagged receipt rather than dropping state.' : ''}`;
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
-        const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Use actions to cover the exact full player request in order, with response_id referencing the passage answering each request. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. A speaker not in known actors must first be declared in effects.npc_introduced:[{id,name,persona}], using that exact id in speech/events. This includes an unnamed role like State Examiner. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Use actions to cover the exact full player request in order, with response_id referencing the passage answering each request. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        if (sceneDrafts) messages.push({ role: 'system', content:
+            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Put lasting door/passage changes in effects.location_state_updates or effects.exit_unlocks.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -30579,14 +30697,27 @@ ${modularMandate}
             tools: toolsConfig
         };
         const draftTransportKey = `${turnProvider}:${modelId}`;
-        const sceneJsonTransport = sceneDrafts && receiptFirstToolCall
-            && (sess.sceneDraftJsonModels || []).includes(draftTransportKey);
+        const lockedSceneSecret = currentSecrets.some(secret =>
+            !Array.isArray(sess.revealedSecrets) || !sess.revealedSecrets.includes(secret.label));
+        // Local tool calling does not necessarily constrain tool arguments to
+        // the declared schema. When no secret lookup tool is needed, use the
+        // backend's JSON-schema decoder to prevent invented keys and enum
+        // values before they reach scene validation.
+        const localSceneSchemaTransport = sceneDrafts && turnProvider === 'local' && !lockedSceneSecret;
+        const sceneJsonTransport = localSceneSchemaTransport || (sceneDrafts && receiptFirstToolCall
+            && (sess.sceneDraftJsonModels || []).includes(draftTransportKey));
         if (sceneJsonTransport) {
-            messages.push({role:'system',content:'[SCENE DRAFT JSON TRANSPORT]\nReturn only one JSON scene_draft_v2 object, not a function call, tags or prose outside JSON. Use this exact schema: '
-                + JSON.stringify(worldStateTool.function.parameters)});
+            messages.push({role:'system',content:'[SCENE DRAFT JSON TRANSPORT]\nReturn only one JSON scene_draft_v2 object, not a function call, tags or prose outside JSON.'
+                + (localSceneSchemaTransport ? ' The server enforces the supplied JSON schema.'
+                    : ' Use this exact schema: ' + JSON.stringify(worldStateTool.function.parameters))});
             requestBody.messages = sanitizeMessagesForProvider(messages);
             delete requestBody.tools;
             delete requestBody.tool_choice;
+            if (localSceneSchemaTransport) requestBody.response_format = {
+                type: 'json_schema', json_schema: {
+                    name: 'scene_draft_v2', schema: worldStateTool.function.parameters
+                }
+            };
         }
         const sceneDraftBaseVersion = sess.worldStateVersion || 0;
         if (turnProvider === 'openrouter') requestBody.provider = { require_parameters: true };
@@ -30635,12 +30766,10 @@ ${modularMandate}
         // The tool contract is provider input too. Check the actual outgoing
         // payload after compacting it; a conservative estimate prevents a
         // model call that silently drops the action or exceeds its window.
-        const estimatedInputTokens = Math.ceil(JSON.stringify({
-            messages: requestBody.messages, tools: requestBody.tools
-        }).length / TOKEN_DIVIDER);
-        if (turnCallAudit?.metrics) turnCallAudit.metrics.mainPromptCharacters = JSON.stringify({
-            messages: requestBody.messages, tools: requestBody.tools
-        }).length;
+        const outgoingScenePayload = JSON.stringify({ messages: requestBody.messages,
+            tools: requestBody.tools, response_format: requestBody.response_format });
+        const estimatedInputTokens = Math.ceil(outgoingScenePayload.length / TOKEN_DIVIDER);
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.mainPromptCharacters = outgoingScenePayload.length;
         if (estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
             const minimum = Math.ceil((estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER + 1024) / 1024) * 1024;
             throw new Error(`This World turn needs about ${minimum} context tokens including its tool contract, but the configured/model limit is ${CONTEXT_LIMIT}. Increase World Context Size or use a larger-context model. No model request was sent.`);
@@ -30668,6 +30797,10 @@ ${modularMandate}
         if (!response.ok) {
             let errBody = await HordeWorldModelClient.readText(response, controller.signal);
             recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, null);
+            if (localSceneSchemaTransport && [400, 404, 422].includes(response.status)
+                && /response_format|json_schema|grammar|schema/i.test(errBody)) {
+                throw new Error(`The local model server rejected the constrained World scene schema (HTTP ${response.status}). No story or world change was applied. Check that this server supports response_format json_schema, or use a compatible local endpoint. ${String(errBody).slice(0, 280)}`);
+            }
             if ((response.status === 400 || response.status === 404 || response.status === 422)
                 && /\btools?\b|tool_choice|tool_calls|function[_ -]?call|parallel_tool_calls|commit_world_turn|No endpoints found that can handle the requested parameters/i.test(errBody)) {
                 console.warn("Horde Engine: Model does not support tools. Retrying in Narrative Rescue mode.");
@@ -30910,7 +31043,8 @@ ${modularMandate}
                 present: buildWorldSceneFrame(world, sess).present_character_ids,
                 locations: (receiptView.locations || []).map(location => location.id),
                 commitments: sess.scheduledEvents || [], now: getWorldTimeData(world, sess).currentTotalMinutes,
-                effectKeys: Object.keys(worldStateTool.function.parameters.properties.effects.properties)
+                effectKeys: Object.keys(worldStateTool.function.parameters.properties.effects.properties),
+                contract: worldStateTool.function.parameters
             }) : null;
             if (compiled && !compiled.ok) {
                 rejectedReceiptProposal = args;
@@ -31049,7 +31183,7 @@ ${modularMandate}
             if (!attempt.accepted) {
                 rejectedReceiptProposal = args;
                 receiptValidationFeedback = (attempt.result?.committed?.audit?.rejected || [])
-                    .slice(0, 12).map(item => ({ reason: item.reason, type: item.type,
+                    .slice(0, 12).map(item => ({ index: item.index, reason: item.reason, type: item.type,
                         detail: item.detail, actor_id: item.actor_id }));
                 if (!receiptValidationFeedback.length) receiptValidationFeedback = [{
                     reason: 'reducer_rejected', type: 'receipt',
@@ -31255,7 +31389,7 @@ ${modularMandate}
                     ? `\nCRITICAL: ${rejectedCheckProposal ? 'A rejected tool proposal requested a dice check; no outcome was committed.' : 'The narrative explicitly requests a dice check.'} The requested roll IS pending state even before an outcome; state_updates:{} and a no-check receipt are invalid. Use state_updates:{"checks":[{"label":"specific action","stat_id":"exact rollable stat ID","difficulty":${diceConfig.defaultDifficulty},"on_success":{},"on_failure":{}}]} — checks MUST be an ARRAY with exactly one object, not a singleton object. The key is stat_id, NEVER rollable_stat_id. Rollable IDs: ${JSON.stringify(repairRollableStats)}. Use the narrative's numeric DC if present; otherwise use this World's default difficulty ${diceConfig.defaultDifficulty}. Put every result-dependent mutation inside the flat on_success/on_failure objects; never nest events, entity_updates or state_updates inside them and never supply a roll or force_resolve. An unresolved attempt has events:[] and entity_updates:[] unless an independent durable action already completed; do not invent an improvised inventory item from narrative materials. The engine will roll or queue the player roll according to this World's configured mode. Represent failure costs only with supported fields; do not invent an item or condition. Local check-unlockable exits: ${JSON.stringify(localCheckExits.map(exit => ({ from_location_id: currentRepairLocation.id, to_location_id: resolveWorldExitTarget(receiptView, exit).id })))}. If this is the gate-opening check, put exactly on_success:{"exit_unlocks":[{"from_location_id":"${currentRepairLocation?.id || ''}","to_location_id":"<exact local ID>"}]} inside the check, never at the receipt top level.`
                     : '';
                 const actionRepairInstruction = resolveFirst
-                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. A resolved physical act needs a completed player event or check. A pending check needs one structured check. Do not call a generic room description an answer to the action.'
+                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. Classify a request or permission for an NPC to do something as speech/question, not as a completed physical action by the player. A resolved physical act needs a completed player event or check. A pending check needs one structured check. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard or other role NPC. If the player asked for help, answer through a known NPC and do not claim an unrecorded transfer. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. Do not call a generic room description an answer to the action.'
                     : '';
                 const waitRepairInstruction = worldWaitReceiptRepairInstruction(submittedInput || userInput,
                     repairNarrative, currentTotalMinutes);
@@ -31271,11 +31405,12 @@ ${modularMandate}
                         + '\nA factual closure asserted in summary, ledger_update or a completed environment event also requires an exact-ID route-blocking location_state_update. An NPC report alone is unverified testimony.'
                         + WORLD_RESTRAINT_REPAIR_RULE }]
                 };
+                repairBody.messages[0].content += '\nGROUNDING OVERRIDE: Ignore any earlier wording that suggests adding a newly named person just because the narrative mentions them. Use only people present in authored world data or explicitly introduced by the player. Never invent a porter, helper, guard, servant or other role NPC. A request for an NPC to do something is the player speaking, not the player completing that physical action.';
                 const repairingScene = sceneDrafts && (HordeWorldSceneDraft.isDraft(rejectedReceiptProposal)
                     || !hasReadableWorldNarrative(repairNarrative));
                 if (repairingScene) {
                     const movementFailures = receiptValidationFeedback.some(item =>
-                        ['npc_access_denied', 'unreachable_npc_destination', 'player_movement_not_authorized',
+                        ['unknown_destination', 'npc_access_denied', 'unreachable_npc_destination', 'player_movement_not_authorized',
                             'insufficient_travel_time', 'actor_in_transit'].includes(item.reason));
                     const movementCorrection = movementFailures ? (() => {
                         const actorIds = [...new Set(receiptValidationFeedback.map(item => item.actor_id)
@@ -31293,18 +31428,39 @@ ${modularMandate}
                     turnCallAudit.correctionReasons = receiptValidationFeedback.map(item => ({
                         reason: item.reason, type: item.type, detail: String(item.detail || '').slice(0, 300)
                     }));
-                    repairBody.max_tokens = Math.max(1800, Math.min(4096, GEN_LIMIT));
                     repairBody.messages = [{ role: 'system', content:
                         `[WORLD SCENE DRAFT CORRECTION]\nReturn one compact JSON object only with protocol:"scene_draft_v2" and arrays narrative, actions, events, speech, commitments, resolutions plus an effects object. No reasoning, Markdown, repeated prose, ending checksum or legacy receipt. The proposal is uncommitted. Correct only the listed failures; preserve valid actions and fiction. Keep narrative to at most three short passages unless the player requested more. Use IDs to refer to passages rather than repeating their text. Empty arrays and effects:{} are valid when nothing changed. The engine checks every proposed action before it becomes canon.\nFailures: ${JSON.stringify(receiptValidationFeedback)}${movementCorrection}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown local locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nPlayer action: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}` }];
+                }
+                if (repairingScene) repairBody.messages[0].content += '\nUse only exact passage IDs present in narrative[].id for every response_id and passage_id; never invent or alter IDs. actions[].request must copy the full player input exactly in order, split into contiguous excerpts with no gaps. Allowed action kind values: physical, speech, question, observation, travel, wait, other. Allowed status values: resolved, answered, attempted, pending_check, blocked, needs_clarification. Do not put present_character_ids or activities inside effects; the engine computes the ending cast and does not accept these as effects. Add speech entries only for dialogue present in the draft, with exact known actor IDs (or player) for speaker and listeners. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard, servant or other role NPC. Background crowds may be scenery only, never actors or speakers. A request for an NPC to perform an action is the player speaking, not the player completing that physical action.';
+                if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. For a handshake, gesture, or other non-durable action, omit the event. Durable event types must use the allowed event vocabulary only.';
+                if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'unsupported_draft_effect')) {
+                    const allowedEffects = Object.keys(worldStateTool.function.parameters.properties.effects.properties);
+                    const rejectedEffects = receiptValidationFeedback.filter(item => item.reason === 'unsupported_draft_effect')
+                        .map(item => String(item.detail || '').slice(0, 120));
+                    repairBody.messages[0].content += `\nEFFECT CORRECTION: Unsupported fields: ${JSON.stringify(rejectedEffects)}. effects may contain only these enabled keys: ${JSON.stringify(allowedEffects)}. Preserve each intended, completed change using a matching actor-scoped event or allowed effect; never invent a new effect key. Omit an unsupported field only if it is a placeholder with no intended change. If its meaning is ambiguous, do not claim that change happened. effects:{} is valid when no lasting change occurred.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unsupported_event_type' && item.detail === 'posture')) {
+                    repairBody.messages[0].content += '\nPOSTURE CORRECTION: posture is not an event type. Preserve the described pose in the narrative. If it is a completed, lasting NPC state, use a typed activity event with the same actor_id, status:completed, passage_id and an activity string describing that pose. If it is only a momentary gesture, no durable event is needed. Preserve every other intended change.';
                 }
                 if (repairingScene && pendingSecretReveals.length) repairBody.messages.push({
                     role: 'system', content: `Verified investigate_secret results: ${JSON.stringify(
                         currentSecrets.filter(secret => pendingSecretReveals.includes(secret.label))
                             .map(secret => ({ label: secret.label, truth: secret.truth })))}. Use these discoveries in the scene draft. They become saved discoveries only if the draft commits.`
                 });
-                const plainSceneRepair = repairingScene && (sceneJsonTransport
+                const localSchemaRepair = repairingScene && turnProvider === 'local';
+                const plainSceneRepair = repairingScene && (sceneJsonTransport || localSchemaRepair
                     || receiptValidationFeedback.some(item => item.reason === 'invalid_tool_arguments'));
-                if (plainSceneRepair && !sceneJsonTransport) repairBody.messages.push({role:'system',content:
+                if (localSchemaRepair) {
+                    delete repairBody.tools;
+                    delete repairBody.tool_choice;
+                    delete repairBody.parallel_tool_calls;
+                    repairBody.response_format = { type: 'json_schema', json_schema: {
+                        name: 'scene_draft_v2', schema: worldStateTool.function.parameters
+                    } };
+                    repairBody.messages[0].content += sceneDraftFieldGuide;
+                }
+                if (plainSceneRepair && !sceneJsonTransport && !localSchemaRepair) repairBody.messages.push({role:'system',content:
                     'The provider function-call channel failed. Do not use it again. Return only a valid JSON object matching this schema, no tags or function tokens: '
                     + JSON.stringify(worldStateTool.function.parameters)});
                 if (turnProvider === 'openrouter' && !plainSceneRepair) {
@@ -31312,6 +31468,18 @@ ${modularMandate}
                     repairBody.tool_choice = { type: 'function', function: { name: 'commit_world_turn' } };
                     repairBody.provider = { require_parameters: true };
                 }
+                const repairModelInfo = typeof openRouterModels !== 'undefined'
+                    ? openRouterModels.find(model => model.id === repairBody.model) : null;
+                const repairPromptCharacters = JSON.stringify({
+                    messages: repairBody.messages, tools: repairBody.tools || [],
+                    response_format: repairBody.response_format
+                }).length;
+                // A scene-draft repair must reconstruct narrative and state together. Give
+                // that rare recovery request more room than the truncated first response,
+                // while honoring advertised provider and remaining context limits.
+                const repairBudgetBase = repairingScene ? GEN_LIMIT : Math.min(GEN_LIMIT, 2048);
+                repairBody.max_tokens = worldReceiptRepairOutputLimit(repairBudgetBase,
+                    repairModelInfo?.top_provider?.max_completion_tokens, CONTEXT_LIMIT, repairPromptCharacters);
                 const initialRepairInstruction = repairBody.messages[0].content;
                 for (let repairAttempt = 0; repairAttempt < (repairingScene ? 1 : 2) && !repairedReceiptApplied; repairAttempt++) {
                     if (repairAttempt) repairBody.messages = [{ role: 'system', content:
@@ -31337,7 +31505,7 @@ ${modularMandate}
                     if (sceneDrafts && HordeWorldSceneDraft.isDraft(repairedReceipt)) {
                         const candidate = commitReceiptCandidate(repairedReceipt, 'repair_scene_draft');
                         if (candidate.accepted) {
-                            if (plainSceneRepair) sess.sceneDraftJsonModels = [...new Set([
+                            if (plainSceneRepair && turnProvider !== 'local') sess.sceneDraftJsonModels = [...new Set([
                                 ...(sess.sceneDraftJsonModels || []),draftTransportKey])].slice(-20);
                             structuredChronicle = candidate.actionResult?.ledgerEntry || null;
                             resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -31812,10 +31980,74 @@ ${modularMandate}
         // pseudo-tool payload is not a readable scene even if it is nonempty.
         if (frozenReceiptApplied) {
             const verificationReason = receiptValidationFeedback[0]?.reason;
+            const unsupportedEventRejection = receiptValidationFeedback.find(item => item?.reason === 'unsupported_event_type');
+            const proposedEvents = Array.isArray(rejectedReceiptProposal?.events)
+                ? rejectedReceiptProposal.events
+                : Array.isArray(rejectedReceiptProposal?.receipt?.events)
+                    ? rejectedReceiptProposal.receipt.events : [];
+            const unsupportedEventIndex = Number(unsupportedEventRejection?.index);
+            const unsupportedEvent = Number.isInteger(unsupportedEventIndex) && unsupportedEventIndex >= 0
+                ? proposedEvents[unsupportedEventIndex] : null;
+            const unknownDestinationRejection = receiptValidationFeedback.find(item => item?.reason === 'unknown_destination');
+            const unknownDestinationIndex = Number(unknownDestinationRejection?.index);
+            const unknownDestinationEvent = Number.isInteger(unknownDestinationIndex) && unknownDestinationIndex >= 0
+                ? proposedEvents[unknownDestinationIndex] : null;
+            const describeRejectedField = value => {
+                if (value === null || value === undefined || value === '') return '';
+                const text = typeof value === 'string' ? value : JSON.stringify(value);
+                return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+            };
+            const unsupportedEventDetails = unsupportedEvent
+                ? ` (actor: ${describeRejectedField(unsupportedEvent.actor_id || unsupportedEventRejection?.actor_id) || 'unspecified'}; proposed event: ${JSON.stringify(unsupportedEvent).replace(/\s+/g, ' ').slice(0, 240)})`
+                : '';
+            const unsupportedEventGuidance = unsupportedEventRejection?.detail === 'posture'
+                ? ' A completed, lasting pose belongs in an activity event with activity text; a momentary pose belongs in scene narration.'
+                : '';
+            const unknownDestination = describeRejectedField(unknownDestinationEvent?.to_location_id
+                || unknownDestinationEvent?.to || unknownDestinationEvent?.location_id
+                || unknownDestinationRejection?.detail);
+            const unknownDestinationActor = describeRejectedField(unknownDestinationEvent?.actor_id
+                || unknownDestinationRejection?.actor_id) || 'unspecified';
+            const unscopedMutationRejection = receiptValidationFeedback.find(item => item?.reason === 'unscoped_actor_mutation');
+            const unscopedMutationField = describeRejectedField(unscopedMutationRejection?.detail);
+            const missingOutfitRejection = receiptValidationFeedback.find(item => item?.reason === 'missing_outfit');
+            const missingOutfitActor = describeRejectedField(missingOutfitRejection?.actor_id) || 'the actor';
+            const unsupportedDraftEffect = describeRejectedField(receiptValidationFeedback
+                .find(item => item?.reason === 'unsupported_draft_effect')?.detail);
+            const unsupportedDraftField = describeRejectedField(receiptValidationFeedback
+                .find(item => item?.reason === 'unsupported_draft_field')?.detail);
+            const unsupportedEffectKey = unsupportedDraftEffect.startsWith('effects.')
+                ? unsupportedDraftEffect.slice('effects.'.length).split(':')[0] : '';
+            const proposedEffects = rejectedReceiptProposal?.effects;
+            const unsupportedEffectValue = unsupportedEffectKey && proposedEffects
+                && Object.prototype.hasOwnProperty.call(proposedEffects, unsupportedEffectKey)
+                ? String(JSON.stringify(proposedEffects[unsupportedEffectKey]) ?? '(undefined)')
+                    .replace(/\s+/g, ' ').slice(0, 120) : '';
+            const unscopedMutationGuidance = unscopedMutationField === 'npc_moves'
+                ? ' NPC movement must be a completed movement event with the exact NPC actor ID and a Lore-authorized route.'
+                : unscopedMutationField === 'location_id'
+                    ? ' Player movement must be a completed movement event matching the player’s stated destination and an authorized route.'
+                    : ['inventory_add', 'inventory_remove'].includes(unscopedMutationField)
+                        ? ' Item changes must be inventory events with an explicit actor, action and item.'
+                        : ' Put the change in an actor-scoped event or entity update; do not use an unscoped receipt field.';
             const verificationHint = verificationReason === 'truncated_receipt'
                 ? ' The model reached its output limit before finishing the state receipt.'
                 : verificationReason === 'invalid_receipt_envelope'
                     ? ' The model did not return the required state receipt format.'
+                    : verificationReason === 'unsupported_event_type'
+                        ? ` Unsupported event type: ${unsupportedEventRejection?.detail || '(missing type)'}${unsupportedEventDetails}.${unsupportedEventGuidance}`
+                    : verificationReason === 'missing_outfit'
+                        ? ` Outfit event for ${missingOutfitActor} had no description. If no outfit is established, invent a plausible one that fits the story and include it in the event.`
+                    : verificationReason === 'unsupported_draft_effect'
+                        ? ` Unsupported scene effect: ${unsupportedDraftEffect || '(field not reported)'}${unsupportedEffectValue ? ` = ${unsupportedEffectValue}` : ''}. The proposal remains uncommitted; this field must be expressed through an allowed event or effect before it can change the world.`
+                    : verificationReason === 'unsupported_draft_field'
+                        ? ` Unsupported scene field: ${unsupportedDraftField || '(field not reported)'}. The provider returned a key outside this world's scene schema; the proposal remains uncommitted.`
+                    : verificationReason === 'unknown_destination'
+                        ? unknownDestination
+                            ? ` Unknown movement destination: ${unknownDestination} (actor: ${unknownDestinationActor}). The destination ID or name does not match a place in this world.`
+                            : ` Movement event for ${unknownDestinationActor} has no destination. If this is movement within the same room/place, omit the movement event; only movement between mapped places needs an exact destination ID.`
+                    : verificationReason === 'unscoped_actor_mutation'
+                        ? ` Unscoped actor change: ${unscopedMutationField || '(field not reported)'}.${unscopedMutationGuidance}`
                     : verificationReason === 'npc_access_denied' || verificationReason === 'unreachable_npc_destination'
                         ? ' An NPC movement conflicted with the saved map, access or place knowledge.'
                         : verificationReason ? ` Verification reason: ${verificationReason}.` : '';
@@ -32146,7 +32378,8 @@ ${modularMandate}
         let movementPreserved = false;
         if (world && sess && committedMovement && !isReroll) {
             const target = world.locations.find(location => location.id === committedMovement.destinationId);
-            const movement = target ? movePlayerAlongWorldPath(world, sess, target, { showTravelToast: false }) : null;
+            const movement = target ? movePlayerAlongWorldPath(world, sess, target, {
+                showTravelToast: false, companionIds: committedMovement.companionIds || [] }) : null;
             if (movement?.ok && movement.moved) {
                 movementPreserved = true;
                 if (normalizeWorldGameRules(world).modules.livingWorld) {
@@ -34676,6 +34909,20 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     if (path.length === 1) return { ok: true, moved: false, reason: 'already_there', path };
 
     const previousLocation = sess.playerLocation;
+    const explicitCompanions = [...new Set(Array.isArray(options.companionIds) ? options.companionIds : [])]
+        .filter(id => typeof id === 'string');
+    // The player opens the mapped route with their own key. A named, present
+    // companion may use that same open door and learn the route while being
+    // guided; they need not carry a second copy of the key or know the room
+    // beforehand. This is one accompanied journey, not a durable access grant.
+    const blockedCompanion = explicitCompanions.find(id => {
+        const npcState = sess.entityStates?.[id];
+        return !npcState || npcState.location !== previousLocation || npcState.journey
+            || !isNpcActive(npcState);
+    });
+    if (blockedCompanion) return { ok: false, moved: false,
+        reason: 'companion_unavailable', blockedCompanion,
+        blockedLocationName: targetLocation.name, path: [] };
     const travelLegs = path.slice(1).map((toId, index) => getWorldTravelLeg(travelWorld, path[index], toId, sess)).filter(Boolean);
     if (selectedExit && travelLegs[0]) {
         const details = typeof options.exit === 'object' ? options.exit : {};
@@ -34689,10 +34936,11 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     const followersMoved = sessionNpcs(travelWorld, sess)
         .filter(npc => {
             const npcState = sess.entityStates?.[npc.id];
-            return npcState?.followingPlayer === true && npcState.location === previousLocation
+            return (npcState?.followingPlayer === true || explicitCompanions.includes(npc.id))
+                && npcState.location === previousLocation
                 && !npcState.journey && isNpcActive(npcState)
-                && path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok
-                    && (!globalThis.HordeWorldLore || globalThis.HordeWorldLore.placeAwareness(travelWorld, npc.id, id, sess).known));
+                && (explicitCompanions.includes(npc.id)
+                    || path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok));
         }).map(npc => npc.id);
     sess.playerLocation = targetLocation.id;
     // A monotonic marker lets short-lived conditional promises distinguish
@@ -34720,7 +34968,8 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         path,
         travelMinutes,
         travelLegs,
-        followersMoved
+        followersMoved,
+        explicitCompanionsMoved: followersMoved.filter(id => explicitCompanions.includes(id))
     };
 }
 
@@ -39412,6 +39661,80 @@ function calibrateStructuralFindings(world, preset) {
     const findings = [];
     const locations = Array.isArray(world.locations) ? world.locations : [];
     const add = finding => findings.push({ tier: 'structure', ...finding });
+    // Missing lockState uses the runtime's ordinary unlocked default. Only an
+    // explicit "unknown" value needs a reviewable decision here.
+    const lockWords = /\b(?:locked|sealed|barred|bolted)\b/i;
+    const negatedLockWords = /\b(?:unlocked|not\s+locked|never\s+locked|not\s+sealed|never\s+sealed)\b/i;
+    locations.forEach(location => {
+        (Array.isArray(location.exits) ? location.exits : []).forEach((exit, exitIndex) => {
+            const targetName = getExitTargetName(exit);
+            const target = locations.find(item => item.id === targetName
+                || String(item.name || '').trim().toLowerCase() === String(targetName || '').trim().toLowerCase());
+            const state = exit && typeof exit === 'object' ? exit.lockState : '';
+            if (state !== 'unknown' || exit?.requiredItem || exit?.allowCheckUnlock) return;
+            // Only the route's own authored label is evidence about this door.
+            // A target room may mention some other locked object; that should
+            // not silently make this route appear locked.
+            const sourceText = String(typeof exit === 'string' ? exit : exit?.text || '');
+            if (lockWords.test(sourceText) && !negatedLockWords.test(sourceText)) return;
+            add({ id: `exit_open_${location.id}_${exitIndex}`, type: 'set_exit_lock_state', severity: 'suggestion',
+                title: `Start the route ${location.name || location.id} → ${target?.name || targetName || 'destination'} unlocked`,
+                detail: 'No lock or key is described for this route. Sets the initial state to unlocked; review before applying.',
+                patch: { locationId: location.id, exitIndex, lockState: 'unlocked' } });
+        });
+    });
+
+    // A character who starts, lives, or has an authored schedule in a place
+    // necessarily knows that place exists. Resolve only this direct conflict;
+    // other NPC/faction awareness remains an author decision.
+    const placeByRef = new Map();
+    [...(world.regions || []), ...locations].forEach(place => {
+        placeByRef.set(String(place.id || '').toLowerCase(), place);
+        if (place.name) placeByRef.set(String(place.name).trim().toLowerCase(), place);
+    });
+    (world.entities || []).filter(entity => entity?.type === 'npc').forEach(entity => {
+        const familiarRefs = [entity.startLocation, entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .filter(Boolean);
+        const familiarIds = new Set(familiarRefs.map(ref => placeByRef.get(String(ref).trim().toLowerCase())?.id).filter(Boolean));
+        familiarIds.forEach(placeId => {
+            const place = placeByRef.get(String(placeId).toLowerCase());
+            if (!place) return;
+            const awareness = globalThis.HordeWorldLore?.placeAwareness?.(world, entity.id, place.id);
+            if (awareness ? awareness.known : place.placeAwareness?.npcs?.[entity.id] !== 'unknown') return;
+            add({ id: `schedule_awareness_${placeId}_${entity.id}`, type: 'set_place_awareness', severity: 'warning',
+                title: `${entity.name || entity.id} knows ${place.name || placeId} exists`,
+                detail: 'This is their start, home, or scheduled place, so an explicit unknown rule makes the authored placement impossible.',
+                patch: { placeId, npcId: entity.id, decision: 'know' } });
+        });
+
+        // An NPC can have a valid schedule destination yet fail its journey
+        // because the route passes through a place an explicit area rule hides
+        // from them. Offer individual knowledge for only those intermediate
+        // places on a real, currently open map path; this leaves faction rules
+        // intact and never invents an alternate connection or grants access.
+        const stops = [entity.startLocation || entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .map(ref => placeByRef.get(String(ref || '').trim().toLowerCase())?.id).filter(Boolean);
+        for (let index = 1; index < stops.length; index++) {
+            const fromId = stops[index - 1], toId = stops[index];
+            if (fromId === toId) continue;
+            const path = findWorldTravelPath(world, fromId, toId);
+            if (!path || path.length < 3) continue;
+            path.slice(1, -1).forEach(placeId => {
+                const place = placeByRef.get(String(placeId).toLowerCase());
+                if (!place) return;
+                const awareness = globalThis.HordeWorldLore?.placeAwareness?.(world, entity.id, place.id);
+                if (awareness ? awareness.known : place.placeAwareness?.npcs?.[entity.id] !== 'unknown') return;
+                const findingId = `route_awareness_${place.id}_${entity.id}`;
+                if (findings.some(finding => finding.id === findingId)) return;
+                add({ id: findingId, type: 'set_place_awareness', severity: 'warning',
+                    title: `${entity.name || entity.id} knows the route through ${place.name || place.id}`,
+                    detail: `Their authored schedule connects ${fromId} to ${toId} through this currently open place. Adds an individual knowledge exception without changing faction rules or entry rights.`,
+                    patch: { placeId: place.id, npcId: entity.id, decision: 'know' } });
+            });
+        }
+    });
     for (const place of [...(world.regions || []), ...(world.locations || [])]) {
         for (const [bucket, source] of [['npcs', (world.entities || []).filter(entity => entity.type !== 'item')], ['factions', world.factions || []]]) {
             for (const id of Object.keys(place.placeAwareness?.[bucket] || {})) {
@@ -39629,6 +39952,18 @@ function applyCalibrationFinding(world, finding) {
             delete bucket[finding.patch.id];
             return true;
         }
+        case 'set_place_awareness': {
+            const place = [...(world.regions || []), ...locations].find(item => item.id === finding.patch.placeId);
+            const npc = (world.entities || []).find(item => item.type === 'npc' && item.id === finding.patch.npcId);
+            if (!place || !npc || finding.patch.decision !== 'know'
+                || place.placeAwareness?.npcs?.[npc.id] === 'know') return false;
+            place.placeAwareness = place.placeAwareness && typeof place.placeAwareness === 'object'
+                ? place.placeAwareness : { includeChildren: false, npcs: {}, factions: {} };
+            place.placeAwareness.npcs = place.placeAwareness.npcs && typeof place.placeAwareness.npcs === 'object'
+                ? place.placeAwareness.npcs : {};
+            place.placeAwareness.npcs[npc.id] = finding.patch.decision;
+            return true;
+        }
         case 'set_start_location':
             world.startLocationId = finding.patch.startLocationId;
             return true;
@@ -39709,6 +40044,17 @@ function applyCalibrationFinding(world, finding) {
                 : { ...exit, travelTime: finding.patch.minutes };
             return true;
         }
+        case 'set_exit_lock_state': {
+            const location = locations.find(item => item.id === finding.patch.locationId);
+            const exit = location?.exits?.[finding.patch.exitIndex];
+            if (!exit || !['locked', 'unlocked'].includes(finding.patch.lockState)
+                || exit?.requiredItem || exit?.allowCheckUnlock
+                || ['locked', 'unlocked'].includes(exit?.lockState)) return false;
+            location.exits[finding.patch.exitIndex] = typeof exit === 'string'
+                ? { text: exit, lockState: finding.patch.lockState }
+                : { ...exit, lockState: finding.patch.lockState };
+            return true;
+        }
         case 'set_entity_location':
         case 'set_entity_home': {
             const entity = (world.entities || []).find(e => e.id === finding.patch.entityId);
@@ -39778,6 +40124,12 @@ function applyCalibrationFinding(world, finding) {
             if (!location || String(location.description || '').trim()) return false;
             location.description = String(finding.patch.description || '').trim().slice(0, 4000);
             return Boolean(location.description);
+        }
+        case 'set_region_description': {
+            const region = (world.regions || []).find(item => item.id === finding.patch.regionId);
+            if (!region || String(region.description || '').trim()) return false;
+            region.description = String(finding.patch.description || '').trim().slice(0, 4000);
+            return Boolean(region.description);
         }
         case 'set_location_region': {
             const location = locations.find(l => l.id === finding.patch.locationId);
@@ -40081,7 +40433,7 @@ Reply with only this JSON: {"beats":["...","..."],"next_goal":"..."}` },
 const CALIBRATION_PASSES = Object.freeze({
     structure: {
         label: 'Structure',
-        blurb: 'Which places sit inside which, how they are laid out, and how long it takes to walk between them.'
+        blurb: 'Place hierarchy, region descriptions, physical route gaps and travel times. Also proposes the place knowledge needed by authored NPC schedules; access rules stay unchanged.'
     },
     people: {
         label: 'People',
@@ -40305,6 +40657,37 @@ function calibrationLocationDigest(world, batch) {
     }).join('\n');
 }
 
+function calibrationScheduleRouteGaps(world, batch) {
+    const locations = Array.isArray(world?.locations) ? world.locations : [];
+    const byKey = new Map();
+    locations.forEach(location => {
+        byKey.set(String(location.id || '').toLowerCase(), location);
+        if (location.name) byKey.set(String(location.name).trim().toLowerCase(), location);
+    });
+    const included = new Set((batch || locations).map(location => location.id));
+    const seen = new Set();
+    const gaps = [];
+    (world?.entities || []).filter(entity => entity?.type === 'npc').forEach(entity => {
+        const stops = [entity.startLocation || entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .map(ref => byKey.get(String(ref || '').trim().toLowerCase())?.id).filter(Boolean);
+        for (let index = 1; index < stops.length; index++) {
+            const fromId = stops[index - 1], toId = stops[index];
+            if (fromId === toId || (!included.has(fromId) && !included.has(toId))) continue;
+            // Report only missing physical topology. A mapped route blocked by
+            // permission, knowledge or a locked door must be fixed at that
+            // rule, not hidden by inventing a second route.
+            if (findWorldTravelPath(world, fromId, toId, { ignoreRequirements: true })?.length) continue;
+            const key = `${fromId}>${toId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const from = byKey.get(fromId.toLowerCase()), to = byKey.get(toId.toLowerCase());
+            if (from && to) gaps.push({ from, to, npc: entity.name || entity.id });
+        }
+    });
+    return gaps;
+}
+
 function calibrationPeopleDigest(world, batch) {
     const npcs = batch || (world.entities || []).filter(entity => entity.type === 'npc');
     return npcs.map(entity => {
@@ -40441,8 +40824,10 @@ For each location decide, ONLY where the world has not already said:
 - role: one of region, route, building, outdoor, room, area
 - inside: the id of the place that physically contains it (a bathroom is inside a house; a house is not inside anything). Omit for top-level places.
 - floor: a storey number when a building has more than one ("2", "-1" for a cellar). Omit otherwise.
-- connect_to: for any place NOTHING leads to, the id of the location it should connect to, judged from the fiction.
+- connect_to: for a disconnected place or a listed NPC schedule pair with no physical path, the id of a plausible existing location it should connect to, judged from the fiction and route index below. Propose a new connection only when the supplied descriptions support that physical route. Never invent a connection to work around a locked door, unknown area or denied access.
 - tags: 2-6 short search terms for the place, its function and atmosphere
+
+For each listed region with no description, also supply one concise description in regions[]. Do not rewrite an existing region description.
 
 Also estimate walking time in whole minutes for each connection that has none. Be realistic and modest: a door between two rooms of one house is 0-1 minutes; crossing a village 5-15; travelling between settlements 30-240. Never propose a time for a connection that already has one.
 
@@ -40450,6 +40835,7 @@ OUTPUT FORMAT — this is strict:
 Your entire reply is one JSON object and nothing else. The first character you write must be {. Do not restate the task, do not reason in the open, do not add commentary before or after. If you want to justify a decision, put it in that item's "why" field — that is what it is for.
 
 {"locations":[{"id":"<id>","description":"<text>","region":"<region id or name>","role":"<role>","inside":"<id or omit>","floor":"<string or omit>","connect_to":"<id or omit>","tags":["<tag>"],"why":"<short>"}],
+ "regions":[{"id":"<existing region id>","description":"<text>"}],
  "travel":[{"from":"<id>","to":"<id>","minutes":<integer>}]}
 
 Omit any array you are not using, and omit any field you have no opinion on. Never invent locations that are not listed.
@@ -40459,8 +40845,19 @@ ${world.description ? `PREMISE: ${String(world.description).slice(0, 400)}\n` : 
 LOCATIONS:
 ${calibrationLocationDigest(world, batch)}
 
+CURRENT ROUTE INDEX (exact IDs; containment edges also count as routes):
+${(world.locations || []).map(location => `[${location.id}] -> ${(location.exits || []).map(exit => {
+        const targetName = String(getExitTargetName(exit) || '').trim().toLowerCase();
+        const target = (world.locations || []).find(item => item.id === targetName
+            || String(item.name || '').trim().toLowerCase() === targetName);
+        return target?.id || '';
+    }).filter(Boolean).join(',') || '-'}${location.parentLocationId ? `; inside=${location.parentLocationId}` : ''}`).join('\n')}
+
+NPC SCHEDULE ROUTE GAPS (physical topology only; do not change access, place knowledge or lock rules):
+${calibrationScheduleRouteGaps(world, batch).map(gap => `- ${gap.npc}: [${gap.from.id}] ${gap.from.name} → [${gap.to.id}] ${gap.to.name}`).join('\n') || '(none in this batch)'}
+
 EXISTING REGIONS:
-${(world.regions || []).length ? world.regions.map(region => `- [${region.id}] "${region.name}"`).join('\n') : '(none — create only broad reusable regions the listed places clearly imply)'}`;
+ ${(world.regions || []).length ? world.regions.map(region => `- [${region.id}] "${region.name}"${region.description ? ` — already described: ${String(region.description).replace(/\s+/g, ' ').slice(0, 180)}` : ' — description missing'}`).join('\n') : '(none — create only broad reusable regions the listed places clearly imply)'}`;
 }
 
 // Turn a pass's reply into reviewable findings. Anything the world already
@@ -40543,7 +40940,31 @@ function calibrationFindingsFromStructure(world, payload) {
 
         const connectId = String(entry?.connect_to || '').trim();
         const connectTo = byId.get(connectId);
-        if (connectTo && connectTo.id !== location.id && !(location.exits || []).length) {
+        const hasPath = targetId => {
+            const seenPlaces = new Set([location.id]);
+            const queue = [location.id];
+            while (queue.length) {
+                const currentId = queue.shift();
+                if (currentId === targetId) return true;
+                const current = byId.get(currentId);
+                const neighbors = [];
+                (current?.exits || []).forEach(exit => {
+                    const ref = String(getExitTargetName(exit) || '').trim().toLowerCase();
+                    const target = byId.get(ref) || [...byId.values()].find(item => String(item.name || '').trim().toLowerCase() === ref);
+                    if (target) neighbors.push(target.id);
+                });
+                const parentRef = String(current?.parentLocationId || current?.region || '').trim().toLowerCase();
+                const parent = byId.get(parentRef) || [...byId.values()].find(item => String(item.name || '').trim().toLowerCase() === parentRef);
+                if (parent) neighbors.push(parent.id);
+                byId.forEach(candidate => {
+                    const ref = String(candidate.parentLocationId || candidate.region || '').trim().toLowerCase();
+                    if (ref === currentId || ref === String(current?.name || '').trim().toLowerCase()) neighbors.push(candidate.id);
+                });
+                neighbors.forEach(id => { if (!seenPlaces.has(id)) { seenPlaces.add(id); queue.push(id); } });
+            }
+            return false;
+        };
+        if (connectTo && connectTo.id !== location.id && !hasPath(connectTo.id)) {
             findings.push({
                 tier: 'structure', id: `connect_${location.id}`, type: 'connect_location', severity: 'critical',
                 title: `Connect "${location.name}" to "${connectTo.name}"`,
@@ -40552,6 +40973,16 @@ function calibrationFindingsFromStructure(world, payload) {
                          sourceName: location.name }
             });
         }
+    });
+
+    const regionsById = new Map((world.regions || []).map(region => [String(region.id), region]));
+    (Array.isArray(payload?.regions) ? payload.regions : []).forEach(entry => {
+        const region = regionsById.get(String(entry?.id || ''));
+        const description = String(entry?.description || '').trim();
+        if (!region || String(region.description || '').trim() || !description) return;
+        findings.push({ tier: 'structure', id: `region_description_${region.id}`, type: 'set_region_description',
+            severity: 'suggestion', title: `Describe region "${region.name || region.id}"`,
+            detail: description.slice(0, 240), patch: { regionId: region.id, description } });
     });
 
     (Array.isArray(payload?.travel) ? payload.travel : []).forEach(entry => {
@@ -40866,7 +41297,10 @@ async function runCalibrationPass(world, pass, onProgress) {
         throw new Error(`Nothing left for the ${CALIBRATION_PASSES[pass].label} pass to settle — this world already states everything it looks at.`);
     }
 
-    const findings = [];
+    const findings = pass === 'structure'
+        ? calibrateStructuralFindings(world, getAllPresets().find(preset => preset.id === world.activePresetId))
+            .filter(finding => ['set_exit_lock_state', 'set_place_awareness'].includes(finding.type))
+        : [];
     const failures = [];
     let cutShort = 0;
     // Carried across batches so a member found late can join a power that an
@@ -41001,7 +41435,7 @@ function parseCalibrationPayload(raw) {
     // relationships/places/factions/memberships, none of which were listed
     // here — so a complete, perfectly valid Society reply was rejected as
     // unusable and reported as a model failure. It could never have worked.
-    const PAYLOAD_KEYS = ['locations', 'travel', 'people', 'items',
+    const PAYLOAD_KEYS = ['locations', 'regions', 'travel', 'people', 'items',
         'relationships', 'places', 'factions', 'memberships'];
     const usable = value => value && typeof value === 'object' && !Array.isArray(value)
         && PAYLOAD_KEYS.some(key => Array.isArray(value[key]));
@@ -41601,7 +42035,7 @@ function renderWorldAudit() {
     // call. Shown before the AI audit because it costs nothing and fixes the
     // faults that stop a world working at all.
     const calibration = calibrateStructuralFindings(world, getAllPresets().find(p => p.id === world.activePresetId));
-    const directlyFixableTypes = new Set(['set_start_location', 'raise_context_size', 'add_reciprocal_exit', 'set_map_type', 'set_containment', 'set_floor', 'connect_location', 'remove_missing_awareness_ref']);
+    const directlyFixableTypes = new Set(['set_start_location', 'raise_context_size', 'add_reciprocal_exit', 'set_map_type', 'set_containment', 'set_floor', 'connect_location', 'remove_missing_awareness_ref', 'set_exit_lock_state', 'set_place_awareness']);
     const fixable = calibration.filter(f => directlyFixableTypes.has(f.type));
     const directoryHealthHtml = `${renderWorldMigrationSection(world)}<div class="world-health-card">
         <div class="world-health-score"><strong>${directoryHealth.score}</strong><span>/100</span></div>

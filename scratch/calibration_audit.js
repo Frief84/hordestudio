@@ -15,17 +15,33 @@ const vm = require('node:vm');
 const { app, functionSource, asyncFunctionSource, buildContext } = require('./app_source.js');
 
 const context = { console: { warn() {}, log() {} } };
+context.runCalibrationBatch = async () => ({ findings: [], truncated: false });
+context.getAllPresets = () => [];
+const findPhysicalPath = (world, fromId, toId) => {
+    const queue = [[fromId]], seen = new Set([fromId]);
+    while (queue.length) {
+        const path = queue.shift(), current = (world.locations || []).find(item => item.id === path.at(-1));
+        if (path.at(-1) === toId) return path;
+        (current?.exits || []).forEach(exit => {
+            const ref = String(typeof exit === 'string' ? exit : exit?.targetLocationId || exit?.text || '').replace(/^.*?\bto\s+/i, '').trim();
+            const next = (world.locations || []).find(item => item.id === ref || item.name === ref)?.id;
+            if (next && !seen.has(next)) { seen.add(next); queue.push([...path, next]); }
+        });
+    }
+    return null;
+};
 buildContext(vm, [
-    'calibrateStructuralFindings', 'applyCalibrationFinding', 'buildCalibrationPrompt',
+    'calibrateStructuralFindings', 'applyCalibrationFinding', 'buildCalibrationPrompt', 'runCalibrationPass',
     'calibrationFindingsFromStructure', 'calibrationFindingsFromPeople', 'calibrationFindingsFromItems',
     'calibrationLocationDigest', 'calibrationPeopleDigest', 'calibrationItemDigest', 'parseCalibrationPayload',
+    'calibrationScheduleRouteGaps',
     'structuredModelFor', 'rankStructuredModels', 'structuredModelPricePerMillion',
     'structuredCapabilityBand', 'salvageTruncatedPayload',
     'CALIBRATION_BATCH_SIZES', 'calibrationWorkUnits', 'calibrationBatches', 'calibrationSocietyDigest',
     'calibrationFindingsFromSociety', 'calibrationPairCandidates',
     'estimateWorldPromptTokens', 'getExitTargetName', 'getExitDirection',
     'getOppositeDirection', 'formatWorldMapType', 'isValidScheduleTime', 'safeJsonClone'
-], context);
+], Object.assign(context, { findWorldTravelPath: findPhysicalPath }));
 
 // Match the real app's preset dependency rather than silently stubbing it.
 vm.runInContext(require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'presets.js'), 'utf8'), context);
@@ -172,10 +188,10 @@ test('colliding location names are reported', () => {
 test('an already-healthy world is left alone', () => {
     const world = {
         id: 'w', name: 'Tidy', startLocationId: 'a', contextSize: 65536, maxTokens: 2048,
-        regions: [{ id: 'reg_home', name: 'Home', description: 'The whole test area.', tags: ['test'] }],
+        regions: [{ id: 'reg_home', name: 'Home', description: 'The whole test area.', tags: ['test'], knowledge: { visibility: 'narrator' } }],
         dmPrompt: 'short', locations: [
-            { id: 'a', name: 'A', description: 'a', tags: ['test'], regionId: 'reg_home', mapType: 'area', exits: [{ text: 'to B', targetLocationId: 'b', mode: 'walk', travelTime: 5 }] },
-            { id: 'b', name: 'B', description: 'b', tags: ['test'], regionId: 'reg_home', mapType: 'area', exits: [{ text: 'to A', targetLocationId: 'a', mode: 'walk', travelTime: 5 }] }
+            { id: 'a', name: 'A', description: 'a', knowledge: { visibility: 'narrator' }, tags: ['test'], regionId: 'reg_home', mapType: 'area', exits: [{ text: 'to B', targetLocationId: 'b', mode: 'walk', travelTime: 5, lockState: 'unlocked' }] },
+            { id: 'b', name: 'B', description: 'b', knowledge: { visibility: 'narrator' }, tags: ['test'], regionId: 'reg_home', mapType: 'area', exits: [{ text: 'to A', targetLocationId: 'a', mode: 'walk', travelTime: 5, lockState: 'unlocked' }] }
         ], entities: [], groups: []
     };
     assert.deepEqual(context.calibrateStructuralFindings(world, null), [],
@@ -215,6 +231,8 @@ test('the pass prompt lists the world and never invents vocabulary', () => {
     assert(prompt.includes('[l_bath]') && prompt.includes('Garden Shed'),
         'the world was not described to the model');
     assert(/no travel time/.test(prompt), 'the model cannot tell which connections lack a time');
+    assert(/CURRENT ROUTE INDEX/.test(prompt), 'the model cannot see disconnected route components');
+    assert(/regions/.test(prompt), 'the model was not asked to describe existing regions');
     assert(/Never invent locations/.test(prompt), 'nothing stops the model inventing places');
     assert.equal(context.buildCalibrationPrompt(houseWorld(), 'nonsense'), '');
 });
@@ -226,6 +244,106 @@ test('containment, role and floor become reviewable findings', () => {
     const types = findings.map(f => f.type).sort();
     assert.deepEqual(types, ['set_containment', 'set_floor', 'set_map_type']);
     assert(findings.every(f => f.tier === 'structure' && f.title && f.detail));
+});
+
+test('existing regions with blank descriptions can be filled without replacing authored text', () => {
+    const world = houseWorld();
+    world.regions = [
+        { id: 'r_blank', name: 'North County', description: '' },
+        { id: 'r_authored', name: 'South County', description: 'A marshy county.' }
+    ];
+    const finding = structure(world, { regions: [
+        { id: 'r_blank', description: 'A county of low hills and old roads.' },
+        { id: 'r_authored', description: 'Replacement text.' },
+        { id: 'invented', description: 'Not in this world.' }
+    ] })[0];
+    assert.equal(finding.type, 'set_region_description');
+    assert.equal(context.applyCalibrationFinding(world, finding), true);
+    assert.equal(world.regions[0].description, 'A county of low hills and old roads.');
+    assert.equal(world.regions[1].description, 'A marshy county.');
+});
+
+test('narrator-only defaults do not create noise in the place structure pass', () => {
+    const world = bareWorld();
+    const findings = context.calibrateStructuralFindings(world, null);
+    assert(!findings.some(item => /knowledge|audience/i.test(item.type)),
+        'harmless narrator-only defaults were treated as place structure errors');
+});
+
+test('explicitly unknown routes receive a reviewable unlocked state unless text says locked', () => {
+    const world = bareWorld();
+    world.locations[0].exits = [
+        { text: 'to The Tavern', lockState: 'unknown' },
+        { text: 'through the locked gate to The Mill' }
+    ];
+    const findings = context.calibrateStructuralFindings(world, null)
+        .filter(item => item.type === 'set_exit_lock_state');
+    assert.deepEqual(findings.map(item => item.patch.exitIndex), [0]);
+    assert.equal(context.applyCalibrationFinding(world, findings[0]), true);
+    assert.equal(world.locations[0].exits[0].lockState, 'unlocked');
+    assert.equal(context.applyCalibrationFinding(world, findings[0]), false, 'stated door state was overwritten');
+});
+
+test('a scheduled NPC is proposed to know the place where their schedule sends them', () => {
+    const world = bareWorld();
+    world.entities[0].schedule = [{ time: '09:00', location: 'The Mill', activity: 'work' }];
+    world.locations[2].placeAwareness = { includeChildren: false, npcs: { e_mara: 'unknown' }, factions: {} };
+    const finding = context.calibrateStructuralFindings(world, null)
+        .find(item => item.type === 'set_place_awareness' && item.patch.placeId === 'l_mill');
+    assert(finding, 'contradictory schedule knowledge was not surfaced');
+    assert.equal(context.applyCalibrationFinding(world, finding), true);
+    assert.equal(world.locations[2].placeAwareness.npcs.e_mara, 'know');
+});
+
+test('a scheduled route gets reviewable individual knowledge for unknown intermediate places', () => {
+    const world = {
+        startLocationId: 'l_start', regions: [],
+        locations: [
+            { id: 'l_start', name: 'Start', exits: [{ targetLocationId: 'l_hall' }] },
+            { id: 'l_hall', name: 'Connecting Hall', exits: [{ targetLocationId: 'l_lab' }],
+              placeAwareness: { npcs: { e_mara: 'unknown' } } },
+            { id: 'l_lab', name: 'Lab', exits: [] }
+        ],
+        entities: [{ id: 'e_mara', name: 'Mara', type: 'npc', startLocation: 'l_start',
+            schedule: [{ time: '09:00', locationId: 'l_lab', activity: 'work' }] }]
+    };
+    const finding = context.calibrateStructuralFindings(world, null)
+        .find(item => item.type === 'set_place_awareness' && item.patch.placeId === 'l_hall');
+    assert(finding, 'the required route through an unknown hall was not offered for review');
+    assert.equal(context.applyCalibrationFinding(world, finding), true);
+    assert.equal(world.locations[1].placeAwareness.npcs.e_mara, 'know');
+});
+
+test('the batched structure pass includes local door and scheduled-route fixes without another model edit', async () => {
+    const previousLore = context.HordeWorldLore;
+    context.HordeWorldLore = { placeAwareness: (world, npcId, placeId) => ({
+        known: world.locations.find(place => place.id === placeId)?.placeAwareness?.npcs?.[npcId] !== 'unknown'
+    }) };
+    const world = {
+        id: 'batched', startLocationId: 'l_start', locations: [
+            { id: 'l_start', name: 'Start', exits: [{ targetLocationId: 'l_hall' }] },
+            { id: 'l_hall', name: 'Hall', exits: [{ targetLocationId: 'l_lab', lockState: 'unknown' }],
+              placeAwareness: { npcs: { e_mara: 'unknown' } } },
+            { id: 'l_lab', name: 'Lab', mapType: 'room', exits: [] }
+        ], entities: [{ id: 'e_mara', name: 'Mara', type: 'npc', startLocation: 'l_start',
+            schedule: [{ time: '09:00', locationId: 'l_lab', activity: 'work' }] }]
+    };
+    try {
+        const result = await context.runCalibrationPass(world, 'structure');
+        assert(result.findings.some(item => item.type === 'set_exit_lock_state'), 'explicit unknown door was not included');
+        assert(result.findings.some(item => item.type === 'set_place_awareness' && item.patch.placeId === 'l_hall'),
+            'scheduled route knowledge was not included');
+    } finally { context.HordeWorldLore = previousLore; }
+});
+
+test('the structure prompt identifies schedule pairs missing physical routes', () => {
+    const world = bareWorld();
+    world.entities[0].startLocation = 'l_square';
+    world.entities[0].schedule = [{ time: '12:00', locationId: 'l_cellar', activity: 'checking barrels' }];
+    const prompt = context.buildCalibrationPrompt(world, 'structure', world.locations);
+    assert(prompt.includes('NPC SCHEDULE ROUTE GAPS'));
+    assert(prompt.includes('[l_square] Village Square → [l_cellar] Tavern Cellar'));
+    assert(/Never invent a connection to work around a locked door/i.test(prompt));
 });
 
 test('applying containment makes the room enterable', () => {
@@ -267,6 +385,23 @@ test('an unconnected place is connected in both directions', () => {
     assert(shed.exits.some(e => context.getExitTargetName(e) === 'Smith House'), 'no way out of the shed');
     assert(house.exits.some(e => context.getExitTargetName(e) === 'Garden Shed'),
         'no way in — connecting created a fresh one-way trap');
+});
+
+test('a disconnected component can be connected even when the place already has an exit', () => {
+    const world = {
+        startLocationId: 'l_start', regions: [], entities: [],
+        locations: [
+            { id: 'l_start', name: 'Start', exits: [{ text: 'to Start Annex' }] },
+            { id: 'l_annex', name: 'Start Annex', exits: [{ text: 'to Start' }] },
+            { id: 'l_island', name: 'Island Room', exits: [{ text: 'to Island Hall' }] },
+            { id: 'l_hall', name: 'Island Hall', exits: [{ text: 'to Island Room' }] }
+        ]
+    };
+    const finding = structure(world, { locations: [{ id: 'l_island', connect_to: 'l_start', why: 'The service door joins the two wings.' }] })[0];
+    assert.equal(finding.type, 'connect_location');
+    assert.equal(context.applyCalibrationFinding(world, finding), true);
+    assert(world.locations.find(item => item.id === 'l_island').exits.some(exit => context.getExitTargetName(exit) === 'Start'));
+    assert(world.locations.find(item => item.id === 'l_start').exits.some(exit => context.getExitTargetName(exit) === 'Island Room'));
 });
 
 test('travel time is proposed only for connections that lack one', () => {
@@ -805,13 +940,15 @@ test('a model that states no output ceiling is still offered', () => {
         'models that omit max_completion_tokens were excluded, shrinking the list for no reason');
 });
 
-let failures = 0;
-for (const { name, fn } of tests) {
-    try { fn(); console.log(`✓ ${name}`); }
-    catch (error) { failures++; console.error(`✗ ${name}\n  ${error.message}`); }
-}
-if (failures) {
-    console.error(`\n${failures} calibration check(s) failed.`);
-    process.exit(1);
-}
-console.log(`\n${tests.length} calibration checks passed.`);
+(async () => {
+    let failures = 0;
+    for (const { name, fn } of tests) {
+        try { await fn(); console.log(`✓ ${name}`); }
+        catch (error) { failures++; console.error(`✗ ${name}\n  ${error.message}`); }
+    }
+    if (failures) {
+        console.error(`\n${failures} calibration check(s) failed.`);
+        process.exit(1);
+    }
+    console.log(`\n${tests.length} calibration checks passed.`);
+})();

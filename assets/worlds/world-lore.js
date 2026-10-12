@@ -105,7 +105,11 @@ function knowledge(world, npcId) { return facts(world).filter(f => knows(world, 
 function exitLock(exit, session, fromId = '', toId = '') {
     const requiredItem = typeof exit?.requiredItem === 'string' ? exit.requiredItem.trim() : '';
     const allowCheckUnlock = exit?.allowCheckUnlock === true;
-    const state = requiredItem || allowCheckUnlock || exit?.lockState === 'locked' ? 'locked' : exit?.lockState === 'unlocked' ? 'unlocked' : 'unknown';
+    // Routes start open unless the author explicitly marks them unknown or
+    // locked. Missing metadata is the ordinary unlocked default, not a lint
+    // defect; this also keeps legacy maps traversable as authored.
+    const state = requiredItem || allowCheckUnlock || exit?.lockState === 'locked' ? 'locked'
+        : exit?.lockState === 'unknown' ? 'unknown' : 'unlocked';
     const key = `${String(fromId).toLowerCase()}::${String(toId).toLowerCase()}`;
     return { state, requiredItem, allowCheckUnlock, currentState: session?.unlockedExits?.[key] === true && state === 'locked' ? 'unlocked' : state };
 }
@@ -171,7 +175,7 @@ function fingerprint(world) {
                 factionIds: list(d.factionIds), members: list(d.members) },
             list(d.exits).map(e => ({ target: exitTarget(world, e)?.id || (typeof e === 'string' ? e : e?.targetLocationId || e?.text),
                 travelTime: Number(e?.travelTime) || 0, mode: e?.mode || 'walk', routeName: e?.routeName || '',
-                lockState: e?.lockState || 'unknown', requiredItem: e?.requiredItem || '', allowCheckUnlock: e?.allowCheckUnlock === true }))];
+                lockState: e?.lockState || 'unlocked', requiredItem: e?.requiredItem || '', allowCheckUnlock: e?.allowCheckUnlock === true }))];
     }));
     let hash = 2166136261;
     for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
@@ -368,7 +372,11 @@ function validate(world) {
             if (a.visibility === 'assigned' && !list(a.npcIds).length && !list(a.factionIds).length) add(row, 'Assigned knowledge has no recipients');
         }
         for (const r of list(d.about)) { if (object(r)) ref(row, r.kind, r.id); else add(row, 'Invalid related record'); }
-        if ((d.text || d.description) && !d.knowledge) add(row, 'Knowledge audience not yet assigned (narrator context only)');
+        // Missing knowledge metadata already means narrator-only in `knows`.
+        // Reporting it for every description, person and item floods the
+        // Structural Lint with harmless defaults and distracts from place,
+        // route, access and door-state errors. Keep validating explicit rules
+        // above, but do not require authors to materialize this default.
     }
     return issues;
 }
