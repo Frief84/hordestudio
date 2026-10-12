@@ -97,6 +97,8 @@ function schema(legacy) {
             'Required only when changing mapped places: exact allowed destination ID from this actor’s WORLD LORE movementOptions. Ordinary movement within the current room/place needs no movement event.';
         if (events.items.properties.activity) events.items.properties.activity.description =
             'For type activity: the actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. Momentary posture and gestures belong in narrative without a state event.';
+        if (events.items.properties.next_status) events.items.properties.next_status.description =
+            'Only for type status: the NPC lifecycle value alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.';
         if (events.items.properties.outfit) events.items.properties.outfit.description =
             'Required for an outfit event. Describe the resulting complete outfit. If no outfit is established and the scene establishes or changes clothing, invent a plausible outfit consistent with the character, setting, weather and story; never leave blank.';
         delete events.items.properties.evidence;

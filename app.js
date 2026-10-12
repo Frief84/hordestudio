@@ -11277,10 +11277,10 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
             return;
         }
         if (type === 'status' && actorId !== 'player') {
-            const nextStatus = ['alive', 'dead', 'gone'].includes(event.next_status || event.value)
-                ? (event.next_status || event.value) : '';
-            if (!nextStatus) {
-                reject(index, event, 'invalid_status');
+            const rawStatus = event.next_status ?? event.value;
+            const nextStatus = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : '';
+            if (!['alive', 'dead', 'gone'].includes(nextStatus)) {
+                reject(index, event, 'invalid_status', `next_status=${String(rawStatus ?? '(missing)').slice(0, 80)}; allowed: alive, dead, gone`);
                 return;
             }
             legacyArgs.npc_status_changes = [...(Array.isArray(legacyArgs.npc_status_changes) ? legacyArgs.npc_status_changes : []),
@@ -23801,7 +23801,8 @@ function renderWorldDirectorPanel(world, sess) {
         rejections.slice(0, 8).forEach(rejection => {
             const reason = String(rejection.reason || 'invalid_world_state_proposal').replace(/_/g, ' ');
             const detail = String(rejection.detail || '').trim();
-            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${reason}${detail ? `: ${detail}` : ''}`, 'world-director-fact is-rejected'));
+            const actor = String(rejection.actor_id || '').trim();
+            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${reason}${actor ? ` (actor: ${actor})` : ''}${detail ? `: ${detail}` : ''}`, 'world-director-fact is-rejected'));
         });
         if (!events.length && !rejectedCount) details.appendChild(empty('No lasting change was proposed.'));
         receiptsList.appendChild(details);
@@ -30314,7 +30315,7 @@ ${modularMandate}
                                     visibility: { type: "string", enum: ["public", "private"] },
                                     contradicted: { type: "boolean" },
                                     allowed_to_share: { type: "boolean" },
-                                    next_status: { type: "string", enum: ["alive", "dead", "gone"] },
+                                    next_status: { type: "string", enum: ["alive", "dead", "gone"], description: "Only for type status: NPC lifecycle (alive, dead or gone). Do not use status for an activity, pose, mood or temporary condition." },
                                     witnessed_by: { type: "array", items: { type: "string" }, description: "IDs of characters who directly witnessed this event. Include 'player' when applicable." },
                                     cause: { type: "string" },
                                     evidence: { type: "string", description: "Short phrase from the narrative proving this event; never dialogue speculation or a hypothetical." }
@@ -30879,7 +30880,7 @@ ${modularMandate}
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
         const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Treat the player's instruction as a goal: attempt its necessary feasible steps in order without asking the player to repeat obvious steps. Use actions to cover the full request in order, with response_id referencing the passage answering each step. If a step is blocked, explain the actual obstacle and keep already verified steps; never claim success for a step the engine did not commit. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
         if (sceneDrafts) messages.push({ role: 'system', content:
-            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Precommitted player key-door opening and re-locking are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
+            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. events[].status is progress (intended, attempted, in_progress, completed, cancelled, failed). Type status is only for NPC lifecycle and requires next_status: alive, dead or gone; never use it for activity, pose, mood or temporary condition. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Precommitted player key-door opening and re-locking are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -31620,6 +31621,7 @@ ${modularMandate}
                     messages: [{ role: 'system', content: repairPrompt
                         + '\nFor checks, stat_id is required whenever a rollable stat is available. Put prose-only outcomes in check.success_text and check.failure_text, not in on_success.summary/on_failure.summary. Those branch objects contain only supported durable state mutations; use {} when there are none.'
                         + worldRouteClosureReceiptRepairInstruction(world, sess, repairNarrative)
+                        + '\nA status event changes only NPC lifecycle: next_status must be alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.'
                         + '\nA factual closure asserted in summary, ledger_update or a completed environment event also requires an exact-ID route-blocking location_state_update. An NPC report alone is unverified testimony.'
                         + WORLD_RESTRAINT_REPAIR_RULE }]
                 };
@@ -31651,6 +31653,7 @@ ${modularMandate}
                 }
                 if (repairingScene) repairBody.messages[0].content += '\nUse only exact passage IDs present in narrative[].id for every response_id and passage_id; never invent or alter IDs. actions[].request must copy the full player input exactly in order, split into contiguous excerpts with no gaps. Allowed action kind values: physical, speech, question, observation, travel, wait, other. Allowed status values: resolved, answered, attempted, pending_check, blocked, needs_clarification. Do not put present_character_ids or activities inside effects; the engine computes the ending cast and does not accept these as effects. Add speech entries only for dialogue present in the draft, with exact known actor IDs (or player) for speaker and listeners. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard, servant or other role NPC. Background crowds may be scenery only, never actors or speakers. A request for an NPC to perform an action is the player speaking, not the player completing that physical action.';
                 if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. For a handshake, gesture, or other non-durable action, omit the event. Durable event types must use the allowed event vocabulary only.';
+                repairBody.messages[0].content += '\nSTATUS EVENT CONTRACT: events[].status is the event progress (intended, attempted, in_progress, completed, cancelled or failed). events[].type="status" is only for a lasting NPC lifecycle change and requires next_status exactly alive, dead or gone. Never put an activity, pose, mood or temporary condition in next_status or value. If a rejected status event describes an ongoing activity, express only an actually completed lasting change with type="activity" and activity text; otherwise omit that status event. Keep the established narrative and all other valid changes.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'unsupported_draft_effect')) {
                     const allowedEffects = Object.keys(worldStateTool.function.parameters.properties.effects.properties);
                     const rejectedEffects = receiptValidationFeedback.filter(item => item.reason === 'unsupported_draft_effect')
@@ -32029,6 +32032,7 @@ ${modularMandate}
                                 || (worldLoreContextSnapshots.get(sess.id)?.placeIndex || []).some(place => place.id === location.id))
                             .slice(0, 24).map(location => ({ id: location.id, name: location.name })))}.`
                         + worldWaitReceiptRepairInstruction(submittedInput || userInput, fullText, currentTotalMinutes)
+                        + '\nA status event changes only NPC lifecycle: next_status must be alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.'
                         + worldRouteClosureReceiptRepairInstruction(world, sess, fullText)
                         + '\nA factual closure in summary or completed environment evidence also requires an exact-ID route-blocking location_state_update; NPC reports alone do not.'
                         + WORLD_RESTRAINT_REPAIR_RULE }]
@@ -32230,6 +32234,9 @@ ${modularMandate}
             const unscopedMutationField = describeRejectedField(unscopedMutationRejection?.detail);
             const missingOutfitRejection = receiptValidationFeedback.find(item => item?.reason === 'missing_outfit');
             const missingOutfitActor = describeRejectedField(missingOutfitRejection?.actor_id) || 'the actor';
+            const invalidStatusRejection = receiptValidationFeedback.find(item => item?.reason === 'invalid_status');
+            const invalidStatusActor = describeRejectedField(invalidStatusRejection?.actor_id) || 'an NPC';
+            const invalidStatusValue = describeRejectedField(invalidStatusRejection?.detail);
             const unsupportedDraftEffect = describeRejectedField(receiptValidationFeedback
                 .find(item => item?.reason === 'unsupported_draft_effect')?.detail);
             const unsupportedDraftField = describeRejectedField(receiptValidationFeedback
@@ -32256,6 +32263,8 @@ ${modularMandate}
                         ? ` Unsupported event type: ${unsupportedEventRejection?.detail || '(missing type)'}${unsupportedEventDetails}.${unsupportedEventGuidance}`
                     : verificationReason === 'missing_outfit'
                         ? ` Outfit event for ${missingOutfitActor} had no description. If no outfit is established, invent a plausible one that fits the story and include it in the event.`
+                    : verificationReason === 'invalid_status'
+                        ? ` The model proposed an invalid lifecycle status for ${invalidStatusActor}${invalidStatusValue ? ` (${invalidStatusValue})` : ''}. Only alive, dead and gone are valid here. This change was not applied; the rejected value is recorded in the World State audit.`
                     : verificationReason === 'unsupported_draft_effect'
                         ? ` Unsupported scene effect: ${unsupportedDraftEffect || '(field not reported)'}${unsupportedEffectValue ? ` = ${unsupportedEffectValue}` : ''}. The proposal remains uncommitted; this field must be expressed through an allowed event or effect before it can change the world.`
                     : verificationReason === 'unsupported_draft_field'
