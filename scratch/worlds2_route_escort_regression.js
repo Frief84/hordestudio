@@ -25,7 +25,7 @@ const ctx = buildContext(vm, [
     'worldExitRequirement', 'findWorldTravelPath', 'movePlayerAlongWorldPath',
     'requestedWorldTravelCompanionIds', 'userRequestsWorldDoorRelock',
     'worldDraggedCompanionIntent', 'worldPlayerWithCompanionIntent',
-    'applyPlayerKeyDoorOpening', 'worldDoorOpeningContext',
+    'applyPlayerKeyDoorOpening', 'applyPlayerKeyDoorAction', 'worldDoorOpeningContext',
     'sessionLocations',
     'worldActionResolutionFailures',
     'applyWorldExitUnlocks',
@@ -240,6 +240,31 @@ assert.equal(keyDoorSession.playerLocation, 'gate', 'opening the door alone must
 assert.equal(keyDoorSession.unlockedExits['gate::cellar'], true);
 assert.equal(keyDoorSession.unlockedExits['cellar::gate'], true);
 assert.match(ctx.worldDoorOpeningContext(keyDoor), /player remains at gate/i);
+const lockFromOutside = ctx.applyPlayerKeyDoorAction(accompaniedWorld, keyDoorSession,
+    'YouYou lock the door of the Round Room');
+assert.equal(lockFromOutside.committed, true);
+assert.equal(lockFromOutside.changed, true);
+assert.equal(keyDoorSession.unlockedExits['gate::cellar'], undefined);
+assert.equal(keyDoorSession.unlockedExits['cellar::gate'], undefined);
+assert.equal(ctx.worldExitRequirement(keyDoorSession, guardedExit, 'gate').unlocked, false,
+    'a carried key grants passage but does not make a relocked door appear open');
+assert.match(ctx.worldDoorOpeningContext(lockFromOutside), /player locked the mapped door/i);
+const lockFromInsideSession = { id: 'lock_inside', playerLocation: 'cellar',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    unlockedExits: { 'gate::cellar': true, 'cellar::gate': true } };
+const lockFromInside = ctx.applyPlayerKeyDoorAction(accompaniedWorld, lockFromInsideSession,
+    'Youyou lock the door of the Round Room');
+assert.equal(lockFromInside.committed, true,
+    'the current room name can identify its single lockable doorway');
+assert.equal(lockFromInsideSession.unlockedExits['gate::cellar'], undefined);
+assert.equal(lockFromInsideSession.unlockedExits['cellar::gate'], undefined);
+assert.equal(lockFromInsideSession.playerLocation, 'cellar');
+const noKeyRelock = { id: 'lock_no_key', playerLocation: 'gate', inventory: [],
+    unlockedExits: { 'gate::cellar': true, 'cellar::gate': true } };
+assert.equal(ctx.applyPlayerKeyDoorAction(accompaniedWorld, noKeyRelock,
+    'You lock the door of the Round Room').reason, 'required_item');
+assert.equal(noKeyRelock.unlockedExits['gate::cellar'], true,
+    'a failed lock request cannot silently close the door');
 assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, keyDoorSession,
     'You use the brass tower key to open the door to the Round Room').committed, true);
 assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, keyDoorSession,

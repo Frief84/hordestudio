@@ -79,6 +79,16 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
                 reverseUnlocked: session.unlockedExits?.['cellar::gate'] === true,
                 loreLock: HordeWorldLore.exitLock(exit, session, 'gate', 'cellar').currentState
             };
+            renderWorldPlayState();
+            const unlockedButton = [...document.querySelectorAll('#world-exits-list button')]
+                .find(item => item.textContent.includes('Tower Cellar'));
+            const unlockedIcon = getComputedStyle(unlockedButton, '::after').content;
+            const relockedWithKey = applyPlayerKeyDoorAction(world, session,
+                'YouYou lock the door of the Tower Cellar');
+            renderWorldPlayState();
+            const relockedButton = [...document.querySelectorAll('#world-exits-list button')]
+                .find(item => item.textContent.includes('Tower Cellar'));
+            const relockedIcon = getComputedStyle(relockedButton, '::after').content;
             restoreWorldTurnState(world, session, snapshot);
             const direct = processStructuredActions({ exit_unlocks: [
                 { from_location_id: 'gate', to_location_id: 'cellar' }
@@ -136,7 +146,8 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             const directTake = { playerLocation: session.playerLocation,
                 lindaLocation: session.entityStates.linda.location,
                 context: directTakeContext };
-            return { before, keyDoor, directRejected: direct.moduleRejections?.[0]?.reason,
+            return { before, keyDoor, unlockedIcon, relockedWithKey,
+                relockedIcon, directRejected: direct.moduleRejections?.[0]?.reason,
                 afterDirect, afterCheck, savedUnlock, travelProof, restored, naturalTravel, directTake };
         }, fixture);
         assert.equal(result.before.disabled, true);
@@ -146,6 +157,11 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
         assert.equal(result.before.path, null);
         assert.deepEqual(result.keyDoor, { committed: true, playerLocation: 'gate',
             unlocked: true, reverseUnlocked: true, loreLock: 'unlocked' });
+        assert.match(result.unlockedIcon, /🔓/);
+        assert.equal(result.relockedWithKey.committed, true);
+        assert.equal(result.relockedWithKey.changed, true);
+        assert.match(result.relockedIcon, /🔒/,
+            'carrying a key must not show a relocked door as open');
         assert.equal(result.directRejected, 'requires_successful_check');
         assert.equal(result.afterDirect, false);
         assert.equal(result.afterCheck.success, true);

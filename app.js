@@ -27163,7 +27163,7 @@ function renderWorldPlayState() {
             btn.style.textAlign = 'left'; btn.style.fontSize = '0.8rem';
             btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '');
             const exitDetails = [];
-            if (requirement.unlocked) exitDetails.push('Door unlocked');
+            if (requirement.unlocked) exitDetails.push('🔓');
             else if (requirement.requiredItem) exitDetails.push(requirement.ok
                 ? `${requirement.requiredItem} ready — door opens when you enter`
                 : `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
@@ -27171,9 +27171,9 @@ function renderWorldPlayState() {
             if (travelBlock) exitDetails.push(`Route closed: ${travelBlock.label}`);
             if (exitDetails.length) {
                 btn.classList.add('world-exit-lock-indicator');
-                if (requirement.ok && !travelBlock) btn.classList.add('is-unlocked');
+                if (requirement.unlocked) btn.classList.add('is-unlocked');
                 btn.title = exitDetails.join(' · ');
-                btn.setAttribute('aria-label', `${btn.textContent}. ${exitDetails.join('. ')}`);
+                btn.setAttribute('aria-label', `${btn.textContent}. ${requirement.unlocked ? '🔓' : '🔒'}${travelBlock ? `. Route closed: ${travelBlock.label}` : ''}`);
             }
             
             btn.onclick = async () => {
@@ -29082,8 +29082,58 @@ function applyPlayerKeyDoorOpening(world, sess, userInput) {
         toId: to.id, targetName: to.name, requiredItem: requirement.requiredItem };
 }
 
+function applyPlayerKeyDoorLocking(world, sess, userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:lock|locked|relock|relocked)\s+(?:(?:the|a|an|this|that)\s+)?(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    if (!match) return null;
+    const clause = actionText.slice(match.index).split(/[.!?]/)[0];
+    if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
+    const view = worldForSession(world, sess);
+    const from = getLocationRef(view, sess.playerLocation);
+    if (!from) return null;
+    const targetName = normalizeLocationSearchText(String(match[1] || '').split(/\s+(?:and|then|before|after|while)\b/i)[0]);
+    const namesCurrentRoom = targetName && [from.name, from.id]
+        .some(name => normalizeLocationSearchText(name) === targetName);
+    const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+        .filter(candidate => candidate.to && typeof candidate.exit === 'object'
+            && (candidate.exit.requiredItem || candidate.exit.allowCheckUnlock || candidate.exit.lockState === 'locked')
+            && (!targetName || namesCurrentRoom
+                || normalizeLocationSearchText(candidate.to.name) === targetName
+                || normalizeLocationSearchText(candidate.to.id) === targetName));
+    const distinct = [...new Map(choices.map(candidate => [
+        `${candidate.to.id}::${String(candidate.exit.requiredItem || '')}::${candidate.exit.lockState || ''}`,
+        candidate
+    ])).values()];
+    if (distinct.length !== 1) return { matched: true, committed: false, action: 'locked',
+        reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
+    const { exit, to } = distinct[0];
+    if (!worldPlayerHoldsExitItem(sess, exit)) return { matched: true, committed: false,
+        action: 'locked', reason: 'required_item', targetName: to.name, requiredItem: exit.requiredItem };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    const keys = worldExitDoorKeys(view, from, to, exit);
+    const changed = keys.some(key => sess.unlockedExits[key] === true);
+    keys.forEach(key => { delete sess.unlockedExits[key]; });
+    return { matched: true, committed: true, changed, action: 'locked', fromId: from.id,
+        toId: to.id, targetName: namesCurrentRoom ? from.name : to.name,
+        requiredItem: exit.requiredItem };
+}
+
+function applyPlayerKeyDoorAction(world, sess, userInput) {
+    return applyPlayerKeyDoorLocking(world, sess, userInput)
+        || applyPlayerKeyDoorOpening(world, sess, userInput);
+}
+
 function worldDoorOpeningContext(result) {
     if (!result?.matched) return '';
+    if (result.action === 'locked') {
+        if (result.committed) return `\n[SYSTEM: The player locked the mapped door at ${result.targetName}${result.changed ? ' with the required item' : '; it was already locked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate movement.]`;
+        const obstacle = result.reason === 'required_item'
+            ? `The player lacks ${result.requiredItem || 'the required key'}`
+            : 'There is no unique adjacent lockable door matching that request';
+        return `\n[SYSTEM: The requested door locking was not committed. ${obstacle}. Do not claim the door was locked; explain the obstacle.]`;
+    }
     if (result.committed) return `\n[SYSTEM: The player opened the mapped door to ${result.targetName} from ${result.fromId}${result.changed ? ' with the required item; its lock is now unlocked' : '; its lock was already unlocked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate arrival in ${result.targetName} without a separate valid move.]`;
     const obstacle = result.reason === 'sealed_route' ? `The route is blocked by ${result.detail}`
         : result.reason === 'required_item' ? `The player lacks ${result.requiredItem}`
@@ -29562,7 +29612,7 @@ async function executeWorldTurn(commandOrReroll = null) {
                     relockLastDoor: userRequestsWorldDoorRelock(userInput)
                 };
             } else {
-                const doorResult = applyPlayerKeyDoorOpening(world, sess, userInput);
+                const doorResult = applyPlayerKeyDoorAction(world, sess, userInput);
                 doorAttempt = doorResult;
                 if (doorResult?.committed) committedDoor = doorResult;
                 arrivalContext += worldDoorOpeningContext(doorResult);
@@ -29596,7 +29646,7 @@ async function executeWorldTurn(commandOrReroll = null) {
                 relockLastDoor: userRequestsWorldDoorRelock(userInput)
             };
         } else {
-            const doorResult = applyPlayerKeyDoorOpening(world, sess, userInput);
+            const doorResult = applyPlayerKeyDoorAction(world, sess, userInput);
             doorAttempt = doorResult;
             if (doorResult?.committed) committedDoor = doorResult;
             arrivalContext += worldDoorOpeningContext(doorResult);
@@ -31644,7 +31694,7 @@ ${modularMandate}
                     : '';
                 const actionRepairInstruction = resolveFirst
                     ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. Classify a request or permission for an NPC to do something as speech/question, not as a completed physical action by the player. A resolved physical act needs a completed player event or check, except for an action explicitly precommitted by the engine. A pending check needs one structured check. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard or other role NPC. If the player asked for help, answer through a known NPC and do not claim an unrecorded transfer. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. Do not call a generic room description an answer to the action.'
-                        + (committedDoor ? '\nThe player already opened the mapped door with the required item. Describe that result without adding a duplicate event or exit_unlocks effect.' : '')
+                        + (committedDoor ? `\nThe player already ${committedDoor.action === 'locked' ? 'locked' : 'opened'} the mapped door with the required item. Describe that result without adding a duplicate event or exit_unlocks effect.` : '')
                     : '';
                 const waitRepairInstruction = worldWaitReceiptRepairInstruction(submittedInput || userInput,
                     repairNarrative, currentTotalMinutes);
@@ -32677,8 +32727,9 @@ ${modularMandate}
         }
         let doorPreserved = false;
         if (world && sess && committedDoor && !isReroll && !movementPreserved) {
-            const door = applyPlayerKeyDoorOpening(world, sess, submittedInput);
-            if (door?.committed && door.toId === committedDoor.toId) {
+            const door = applyPlayerKeyDoorAction(world, sess, submittedInput);
+            if (door?.committed && door.toId === committedDoor.toId
+                && door.action === committedDoor.action) {
                 doorPreserved = true;
                 sess.lastTurnStateSource = 'local_intent';
                 if (normalizeWorldGameRules(world).modules.livingWorld) {
@@ -32691,7 +32742,7 @@ ${modularMandate}
                 addWorldMessage('user', submittedInput, {
                     location: sess.playerLocation, deferPersist: true
                 }, sess, world);
-                addWorldMessage('system', `The door to ${door.targetName} was opened. The DM narration did not complete; continue from here or try again.`, {
+                addWorldMessage('system', `The door at ${door.targetName} was ${door.action === 'locked' ? 'locked' : 'opened'}. The DM narration did not complete; continue from here or try again.`, {
                     location: sess.playerLocation, deferPersist: true
                 }, sess, world);
                 const input = document.getElementById('world-user-input');
