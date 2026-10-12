@@ -27164,13 +27164,14 @@ function renderWorldPlayState() {
             btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '');
             const exitDetails = [];
             if (requirement.unlocked) exitDetails.push('Door unlocked');
-            else if (requirement.requiredItem) exitDetails.push(
-                `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
+            else if (requirement.requiredItem) exitDetails.push(requirement.ok
+                ? `${requirement.requiredItem} ready — door opens when you enter`
+                : `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
             else if (requirement.allowCheckUnlock || exit?.lockState === 'locked') exitDetails.push('Door locked');
             if (travelBlock) exitDetails.push(`Route closed: ${travelBlock.label}`);
             if (exitDetails.length) {
                 btn.classList.add('world-exit-lock-indicator');
-                if (requirement.unlocked && !travelBlock) btn.classList.add('is-unlocked');
+                if (requirement.ok && !travelBlock) btn.classList.add('is-unlocked');
                 btn.title = exitDetails.join(' · ');
                 btn.setAttribute('aria-label', `${btn.textContent}. ${exitDetails.join('. ')}`);
             }
@@ -28752,7 +28753,8 @@ function getObservationWindow(npcId) {
 }
 
 function normalizeWorldPlayerCommandPronoun(value) {
-    return String(value || '').replace(/^(\s*)(?:y?you)(?:\s*y?you){0,3}\b/i, '$1You');
+    return String(value || '').replace(/^(\s*)you(?=i\b)/i, '$1')
+        .replace(/^(\s*)(?:y?you)(?:\s*y?you){0,3}\b/i, '$1You');
 }
 
 function extractUserMovementTarget(userInput) {
@@ -33386,9 +33388,30 @@ function sessionNpcs(world, sess) {
 
 function sessionLocations(world, sess) {
     const extras = isPlainObject(sess?.dynamicExits) ? sess.dynamicExits : {};
-    return (world.locations || []).filter(location => isVisibleToSession(location, sess)).map(location => {
+    const visible = (world.locations || []).filter(location => isVisibleToSession(location, sess));
+    const view = { locations: visible };
+    return visible.map(location => {
         const added = Array.isArray(extras[location.id]) ? extras[location.id] : [];
-        return added.length ? { ...location, exits: [...(Array.isArray(location.exits) ? location.exits : []), ...added] } : location;
+        const exits = [...(Array.isArray(location.exits) ? location.exits : []), ...added];
+        let projected = false;
+        const resolved = exits.map(exit => {
+            if (!exit || typeof exit !== 'object' || exit.isOneWay === true
+                || (exit.lockState !== 'locked' && exit.allowCheckUnlock !== true)
+                || String(exit.requiredItem || '').trim()) return exit;
+            const destination = resolveWorldExitTarget(view, exit);
+            if (!destination) return exit;
+            const reciprocalKeys = [...new Set((destination.exits || [])
+                .filter(reverse => reverse && typeof reverse === 'object' && reverse.isOneWay !== true
+                    && resolveWorldExitTarget(view, reverse)?.id === location.id)
+                .map(reverse => String(reverse.requiredItem || '').trim()).filter(Boolean))];
+            if (reciprocalKeys.length !== 1) return exit;
+            // A two-way door is one physical lock. A legacy map may have the
+            // key on only one side; project it into this timeline's route view
+            // without rewriting authored exits or granting a free unlock.
+            projected = true;
+            return { ...exit, requiredItem: reciprocalKeys[0] };
+        });
+        return added.length || projected ? { ...location, exits: resolved } : location;
     });
 }
 

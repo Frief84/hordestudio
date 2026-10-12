@@ -26,6 +26,7 @@ const ctx = buildContext(vm, [
     'requestedWorldTravelCompanionIds', 'userRequestsWorldDoorRelock',
     'worldDraggedCompanionIntent', 'worldPlayerWithCompanionIntent',
     'applyPlayerKeyDoorOpening', 'worldDoorOpeningContext',
+    'sessionLocations',
     'worldActionResolutionFailures',
     'applyWorldExitUnlocks',
     'validateWorldTurnReceipt', 'applyWorldEntityPatches'
@@ -78,6 +79,37 @@ assert.equal(ctx.extractUserMovementTarget('You\nyou take linda to the round roo
 assert.equal(ctx.extractUserMovementTarget('You take Linda to the Round Room'), 'the Round Room');
 assert.equal(ctx.extractUserMovementTarget('I take the key through the Round Room'), 'the Round Room',
     'carrying an item must still allow the player to travel alone');
+assert.equal(ctx.extractUserMovementTarget('I go into Cell 2'), 'Cell 2');
+assert.equal(ctx.extractUserMovementTarget('YouI go into Cell 2'), 'Cell 2',
+    'a concatenated story speaker label must not hide a first-person travel command');
+const numberedRooms = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [{ targetLocationId: 'cell_2', travelTime: 1 }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [{ targetLocationId: 'corridor', travelTime: 1 }] }
+], entities: [] };
+const numberedSession = { playerLocation: 'corridor', inventory: [], entityStates: {} };
+const numberedPhrase = ctx.extractUserMovementTarget('I go into Cell 2');
+const numberedTarget = ctx.resolveWorldMovementTarget(numberedRooms, 'corridor', numberedPhrase, true, numberedSession);
+assert.equal(numberedTarget?.id, 'cell_2');
+assert.equal(ctx.movePlayerAlongWorldPath(numberedRooms, numberedSession, numberedTarget).ok, true);
+assert.equal(numberedSession.playerLocation, 'cell_2');
+const asymmetricDoor = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [
+        { targetLocationId: 'cell_2', lockState: 'locked', travelTime: 1 }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [
+        { targetLocationId: 'corridor', requiredItem: 'Cell key', lockState: 'locked', travelTime: 1 }] }
+], entities: [] };
+const keyedSession = { id: 'keyed_route', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {} };
+const projected = { ...asymmetricDoor, locations: ctx.sessionLocations(asymmetricDoor, keyedSession) };
+assert.equal(asymmetricDoor.locations[0].exits[0].requiredItem, undefined,
+    'runtime route repair must not overwrite authored map data');
+assert.equal(projected.locations[0].exits[0].requiredItem, 'Cell key');
+const noKeySession = { id: 'no_key', playerLocation: 'corridor', inventory: [], entityStates: {} };
+assert.equal(ctx.resolveWorldMovementTarget(projected, 'corridor', 'Cell 2', true, noKeySession), null,
+    'the reciprocal key projection must not grant access without the item');
+assert.equal(ctx.resolveWorldMovementTarget(projected, 'corridor', 'Cell 2', true, keyedSession)?.id, 'cell_2');
+assert.equal(ctx.movePlayerAlongWorldPath(projected, keyedSession, projected.locations[1]).ok, true);
+assert.equal(keyedSession.playerLocation, 'cell_2');
 const companionPhrases = [
     ['I go with Linda to the Round Room', 'the Round Room'],
     ['I go with Linda by the hand into the Round Room', 'the Round Room'],
