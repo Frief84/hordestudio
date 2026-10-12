@@ -27113,11 +27113,19 @@ function renderWorldPlayState() {
             const btn = document.createElement('button');
             btn.className = 'btn btn-ghost btn-full';
             btn.style.textAlign = 'left'; btn.style.fontSize = '0.8rem';
-            btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '')
-                + (requirement.unlocked ? ' · unlocked'
-                    : requirement.requiredItem ? ` · requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a check' : ''}`
-                    : requirement.allowCheckUnlock ? ' · locked; try a check' : '')
-                + (travelBlock ? ` · route closed: ${travelBlock.label}` : '');
+            btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '');
+            const exitDetails = [];
+            if (requirement.unlocked) exitDetails.push('Door unlocked');
+            else if (requirement.requiredItem) exitDetails.push(
+                `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
+            else if (requirement.allowCheckUnlock || exit?.lockState === 'locked') exitDetails.push('Door locked');
+            if (travelBlock) exitDetails.push(`Route closed: ${travelBlock.label}`);
+            if (exitDetails.length) {
+                btn.classList.add('world-exit-lock-indicator');
+                if (requirement.unlocked && !travelBlock) btn.classList.add('is-unlocked');
+                btn.title = exitDetails.join(' · ');
+                btn.setAttribute('aria-label', `${btn.textContent}. ${exitDetails.join('. ')}`);
+            }
             
             btn.onclick = async () => {
                 const movement = await travelThroughWorldExit(sourceWorld, sourceSess, exit);
@@ -27130,7 +27138,7 @@ function renderWorldPlayState() {
                 btn.title = 'Broken exit reference — repair it in World Studio';
             } else if (travelBlock) {
                 btn.disabled = true;
-                btn.title = `${destination.name} is impassable: ${travelBlock.label}. Wait for the route to reopen or find another way.`;
+                btn.title = `${exitDetails.join(' · ')}. Wait for the route to reopen or find another way.`;
             } else if (!requirement.ok) {
                 btn.disabled = true;
                 btn.title = requirement.requiredItem

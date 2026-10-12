@@ -4450,6 +4450,15 @@ input[type=number].form-input::-webkit-inner-spin-button {
 .world-more-actions.is-open { display:flex; }
 .world-mobile-context { display: none; }
 .world-mobile-exits-empty { color: var(--text-3); font-size: .75rem; }
+.world-exit-lock-indicator::after {
+    content: '🔒';
+    display: inline-block;
+    margin-left: .45rem;
+    font-size: .7rem;
+    line-height: 1;
+    vertical-align: middle;
+}
+.world-exit-lock-indicator.is-unlocked::after { content: '🔓'; }
 .world-urgent-stakes {
     flex: 0 0 auto;
     margin: 10px 16px 0;

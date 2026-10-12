@@ -68,6 +68,7 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
                 mobileDisabled: getButton('world-mobile-exits-list', 'Marsh Causeway')?.disabled,
                 label: closedButton?.textContent,
                 title: closedButton?.title,
+                lockIcon: closedButton ? getComputedStyle(closedButton, '::after').content : '',
                 path: findWorldTravelPath(world, 'square', 'causeway', { session: sess }),
                 throughPath: findWorldTravelPath(world, 'square', 'gate', { session: sess }),
                 receiptCount: sess.worldTurnReceipts?.length || 0,
@@ -112,8 +113,9 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
         });
         assert.equal(result.blocked.desktopDisabled, true);
         assert.equal(result.blocked.mobileDisabled, true);
-        assert.match(result.blocked.label, /route closed: Impassable/i);
-        assert.match(result.blocked.title, /Marsh Causeway is impassable/i);
+        assert.doesNotMatch(result.blocked.label, /route closed: Impassable/i);
+        assert.match(result.blocked.title, /Route closed: Impassable/i);
+        assert.match(result.blocked.lockIcon, /🔒/);
         assert.equal(result.blocked.path, null);
         assert.equal(result.blocked.throughPath, null);
         assert.equal(result.denied.reason, 'impassable_destination');

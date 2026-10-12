@@ -64,6 +64,8 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             const before = {
                 disabled: button?.disabled,
                 label: button?.textContent,
+                title: button?.title,
+                lockIcon: button ? getComputedStyle(button, '::after').content : '',
                 path: findWorldTravelPath(world, 'gate', 'cellar', { session })
             };
             const snapshot = captureWorldTurnState(world, session);
@@ -109,7 +111,9 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
                 afterDirect, afterCheck, savedUnlock, travelProof, restored };
         }, fixture);
         assert.equal(result.before.disabled, true);
-        assert.match(result.before.label, /requires tower key or a check/);
+        assert.doesNotMatch(result.before.label, /requires tower key|route closed/i);
+        assert.match(result.before.title, /Requires tower key or a successful check/);
+        assert.match(result.before.lockIcon, /🔒/);
         assert.equal(result.before.path, null);
         assert.equal(result.directRejected, 'requires_successful_check');
         assert.equal(result.afterDirect, false);
