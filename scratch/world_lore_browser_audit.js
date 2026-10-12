@@ -147,6 +147,17 @@ const root = path.resolve(__dirname, '..');
         });
         assert.deepEqual(models, ['test/custom', 'test/world']);
         assert.equal(await page.evaluate(() => state.editingWorld.lorebook[0].text), 'Keep this original lore.');
+        const addedId = await page.evaluate(() => {
+            addWorldLocation();
+            return state.editingWorld.locations.at(-1).id;
+        });
+        await page.waitForFunction(id => state.editingWorld.worldStructure?.nodes
+            .some(node => node.id === `location:${id}`), addedId);
+        await page.evaluate(id => removeWorldLocationRecord(state.editingWorld, id), addedId);
+        await page.waitForFunction(id => !state.editingWorld.worldStructure?.nodes
+            .some(node => node.id === `location:${id}`), addedId);
+        assert.equal(await page.evaluate(() => HordeWorldLore.structureStatus(state.editingWorld).state), 'current');
+        assert.equal(await page.evaluate(() => state.editingWorld.lorebook[0].text), 'Keep this original lore.');
         assert.deepEqual(errors, []);
         console.log('PASS: World Lore place guide, review, game view, both generation buttons, model selection and lore preservation');
     } finally {

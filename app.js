@@ -16504,6 +16504,18 @@ async function saveWorld() {
     // reach storage — otherwise the world is only repaired at the next reload,
     // and an export taken before then carries the damage to whoever opens it.
     normalizeAuthoredWorld(w);
+    try {
+        if (pendingWorldStructureSyncWorld === w) await pendingWorldStructureSync;
+        if (w.worldStructure) {
+            await ensureWorldLoreModules();
+            if (globalThis.HordeWorldLore.structureStatus(w).state === 'stale') {
+                globalThis.HordeWorldLore.generate(w);
+            }
+        }
+    } catch (error) {
+        showToast(`World structure could not be updated: ${error.message || error}`, 'error');
+        return false;
+    }
 
     const idx = state.worlds.findIndex(world => world.id === w.id);
     if (idx !== -1) {
@@ -16574,6 +16586,7 @@ function addWorldLocation(position = 'bottom', regionId = '', parentLocationId =
     } else {
         state.editingWorld.locations.push(loc);
     }
+    queueWorldStructureSync(state.editingWorld);
     worldStudioListState.locations.query = '';
     worldStudioListState.locations.page = 0;
     openWorldRecordInspector('location', loc.id);
@@ -16587,6 +16600,7 @@ function addWorldRegion() {
     let id = `reg_${Date.now()}`;
     while (world.regions.some(region => region.id === id)) id = `reg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     world.regions.push({ id, name: 'New region', description: '', tags: [] });
+    queueWorldStructureSync(world);
     openWorldRecordInspector('region', id);
     showToast('New region ready. Add its first location when you are ready.', 'success');
 }
@@ -18218,6 +18232,7 @@ function removeWorldLocationRecord(world, locationId) {
     });
     if (world.startLocationId === locationId) world.startLocationId = world.locations[0]?.id || '';
     migrateWorldSessionLocationReferences(world, locationId, '', removed?.name || '');
+    queueWorldStructureSync(world);
 }
 
 function removeWorldGroupRecord(world, groupId) {
@@ -18414,6 +18429,7 @@ function renderWorldRegionInspector() {
         if (!confirm(`Delete “${region.name}”? Its ${locations.length} location${locations.length === 1 ? '' : 's'} will remain but become unassigned.`)) return;
         locations.forEach(location => { location.regionId = ''; location.region = ''; });
         world.regions = world.regions.filter(item => item.id !== region.id);
+        queueWorldStructureSync(world);
         closeWorldRecordInspector();
     };
     setWorldInspectorTab(worldRecordInspector.tab);
@@ -21588,6 +21604,24 @@ async function ensureWorldLoreModules() {
         }
     })().finally(() => { worldLoreLoading = null; });
     return worldLoreLoading;
+}
+
+let pendingWorldStructureSync = Promise.resolve();
+let pendingWorldStructureSyncWorld = null;
+let worldStructureSyncRevision = 0;
+function queueWorldStructureSync(world) {
+    const revision = ++worldStructureSyncRevision;
+    pendingWorldStructureSyncWorld = world;
+    pendingWorldStructureSync = (async () => {
+        await ensureWorldLoreModules();
+        if (state.editingWorld !== world || revision !== worldStructureSyncRevision) return;
+        // This index contains generated place data only. Authored locations,
+        // manual lore and AI proposals remain untouched.
+        globalThis.HordeWorldLore.generate(world);
+        renderWorldStructureStatus();
+    })();
+    pendingWorldStructureSync.catch(error => showToast(`World structure could not be updated: ${error.message || error}`, 'error'));
+    return pendingWorldStructureSync;
 }
 
 function renderWorldStructureStatus() {
