@@ -170,6 +170,10 @@ const root = path.resolve(__dirname, '..');
             phase = 'wait'; const waited = await run();
             phase = 'resolve'; const resolved = await run();
             phase = 'move'; const moved = await run();
+            await executeWorldTurn(true);
+            const movedReroll = { location: sess.playerLocation,
+                text: sess.history.at(-1)?.text,
+                audit: safeJsonClone(sess.lastTurnAudit), calls };
             const beforeFailedSave = safeJsonClone(sess.inventory);
             const realSave = saveWorldsState;
             saveWorldsState = async () => { throw new Error('Injected storage failure'); };
@@ -200,7 +204,8 @@ const root = path.resolve(__dirname, '..');
             await saveWorldsState();
             const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.find(item => item.id === sess.id);
             window.fetch = realFetch;
-            return { first, second, repaired, invalid, waited, resolved, moved, failedSave, beforeFailedSave, contract,
+            return { first, second, repaired, invalid, waited, resolved, moved, movedReroll,
+                failedSave, beforeFailedSave, contract,
                 checked,discovered,sameTurn,sameTurnEvent,sameTurnElapsed,invalidArrival,transport,checkCall,secretCall,secrets:saved.revealedSecrets,checks:saved.checkHistory,
                 resolution: saved?.scheduledEvents?.find(event => event.id === 'audit_due')?.sceneResolution,
                 pending: (saved?.consequences || []).filter(item => item.type === 'deadline' && item.state !== 'resolved'),
@@ -224,6 +229,10 @@ const root = path.resolve(__dirname, '..');
         assert.equal(result.pending.length, 0, 'observed consequence closes deadline task');
         assert.equal(result.moved.location, 'hall', JSON.stringify(result.moved));
         assert.equal(result.moved.calls, 9);
+        assert.equal(result.movedReroll.location, 'hall', JSON.stringify(result.movedReroll));
+        assert.match(result.movedReroll.text, /reach the hall/i);
+        assert.equal(result.movedReroll.audit.protocol, 'scene_draft_v2');
+        assert.equal(result.movedReroll.calls, 10);
         assert.deepEqual(result.failedSave.inventory, result.beforeFailedSave,
             'unsaved scene must roll back its item transfer');
         assert(!result.contract.properties.scene, 'engine computes ending scene');

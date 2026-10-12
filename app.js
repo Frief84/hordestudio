@@ -29548,8 +29548,17 @@ async function executeWorldTurn(commandOrReroll = null) {
 
     if (isReroll && command !== "init" && command !== "look" && command !== "continue") {
         labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
+        const movementOrigin = sess.playerLocation;
+        const requestedCompanionIds = requestedWorldTravelCompanionIds(worldForSession(world, sess), sess, userInput);
         arrivalContext = applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
-        if (sess.playerLocation === turnSnapshot?.session?.playerLocation) {
+        if (sess.playerLocation !== movementOrigin) {
+            committedMovement = {
+                originId: movementOrigin,
+                destinationId: sess.playerLocation,
+                companionIds: requestedCompanionIds,
+                relockLastDoor: userRequestsWorldDoorRelock(userInput)
+            };
+        } else {
             const doorResult = applyPlayerKeyDoorOpening(world, sess, userInput);
             doorAttempt = doorResult;
             if (doorResult?.committed) committedDoor = doorResult;
