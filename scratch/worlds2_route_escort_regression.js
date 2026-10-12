@@ -414,4 +414,32 @@ assert.match(app, /btn\.disabled = true;\s*btn\.title = requirement\.requiredIte
     'the play UI must show why a guarded exit is unavailable');
 assert.match(app, /authorizedCheckOutcome: result\.success === true/,
     'check outcomes must distinguish successful from failed or direct updates');
+const projectedWorld = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [{
+        text: 'into Cell 2', targetLocationId: 'cell_2', lockState: 'locked', travelTime: 2
+    }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [{
+        text: 'out to The Cell Corridor', targetLocationId: 'corridor',
+        lockState: 'locked', requiredItem: 'Cell key', travelTime: 2
+    }] }
+] };
+const projectedSession = { id: 'projected', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {}, turnCount: 1 };
+const previousWorldForSession = ctx.worldForSession;
+ctx.worldForSession = (value, session) => ({ ...value, locations: ctx.sessionLocations(value, session) });
+const displayedExit = ctx.worldForSession(projectedWorld, projectedSession).locations[0].exits[0];
+assert.equal(displayedExit.requiredItem, 'Cell key',
+    'a key authored on the reciprocal edge is projected onto the displayed exit');
+assert.equal(ctx.movePlayerAlongWorldPath(projectedWorld, projectedSession,
+    projectedWorld.locations[1], { exit: { ...displayedExit, targetLocationId: 'forged' } }).reason,
+    'invalid_exit', 'a forged destination must still be rejected');
+const projectedMove = ctx.movePlayerAlongWorldPath(projectedWorld, projectedSession,
+    projectedWorld.locations[1], { exit: displayedExit });
+assert.equal(projectedMove.ok, true,
+    'clicking a projected keyed exit must survive a fresh session-view build');
+assert.equal(projectedMove.travelMinutes, 2);
+assert.equal(projectedSession.playerLocation, 'cell_2');
+assert.equal(projectedSession.unlockedExits['corridor::cell_2'], true);
+assert.equal(projectedSession.unlockedExits['cell_2::corridor'], true);
+ctx.worldForSession = previousWorldForSession;
 console.log('✓ movement intent, item/check-gated exits, and NPC escort continuity');

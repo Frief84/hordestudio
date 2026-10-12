@@ -26861,6 +26861,7 @@ async function travelThroughWorldExit(world, sess, exit) {
                 : reason === 'impassable_destination' ? `${attempt.result.blockedLocationName || target.name} is impassable: ${attempt.result.blockedLabel || 'route closed'}.`
                 : reason === 'required_item' ? `You need ${attempt.result.requiredItem} to use this exit${attempt.result.allowCheckUnlock ? ', or you can try to open it with a check' : ''}.`
                 : reason === 'locked_exit' ? 'This exit is locked. Describe how you try to open it in chat.'
+                : reason === 'invalid_exit' ? 'This exit changed while the map was open. Refresh the world view and try again.'
                 : `${target.name} is not reachable from here.`, 'info');
             return { ok: false, reason };
         }
@@ -35269,8 +35270,14 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     const travelWorld = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
     const selectedExit = Object.prototype.hasOwnProperty.call(options, 'exit');
     const origin = getLocationRef(travelWorld, sess.playerLocation);
-    if (selectedExit && (!(origin?.exits || []).includes(options.exit)
-        || resolveWorldExitTarget(travelWorld, options.exit)?.id !== targetLocation.id)) {
+    // Session views may project a reciprocal door's key onto an exit. That
+    // produces a fresh object on every view build, including between rendering
+    // the button and handling its click. Match the authored data as well as the
+    // reference, but still reject a stale or fabricated exit.
+    const chosenExit = selectedExit ? (origin?.exits || []).find(exit =>
+        exit === options.exit || JSON.stringify(exit) === JSON.stringify(options.exit)) : null;
+    if (selectedExit && (!chosenExit
+        || resolveWorldExitTarget(travelWorld, chosenExit)?.id !== targetLocation.id)) {
         return { ok: false, moved: false, reason: 'invalid_exit', path: [] };
     }
     const destinationBlock = worldLocationTravelBlock(sess, targetLocation.id);
@@ -35280,7 +35287,7 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
             path: [] };
     }
     if (selectedExit) {
-        const requirement = worldExitRequirement(sess, options.exit, origin.id);
+        const requirement = worldExitRequirement(sess, chosenExit, origin.id);
         if (!requirement.ok) return { ok: false, moved: false,
             reason: requirement.reason, requiredItem: requirement.requiredItem,
             allowCheckUnlock: requirement.allowCheckUnlock, path: [] };
@@ -35329,7 +35336,7 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         blockedLocationName: targetLocation.name, path: [] };
     const travelLegs = path.slice(1).map((toId, index) => getWorldTravelLeg(travelWorld, path[index], toId, sess)).filter(Boolean);
     if (selectedExit && travelLegs[0]) {
-        const details = typeof options.exit === 'object' ? options.exit : {};
+        const details = typeof chosenExit === 'object' ? chosenExit : {};
         Object.assign(travelLegs[0], {
             mode: normalizeWorldTravelMode(details.mode),
             travelTime: Math.max(0, Number(details.travelTime) || 0),
@@ -35346,7 +35353,8 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
                 && (explicitCompanions.includes(npc.id)
                     || path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok));
         }).map(npc => npc.id);
-    const doorState = applyPlayerTravelDoorStates(travelWorld, sess, path, options);
+    const doorState = applyPlayerTravelDoorStates(travelWorld, sess, path,
+        selectedExit ? { ...options, exit: chosenExit } : options);
     sess.playerLocation = targetLocation.id;
     // A monotonic marker lets short-lived conditional promises distinguish
     // "the player never left" from "the player went away and quietly returned".
