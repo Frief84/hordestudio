@@ -142,6 +142,32 @@ const root = path.resolve(__dirname, '..');
             'a local repair after a gated-secret tool turn must use constrained output');
         assert.equal(repairedSecretTurn.requests[1].tools, undefined);
         assert.deepEqual(repairedSecretTurn.rejected, []);
+        const partialTurn = await page.evaluate(async () => {
+            const sess = getCurrentWorldSession();
+            const action = 'I greet Gloria and knock on the desk.';
+            const draft = { protocol: 'scene_draft_v2',
+                narrative: [{ id: 'p1', text: 'Gloria returns your greeting.' }],
+                actions: [{ request: 'I greet Gloria', kind: 'speech', status: 'resolved', response_id: 'p1' }],
+                events: [], effects: {}, speech: [], commitments: [] };
+            window.fetch = async (url, options) => {
+                if (!String(url).includes('/chat/completions'))
+                    return new Response('{}', { headers: { 'Content-Type': 'application/json' } });
+                const body = JSON.parse(options.body);
+                const delta = body.tools
+                    ? { tool_calls: [{ id: 'draft', index: 0, type: 'function',
+                        function: { name: 'commit_world_turn', arguments: JSON.stringify(draft) } }] }
+                    : { content: JSON.stringify(draft) };
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta,
+                    finish_reason: body.tools ? 'tool_calls' : 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value = action;
+            await executeWorldTurn();
+            return { text: sess.history.at(-1)?.text, audit: sess.lastTurnAudit };
+        });
+        assert.deepEqual(partialTurn.audit?.rejected || [], []);
+        assert.match(partialTurn.audit?.unaddressed_player_request || '', /knock on the desk/);
+        assert.match(partialTurn.text, /Action note:.*knock on the desk/);
         console.log('PASS local scene uses a closed JSON schema and commits a valid draft');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

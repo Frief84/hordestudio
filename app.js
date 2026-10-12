@@ -31082,6 +31082,8 @@ ${modularMandate}
                         reason: 'unproven_scene_knowledge', type: 'speech', detail: 'A declared knowledge change was rejected.' });
                     committed.audit.protocol = 'scene_draft_v2';
                     committed.audit.actions = compiled.actions;
+                    if (compiled.unaddressedRequest)
+                        committed.audit.unaddressed_player_request = compiled.unaddressedRequest;
                 }
                 if (knowledgeSafeReceipt.dropped) committed.audit.knowledgeDrops = knowledgeSafeReceipt.dropped;
                 const actionResult = committed.actionResult || {};
@@ -31197,7 +31199,9 @@ ${modularMandate}
                 pendingWorldActionFeedback = attempt.result.actionResult;
                 if (compiled) {
                     acceptedSceneDraft = compiled;
-                    fullText = compiled.narrative;
+                    fullText = compiled.narrative + (compiled.unaddressedRequest
+                        ? `\n\nAction note: The reply did not confirm this part of your request: “${compiled.unaddressedRequest}”. Only verified changes were applied; check the current World state before continuing.`
+                        : '');
                 }
             }
             return attempt.result;
@@ -32048,6 +32052,8 @@ ${modularMandate}
                             : ` Movement event for ${unknownDestinationActor} has no destination. If this is movement within the same room/place, omit the movement event; only movement between mapped places needs an exact destination ID.`
                     : verificationReason === 'unscoped_actor_mutation'
                         ? ` Unscoped actor change: ${unscopedMutationField || '(field not reported)'}.${unscopedMutationGuidance}`
+                    : verificationReason === 'missing_player_response'
+                        ? ' The model did not record any response to your request. Your instruction is valid; no part of this draft was applied. Reroll to try again.'
                     : verificationReason === 'npc_access_denied' || verificationReason === 'unreachable_npc_destination'
                         ? ' An NPC movement conflicted with the saved map, access or place knowledge.'
                         : verificationReason ? ` Verification reason: ${verificationReason}.` : '';

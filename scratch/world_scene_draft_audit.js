@@ -29,7 +29,30 @@ assert.equal(result.receipt.events[0].actor_id, 'denton');
 assert.equal(result.receipt.events[0].source_type, 'told');
 assert.deepEqual(result.receipt.scene.present_character_ids, context.present);
 const reasons = (candidate, ctx = context) => compile(candidate, ctx).errors?.map(e => e.reason) || [];
-assert(reasons({ ...draft, actions: draft.actions.slice(0, 1) }).includes('incomplete_player_request_coverage'));
+assert.match(compile({ ...draft, actions: draft.actions.slice(0, 1) }, context).unaddressedRequest,
+    /ask the deadline/, 'an omitted question is reported without discarding a separate action');
+const lindaInput = 'You take LInda with you into the round room, unlock the door, and lock it again behind you.';
+const lindaNarrative = 'Linda comes with you into the round room. You unlock the door and lock it behind you.';
+const lindaDraft = { ...draft, narrative: lindaNarrative, events: [], effects: {}, speech: [], commitments: [],
+    actions: [
+        { request: 'Take Linda with you into the round room', kind: 'travel', status: 'resolved', response: lindaNarrative },
+        { request: 'Unlock the door', kind: 'physical', status: 'resolved', response: lindaNarrative },
+        { request: 'Lock it again behind you.', kind: 'physical', status: 'resolved', response: lindaNarrative }
+    ] };
+const lindaContext = { ...context, input: lindaInput };
+assert.equal(compile(lindaDraft, lindaContext).unaddressedRequest, '',
+    'case, punctuation, articles and joining words must not reject a complete compound action');
+const partialNarrative = 'Linda follows you into the round room. You unlock the door.';
+const missingLock = compile({ ...lindaDraft, narrative: partialNarrative,
+    actions: lindaDraft.actions.slice(0, 2).map(action => ({ ...action, response: partialNarrative })) }, lindaContext);
+assert(missingLock.ok, JSON.stringify(missingLock.errors));
+assert.match(missingLock.unaddressedRequest, /lock it again behind you/,
+    'an omitted re-lock is reported without discarding earlier verified steps');
+assert.deepEqual(missingLock.receipt.state_updates, {}, 'an omitted lock step cannot create a lock change');
+const lostNegation = compile({ ...lindaDraft,
+    actions: [{ ...lindaDraft.actions[1], request: 'Unlock the door' }] },
+{ ...lindaContext, input: 'Do not unlock the door.' });
+assert.match(lostNegation.unaddressedRequest, /not unlock/, 'negation remains significant');
 assert(reasons({ ...draft, narrative: 'Nothing happens.' }).includes('response_missing_from_scene'));
 assert(reasons({ ...draft, speech: [{ ...draft.speech[0], listeners: ['absent'] }] }).includes('invalid_witnessed_speech'));
 assert(reasons({ ...draft, effects: { invented_state: true } }).includes('unsupported_draft_effect'));
@@ -160,8 +183,9 @@ assert.equal(compile({...linked,events:[{actor_id:'player',status:'completed',mi
     .receipt.events[0].type,'time','an explicit duration is an unambiguous time operation, never prose inference');
 assert(compile(linked, {...context,input:'I alert Denton, and ask the deadline.'}).ok,
     'a comma between exact request excerpts is presentation, not a missing action');
-assert(!compile(linked, {...context,input:'I alert Denton and ask the deadline. I do not leave.'}).ok,
-    'an omitted constraint remains a real coverage failure');
+const omittedConstraint = compile(linked, {...context,input:'I alert Denton and ask the deadline. I do not leave.'});
+assert(omittedConstraint.ok && /not leave/.test(omittedConstraint.unaddressedRequest),
+    'an omitted constraint stays visible without discarding independently valid changes');
 const spacedPassages = structuredClone(linked);
 spacedPassages.narrative.forEach(p => { p.text = ' ' + p.text + ' '; });
 assert(compile(spacedPassages, context).ok, 'linked passages use the same whitespace normalization as displayed prose');

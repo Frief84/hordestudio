@@ -35,6 +35,29 @@ function rejectUnknownFields(value, spec, path, fail) {
     });
 }
 
+// Models often omit punctuation, articles or the repeated subject when they
+// split a compound player instruction. Compare the meaningful words in order
+// instead of requiring an exact character-for-character echo. Direction,
+// negation, actors and verbs remain mandatory.
+function requestWords(value, stripLeadingSubject = false) {
+    const optional = new Set(['a', 'an', 'the', 'and', 'then', 'ein', 'eine', 'einen',
+        'der', 'die', 'das', 'den', 'dem', 'und', 'dann']);
+    const subjects = new Set(['i', 'you', 'we', 'ich', 'du', 'wir']);
+    const words = [...String(value || '').matchAll(/[\p{L}\p{N}]+/gu)]
+        .map(match => ({ word: match[0].normalize('NFKC').toLocaleLowerCase(), index: match.index }));
+    if (stripLeadingSubject && subjects.has(words[0]?.word)) words.shift();
+    return words.filter(entry => !optional.has(entry.word));
+}
+function playerRequestCoverage(input, actions) {
+    const expected = requestWords(input, true);
+    const actual = actions.flatMap(action => requestWords(action?.request, true));
+    const mismatch = expected.findIndex((entry, index) => entry.word !== actual[index]?.word);
+    if (mismatch < 0 && expected.length === actual.length) return { ok: true };
+    const index = mismatch < 0 ? expected.length : mismatch;
+    const excerpt = String(input || '').slice(expected[index]?.index ?? Math.max(0, String(input || '').length - 100)).trim().slice(0, 120);
+    return { ok: false, excerpt };
+}
+
 function schema(legacy) {
     const excluded = new Set(['summary', 'scene', 'events', 'entity_updates', 'state_updates',
         'action_resolution', 'npc_observations', 'world_events']);
@@ -267,9 +290,11 @@ function compile(draft, context) {
             fail(`effects.${key}`, 'unsupported_draft_effect');
     });
     const actions = draft.actions;
-    const compact = value => String(value || '').replace(/[\s,]+/g, '');
-    if (compact(actions.map(action => action?.request || '').join('')) !== compact(context.input))
-        fail('actions', 'incomplete_player_request_coverage');
+    const coverage = playerRequestCoverage(context.input, actions);
+    // An omitted clause is an incomplete response, not permission to invent
+    // that clause's effect and not a reason to discard independently verified
+    // events. The caller surfaces the gap while the reducer applies only the
+    // changes that were actually proposed and validated.
     if (String(context.input || '').trim() && !actions.length) fail('actions', 'missing_player_response');
     actions.forEach((action, index) => {
         if (!object(action) || !kinds.includes(action.kind) || !statuses.includes(action.status)) {
@@ -425,6 +450,7 @@ function compile(draft, context) {
     if (errors.length) return { ok: false, errors };
     const first = actions[0];
     return { ok: true, narrative, actions: copy(actions), speech: copy(draft.speech), commitments, resolutions,
+        unaddressedRequest: coverage.ok ? '' : coverage.excerpt,
         receipt: {
             summary: actions.map(action => action.response).join(' ').slice(0, 300),
             action_resolution: first ? { kind: first.kind, status: first.status, outcome: first.response } : null,

@@ -78,7 +78,7 @@ const root = path.resolve(__dirname, '..');
                         actions:[{request:'What does the label say? ',kind:'question',status:'answered',response:'The label reads Audit.'},
                             {request:'I inspect the jammed drawer.',kind:'physical',status:'pending_check',response:'You inspect the jammed drawer; the careful search is uncertain.'}],
                         events:[{type:'observation',actor_id:'player',status:'completed',evidence:'The label reads Audit.',observation:'The label reads Audit.'}], effects:{checks:[{id:'drawer_search',label:'Search the drawer',stat_id:'wits',difficulty:5,
-                            success_text:'The careful search reveals the audit stamp.',failure_text:'The drawer stays jammed.',on_success:{},on_failure:{}}]},speech:[],commitments:[] };
+                            on_success:{},on_failure:{}}]},speech:[],commitments:[] };
                 }
                 if (phase === 'secret') {
                     secretCall++;
