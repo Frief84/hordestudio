@@ -127,8 +127,17 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             const naturalTravel = { playerLocation: session.playerLocation,
                 lindaLocation: session.entityStates.linda.location,
                 context: naturalTravelContext };
+            restoreWorldTurnState(world, session, snapshot);
+            session.playerLocation = 'gate';
+            session.entityStates.linda = { location: 'gate', status: 'alive' };
+            session.inventory = [{ name: 'tower key', quantity: 1 }];
+            const directTakeContext = applyUserDirectedMovement(world, session,
+                'You\nyou take linda to the Tower Cellar');
+            const directTake = { playerLocation: session.playerLocation,
+                lindaLocation: session.entityStates.linda.location,
+                context: directTakeContext };
             return { before, keyDoor, directRejected: direct.moduleRejections?.[0]?.reason,
-                afterDirect, afterCheck, savedUnlock, travelProof, restored, naturalTravel };
+                afterDirect, afterCheck, savedUnlock, travelProof, restored, naturalTravel, directTake };
         }, fixture);
         assert.equal(result.before.disabled, true);
         assert.doesNotMatch(result.before.label, /requires tower key|route closed/i);
@@ -154,6 +163,9 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
         assert.equal(result.naturalTravel.playerLocation, 'cellar');
         assert.equal(result.naturalTravel.lindaLocation, 'cellar');
         assert.match(result.naturalTravel.context, /Linda accompanied the player/);
+        assert.equal(result.directTake.playerLocation, 'cellar');
+        assert.equal(result.directTake.lindaLocation, 'cellar');
+        assert.match(result.directTake.context, /Linda accompanied the player/);
         assert.deepEqual(errors, []);
         console.log('PASS: authored gate blocks, check unlocks, direct travel commits player and escort, rewind re-locks');
     } finally {

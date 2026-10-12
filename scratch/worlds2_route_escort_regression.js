@@ -73,6 +73,11 @@ assert.equal(ctx.extractUserMovementTarget('YYouYou gab Linda and drag her to th
     'an accidental doubled player pronoun must not hide an otherwise explicit move');
 assert.equal(ctx.extractUserMovementTarget('YYouyou go with Linda to the Round room'), 'the Round room',
     'going with a named companion must identify the destination');
+assert.equal(ctx.extractUserMovementTarget('You\nyou take linda to the round room'), 'the round room',
+    'a line-broken repeated pronoun and direct take command must move toward the named room');
+assert.equal(ctx.extractUserMovementTarget('You take Linda to the Round Room'), 'the Round Room');
+assert.equal(ctx.extractUserMovementTarget('I take the key through the Round Room'), 'the Round Room',
+    'carrying an item must still allow the player to travel alone');
 const companionPhrases = [
     ['I go with Linda to the Round Room', 'the Round Room'],
     ['I go with Linda by the hand into the Round Room', 'the Round Room'],
@@ -249,6 +254,20 @@ const togetherMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, togetherSess
 assert.equal(togetherMove.ok, true);
 assert.equal(togetherSession.playerLocation, 'cellar');
 assert.equal(togetherSession.entityStates.linda.location, 'cellar');
+const directTakeInput = 'You\nyou take linda to the round room';
+const directTakeSession = { id: 'direct_take', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const directTakeIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, directTakeSession,
+    directTakeInput);
+assert.deepEqual(Array.from(directTakeIds), ['linda']);
+const directTakeTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget(directTakeInput), true, directTakeSession);
+assert.equal(directTakeTarget?.id, 'cellar');
+assert.equal(ctx.movePlayerAlongWorldPath(accompaniedWorld, directTakeSession, directTakeTarget,
+    { companionIds: directTakeIds }).ok, true);
+assert.equal(directTakeSession.playerLocation, 'cellar');
+assert.equal(directTakeSession.entityStates.linda.location, 'cellar');
 assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld,
     { playerLocation: 'gate', entityStates: { linda: { location: 'gate' } } },
     'Ich gehe mit Linde in den Round Room')), ['linda'],

@@ -28717,7 +28717,7 @@ function getObservationWindow(npcId) {
 }
 
 function normalizeWorldPlayerCommandPronoun(value) {
-    return String(value || '').replace(/^(\s*)(?:y?you){1,4}\b/i, '$1You');
+    return String(value || '').replace(/^(\s*)(?:y?you)(?:\s*y?you){0,3}\b/i, '$1You');
 }
 
 function extractUserMovementTarget(userInput) {
@@ -28925,7 +28925,12 @@ function worldDraggedCompanionIntent(userInput) {
     const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
     if (coordinated) return { index: coordinated.index, person: coordinated[1].trim(), target: coordinated[2].trim() };
     const direct = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led|escort(?:ed)?)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
-    return direct ? { index: direct.index, person: direct[1].trim(), target: direct[2].trim() } : null;
+    if (direct) return { index: direct.index, person: direct[1].trim(), target: direct[2].trim() };
+    // "You take Linda to the Round Room" commits the same accompanied trip.
+    // An article-led object such as "the key" belongs to carrying, not escort.
+    const taking = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:take|took|bring|brought)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    if (!taking || /^(?:the|a|an|my|our|your|this|that)\s+/i.test(taking[1])) return null;
+    return { index: taking.index, person: taking[1].trim(), target: taking[2].trim() };
 }
 
 function worldPlayerWithCompanionIntent(userInput) {
