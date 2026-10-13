@@ -42,6 +42,15 @@ const lindaDraft = { ...draft, narrative: lindaNarrative, events: [], effects: {
 const lindaContext = { ...context, input: lindaInput };
 assert.equal(compile(lindaDraft, lindaContext).unaddressedRequest, '',
     'case, punctuation, articles and joining words must not reject a complete compound action');
+const attemptedDisplay = compile({ ...lindaDraft,
+    narrative: 'You hold up the object, but Linda looks away.',
+    actions: [{ request: 'You show Linda the object.', kind: 'physical', status: 'attempted',
+        response: 'You hold up the object, but Linda looks away.' }],
+    events: [] }, { ...lindaContext, input: 'You show Linda the object.' });
+assert(attemptedDisplay.ok, JSON.stringify(attemptedDisplay.errors));
+assert.equal(attemptedDisplay.receipt.events[0].type, 'interaction');
+assert.equal(attemptedDisplay.receipt.events[0].status, 'attempted');
+assert.equal(attemptedDisplay.receipt.events[0].actor_id, 'player');
 const partialNarrative = 'Linda follows you into the round room. You unlock the door.';
 const missingLock = compile({ ...lindaDraft, narrative: partialNarrative,
     actions: lindaDraft.actions.slice(0, 2).map(action => ({ ...action, response: partialNarrative })) }, lindaContext);

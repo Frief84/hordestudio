@@ -58,7 +58,7 @@ function playerRequestCoverage(input, actions) {
     return { ok: false, excerpt };
 }
 
-function schema(legacy) {
+function schema(legacy, protocol = 'scene_draft_v2') {
     const excluded = new Set(['summary', 'scene', 'events', 'entity_updates', 'state_updates',
         'action_resolution', 'npc_observations', 'world_events']);
     const effects = copy(Object.fromEntries(Object.entries(legacy).filter(([key]) => !excluded.has(key))));
@@ -146,10 +146,51 @@ function schema(legacy) {
     // Preserve schema-defined dynamic maps while closing every object with
     // named fields. A constrained backend can then block unknown nested keys.
     closeDeclaredObjectFields(contract);
+    if (protocol === 'scene_draft_v3') {
+        contract.properties.protocol.enum = [protocol];
+        contract.required = ['protocol', 'narrative', 'actions'];
+        contract.properties.actions.items.required = ['kind', 'status', 'response_id'];
+        contract.properties.actions.items.properties.request.description =
+            'Omit only for one simple action. For compound input, copy contiguous excerpts covering the full request in order.';
+        // Keep semantic guidance for domain fields; the shared instructions
+        // carry the repetitive transport and paragraph rules just once.
+        contract.properties.narrative.description = 'Ordered scene passages; reference their IDs without repeating prose.';
+        if (contract.properties.events?.items?.properties?.type)
+            contract.properties.events.items.properties.type.description =
+                'Canonical event type. Movement changes mapped places; gestures and showing held items do not. Use inventory for transfers, activity for lasting poses, status only for alive/dead/gone.';
+        contract.properties.effects.description = 'Changed enabled fields only. Omit when nothing changes.';
+    }
     return contract;
 }
 
-function isDraft(value) { return object(value) && value.protocol === 'scene_draft_v2'; }
+function isDraft(value) { return object(value) && ['scene_draft_v2', 'scene_draft_v3'].includes(value.protocol); }
+function simpleRequest(input) {
+    // Deliberately conservative: uncertain or multilingual compound requests
+    // keep explicit coverage rather than silently assigning their first step.
+    return !!String(input || '').trim() && !/[\n;,&]|[.!?]\s+\S|\b(?:and|then|after|before|while|also|und|dann|danach|bevor|nachdem|sowie)\b/i.test(input);
+}
+
+function localInteraction(request, context) {
+    const normalize = s => String(s || '').normalize('NFKC').toLocaleLowerCase().trim()
+        .replace(/[.!?]+$/, '').replace(/^(?:the|a|an|my|den|die|das|einen|eine|mein(?:en|e)?)\s+/, '');
+    const input = String(request || '').trim().replace(/[.!?]+$/, '');
+    if (!simpleRequest(input) || /\b(?:not|never|nicht|kein\w*)\b/i.test(input)) return false;
+    const actors = (context.actors || []).filter(actor => (context.present || []).includes(actor.id));
+    const names = actors.flatMap(actor => [actor.name, actor.id]).filter(Boolean).map(normalize);
+    let match = input.match(/^(?:I|you)\s+show\s+(.+?)\s+to\s+(.+)$/i);
+    if (!match) for (const name of names.sort((a, b) => b.length - a.length)) {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const indirect = input.match(new RegExp(`^(?:(?:I|you)\\s+show|(?:Ich|Du)\\s+zeig(?:e|st))\\s+(${escaped})\\s+(.+)$`, 'i'));
+        if (indirect) { match = [indirect[0], indirect[2], indirect[1]]; break; }
+    }
+    if (match) return names.includes(normalize(match[2])) && (context.inventory || []).some(item =>
+        (typeof item === 'string' || item?.quantity === undefined || Number(item.quantity) > 0)
+            && normalize(typeof item === 'string' ? item : item?.name) === normalize(match[1]));
+    match = input.match(/^(?:I|you)\s+(?:walk up to|approach|wave to|wave at|nod to|nod at)\s+(.+)$/i)
+        || input.match(/^(?:Ich|Du)\s+(?:geh(?:e|st) zu|wink(?:e|st))\s+(.+)$/i);
+    if (match) return names.includes(normalize(match[1]));
+    return /^(?:(?:I|you)\s+(?:wave|nod|smile)|(?:Ich|Du)\s+(?:wink(?:e|st)|nick(?:e|st)|lächel(?:e|st)))$/i.test(input);
+}
 function decode(value) {
     if (object(value)) return value;
     let source = String(value).trim();
@@ -161,7 +202,11 @@ function decode(value) {
     }
     if (source.startsWith('<world_turn_receipt>') && source.endsWith('</world_turn_receipt>'))
         source = source.slice('<world_turn_receipt>'.length, -'</world_turn_receipt>'.length).trim();
-    try { const result = JSON.parse(source); return object(result) ? result : null; }
+    try {
+        const result = JSON.parse(source);
+        if (result?.protocol === 'scene_draft_v3' && streamValidator(null).push(source)) return null;
+        return object(result) ? result : null;
+    }
     catch { return null; }
 }
 
@@ -187,6 +232,16 @@ function compile(draft, context) {
         detail: explanation ? `${path}: ${explanation}` : path });
     if (!isDraft(draft)) return { ok: false, errors: [{ reason: 'invalid_scene_protocol' }] };
     draft = copy(draft);
+    if (draft.protocol === 'scene_draft_v3') {
+        for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+            if (draft[key] === undefined) draft[key] = [];
+        if (draft.effects === undefined) draft.effects = {};
+        if (Array.isArray(draft.actions)) draft.actions.forEach((action, index) => {
+            if (!object(action) || action.request !== undefined) return;
+            if (draft.actions.length === 1 && simpleRequest(context.input)) action.request = context.input;
+            else fail(`actions.${index}.request`, 'explicit_request_coverage_required');
+        });
+    }
     // One recorded provider typo has an exact, lossless destination. Keep the
     // witness IDs; do not guess when both spellings are present or malformed.
     (Array.isArray(draft.events) ? draft.events : []).forEach((event, index) => {
@@ -215,6 +270,14 @@ function compile(draft, context) {
         if (Object.prototype.hasOwnProperty.call(event, 'posture')) delete event.posture;
     });
     if (errors.length) return { ok: false, errors };
+    // Older drafts carried alternative outcome prose. It has never been state
+    // authority; strip it before schema checking as well as before compiling
+    // typed consequences. Lasting branch effects are still validated below.
+    if (Array.isArray(draft.effects?.checks)) for (const check of draft.effects.checks) {
+        if (!object(check)) continue;
+        delete check.success_text;
+        delete check.failure_text;
+    }
     if (context.contract) {
         rejectUnknownFields(draft, context.contract, '', fail);
         if (errors.length) return { ok: false, errors };
@@ -292,6 +355,14 @@ function compile(draft, context) {
             fail(`effects.${key}`, 'unsupported_draft_effect');
     });
     const actions = draft.actions;
+    // This exemption is derived from the submitted request and current engine
+    // inventory/cast, never from a model's assertion of success. Other events
+    // and all narrative conflicts still pass through the domain validator.
+    actions.forEach(action => {
+        if (object(action)) delete action.verifiedLocalInteraction;
+        if (object(action) && action.kind === 'physical' && action.status === 'resolved'
+            && localInteraction(action.request, context)) action.verifiedLocalInteraction = true;
+    });
     const coverage = playerRequestCoverage(context.input, actions);
     // An omitted clause is an incomplete response, not permission to invent
     // that clause's effect and not a reason to discard independently verified
@@ -302,9 +373,11 @@ function compile(draft, context) {
         if (!object(action) || !kinds.includes(action.kind) || !statuses.includes(action.status)) {
             fail(`actions.${index}`, 'invalid_action_disposition'); return;
         }
+        if (typeof action.request !== 'string') fail(`actions.${index}.request`, 'invalid_action_request');
         if (typeof action.response !== 'string' || action.response.trim().length < 8
             || !narrative.includes(action.response.trim())) fail(`actions.${index}.response`, 'response_missing_from_scene');
     });
+    if (errors.length) return { ok: false, errors };
     const checks = Array.isArray(effects.checks) ? effects.checks : [];
     // A speculative attempt's ledger sentence is presentation, not a lasting
     // check consequence. The source-linked scene retains the attempt; the
@@ -351,6 +424,15 @@ function compile(draft, context) {
     const present = new Set(['player', ...(context.present || [])]);
     if (Array.isArray(effects.npc_introduced)) effects.npc_introduced.forEach(npc => { if (npc?.id) present.add(npc.id); });
     const events = copy(draft.events);
+    // The action entry already identifies an exact player request and a
+    // linked narrative passage. If the model marks a physical attempt but
+    // forgets its informational event, record that attempt locally. It grants
+    // no success or state change and still passes through receipt validation.
+    for (const action of actions) if (action.kind === 'physical' && action.status === 'attempted'
+        && !events.some(event => event?.actor_id === 'player'
+            && ['attempted', 'in_progress', 'failed'].includes(event.status))
+        && !checks.length) events.push({ type: 'interaction', actor_id: 'player', status: 'attempted',
+            action: action.request.slice(0, 180), evidence: action.response.slice(0, 400) });
     // A precise vocabulary alias, not an inferred event from prose. Both mean
     // a spoken interaction; the domain reducer still validates actor/status.
     for (const event of events) if (event?.type === 'speech') event.type = 'dialogue';
@@ -464,6 +546,106 @@ function compile(draft, context) {
     };
 }
 
-root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, alignInstructions };
+// A lexical streaming reader, not a partial JSON repairer. Only closed values
+// are inspected. Missing keys and cross-passage references wait for compile().
+// Unknown/legacy field aliases also wait for the normal compatibility adapter.
+function streamValidator(contract) {
+    let source = '', pos = 0, tokenStart = -1, quoted = false, escaped = false;
+    let error = null, started = false, finished = false;
+    const stack = [];
+    const fail = (path, reason) => { error ||= { type: 'scene_draft', reason, detail: path }; };
+    const slot = () => {
+        const parent = stack[stack.length - 1];
+        if (!parent) return { path: '', spec: contract };
+        const key = parent.array ? parent.count : parent.key;
+        return { path: parent.path ? `${parent.path}.${key}` : String(key),
+            spec: parent.array ? parent.spec?.items : parent.spec?.properties?.[key] };
+    };
+    const accept = (value, target) => {
+        const { spec, path } = target;
+        // These aliases have lossless existing compiler adapters.
+        const compatible = path === 'protocol' && ['scene_draft_v2', 'scene_draft_v3'].includes(value)
+            || /^events\.\d+\.type$/.test(path) && ['speech', 'posture'].includes(value);
+        if (spec?.enum && !compatible && !spec.enum.includes(value)) fail(path, 'invalid_stream_enum');
+        const parent = stack[stack.length - 1];
+        if (parent) { parent.state = 'comma'; parent.count++; }
+        else finished = true;
+    };
+    const literal = (raw, target) => {
+        try { accept(JSON.parse(raw), target); }
+        catch { fail(target.path, 'invalid_stream_json'); }
+    };
+    function push(chunk) {
+        source += String(chunk || '');
+        if (error || finished) return error;
+        // Tagged and fenced fallback channels are supported without searching
+        // arbitrary prose for a brace. Wait until their opening is complete.
+        if (!started) {
+            const trimmed = source.trimStart();
+            const wrappers = ['<world_turn_receipt>', '```json\n', '```\n'];
+            const wrapper = wrappers.find(prefix => trimmed.startsWith(prefix));
+            if (wrapper) pos = source.length - trimmed.length + wrapper.length;
+            else if (wrappers.some(prefix => prefix.startsWith(trimmed))) return null;
+            else if (!trimmed.startsWith('{')) return null;
+            else pos = source.length - trimmed.length;
+            started = true;
+        }
+        while (pos < source.length && !error && !finished) {
+            const ch = source[pos];
+            const parent = stack[stack.length - 1];
+            if (quoted) {
+                pos++;
+                if (escaped) { escaped = false; continue; }
+                if (ch === '\\') { escaped = true; continue; }
+                if (ch !== '"') continue;
+                quoted = false;
+                let value;
+                try { value = JSON.parse(source.slice(tokenStart, pos)); }
+                catch { fail(slot().path, 'invalid_stream_json'); break; }
+                tokenStart = -1;
+                if (parent?.state === 'key') {
+                    if (parent.keys.has(value)) { fail(parent.path, 'duplicate_stream_key'); break; }
+                    parent.keys.add(value); parent.key = value; parent.state = 'colon';
+                } else accept(value, slot());
+                continue;
+            }
+            if (tokenStart >= 0) {
+                if (!/[\s,}\]]/.test(ch)) { pos++; continue; }
+                literal(source.slice(tokenStart, pos), slot()); tokenStart = -1;
+                continue;
+            }
+            if (/\s/.test(ch)) { pos++; continue; }
+            if (ch === '}' || ch === ']') {
+                if (!parent || (ch === ']') !== parent.array || !['key', 'value', 'comma'].includes(parent.state)) {
+                    fail(slot().path, 'invalid_stream_json'); break;
+                }
+                // Full JSON parsing at commit still catches trailing commas.
+                stack.pop(); pos++;
+                accept(parent.array ? [] : {}, parent);
+                continue;
+            }
+            if (parent?.state === 'colon') {
+                if (ch !== ':') { fail(parent.path, 'invalid_stream_json'); break; }
+                parent.state = 'value'; pos++; continue;
+            }
+            if (parent?.state === 'comma') {
+                if (ch !== ',') { fail(parent.path, 'invalid_stream_json'); break; }
+                parent.state = parent.array ? 'value' : 'key'; pos++; continue;
+            }
+            if (ch === '"') { tokenStart = pos++; quoted = true; continue; }
+            if (parent?.state === 'key') { fail(parent.path, 'invalid_stream_json'); break; }
+            if (ch === '{' || ch === '[') {
+                stack.push({ ...slot(), array: ch === '[', count: 0, keys: new Set(),
+                    state: ch === '[' ? 'value' : 'key' });
+                pos++; continue;
+            }
+            tokenStart = pos++;
+        }
+        return error;
+    }
+    return { push };
+}
+
+root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, alignInstructions, streamValidator, simpleRequest, localInteraction };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldSceneDraft;
 })(globalThis);

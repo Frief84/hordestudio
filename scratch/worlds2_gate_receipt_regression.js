@@ -60,6 +60,15 @@ assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
 assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
     { type: 'posture', actor_id: 'mara', status: 'completed', posture: 'kneeling', item: 'key' }
 ] }).events[0].type, 'posture', 'a pose carrying another proposed change cannot lose that change');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', evidence: 'Mara looks at the item.' }
+] }).events[0].type, 'other', 'a status label without a lifecycle payload is non-mutating');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', evidence: 'Mara dies.' }
+] }).events[0].type, 'status', 'a possible death without next_status remains invalid');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', next_status: 'gone' }
+] }).events[0].next_status, 'gone', 'an explicit lifecycle change is preserved');
 
 function session(id) {
     return {

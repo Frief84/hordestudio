@@ -156,7 +156,36 @@ function decodeCompletionBody(raw) {
     return data;
 }
 
+// Compare only like routes/protocols. Missing legacy measurements remain
+// unknown; they must not become artificial zero-millisecond samples.
+function latencySummary(history) {
+    const groups = new Map();
+    for (const message of history || []) {
+        const audit = message.callAudit;
+        if (message.role !== 'dm' || !audit?.metrics) continue;
+        const first = audit.calls?.[0] || {};
+        const key = JSON.stringify([first.provider || 'unknown', first.model || 'unknown', audit.protocol || 'unknown']);
+        if (!groups.has(key)) groups.set(key, { provider: first.provider || 'unknown', model: first.model || 'unknown',
+            protocol: audit.protocol || 'unknown', turns: 0, repairedTurns: 0, rejectedTurns: 0, samples: [] });
+        const group = groups.get(key);
+        group.turns++;
+        if (audit.receiptRepair > 0) group.repairedTurns++;
+        if (message.stateSource === 'frozen_no_receipt') group.rejectedTurns++;
+        const duration = audit.metrics.acceptedDisplayMs;
+        if (message.stateSource !== 'frozen_no_receipt' && typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)
+            group.samples.push(duration);
+    }
+    return [...groups.values()].map(({ samples, ...group }) => {
+        samples.sort((a, b) => a - b);
+        const middle = Math.floor(samples.length / 2);
+        return { ...group, measuredTurns: samples.length,
+            medianMs: samples.length ? (samples[middle] + samples[Math.floor((samples.length - 1) / 2)]) / 2 : null,
+            p95Ms: samples.length ? samples[Math.ceil(samples.length * 0.95) - 1] : null };
+    });
+}
+
 root.HordeWorldModelClient = {
+    latencySummary,
     json, stream, decodeCompletionBody,
     runAbortable: awaitAbortable,
     readText: (response, signal) => awaitAbortable(() => response.text(), signal),
