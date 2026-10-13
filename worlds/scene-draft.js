@@ -58,7 +58,7 @@ function playerRequestCoverage(input, actions) {
     return { ok: false, excerpt };
 }
 
-function schema(legacy, protocol = 'scene_draft_v2') {
+function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
     const excluded = new Set(['summary', 'scene', 'events', 'entity_updates', 'state_updates',
         'action_resolution', 'npc_observations', 'world_events']);
     const effects = copy(Object.fromEntries(Object.entries(legacy).filter(([key]) => !excluded.has(key))));
@@ -152,6 +152,11 @@ function schema(legacy, protocol = 'scene_draft_v2') {
         contract.properties.actions.items.required = ['kind', 'status', 'response_id'];
         contract.properties.actions.items.properties.request.description =
             'Omit only for one simple action. For compound input, copy contiguous excerpts covering the full request in order.';
+        if (String(options.input || '').trim() && !simpleRequest(options.input)) {
+            contract.properties.actions.items.required.push('request');
+            contract.properties.actions.items.properties.request.description =
+                'Required for this compound input. Copy contiguous excerpts covering every step in order, including negations; do not omit any step.';
+        }
         // Keep semantic guidance for domain fields; the shared instructions
         // carry the repetitive transport and paragraph rules just once.
         contract.properties.narrative.description = 'Ordered scene passages; reference their IDs without repeating prose.';

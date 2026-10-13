@@ -26,7 +26,8 @@ const root = path.resolve(__dirname, '..');
             state.apiKey = 'offline'; state.globalSettings.apiProvider = 'openrouter';
             const realFetch = window.fetch, results = [];
             for (const scenario of ['show', 'approach', 'gesture', 'missing_item', 'absent_actor', 'give',
-                'early_tool', 'early_content', 'bad_twice', 'stale', 'tagged', 'plain_json', 'no_tools', 'local', 'local_no_schema', 'legacy', 'old_memory', 'old_prose']) {
+                'early_tool', 'early_content', 'bad_twice', 'stale', 'tagged', 'plain_json', 'no_tools', 'local', 'local_no_schema', 'legacy', 'old_memory', 'old_prose',
+                'compound', 'compound_repair', 'compound_bad']) {
                 const world = { id: `latency_${scenario}`, name: 'Office', model: 'offline/model',
                     contextSize: 32768, maxTokens: 2048, dmPrompt: 'Linda waits in the office.',
                     startLocationId: 'office', locations: [{ id: 'office', name: 'Office', exits: [] }],
@@ -57,11 +58,13 @@ const root = path.resolve(__dirname, '..');
                     sess.history[1].witnesses = ['linda'];
                 }
                 switchView('worldPlay'); renderWorldPlayState();
-                const input = scenario === 'old_memory' ? 'What had she promised?'
+                const input = scenario.startsWith('compound') ? 'I ask Linda her name and ask about the letter.'
+                    : scenario === 'old_memory' ? 'What had she promised?'
                     : scenario === 'old_prose' ? 'What was the festival password?'
                     : scenario === 'approach' ? 'I approach Linda.' : scenario === 'gesture' ? 'I wave.'
                     : scenario === 'give' ? 'I give Linda the letter.' : 'I show Linda the letter.';
-                const narrative = scenario === 'old_memory' ? 'Linda promised to bring the silver compass after the festival.'
+                const narrative = scenario.startsWith('compound') ? 'Linda tells you her name and explains that the letter is addressed to her.'
+                    : scenario === 'old_memory' ? 'Linda promised to bring the silver compass after the festival.'
                     : scenario === 'old_prose' ? 'The festival password was marigold.'
                     : scenario === 'approach' ? 'You approach Linda beside the desk.'
                     : scenario === 'gesture' ? 'You wave; Linda smiles back.'
@@ -87,8 +90,10 @@ const root = path.resolve(__dirname, '..');
                         && !sess.history.some(m => m.text?.includes('UNVERIFIED'));
                     const draft = { protocol: scenario === 'legacy' ? 'scene_draft_v2' : 'scene_draft_v3',
                         narrative: [{ id: 'p1', text: narrative }],
-                        actions: [{ kind: scenario.startsWith('old_') ? 'question' : 'physical',
-                            status: scenario.startsWith('old_') ? 'answered' : 'resolved', response_id: 'p1' }] };
+                        actions: [{ kind: scenario.startsWith('old_') || scenario.startsWith('compound') ? 'question' : 'physical',
+                            status: scenario.startsWith('old_') || scenario.startsWith('compound') ? 'answered' : 'resolved', response_id: 'p1' }] };
+                    if (scenario === 'compound' || (scenario === 'compound_repair' && calls === 2))
+                        draft.actions[0].request = input;
                     if (scenario === 'legacy') Object.assign(draft, { events: [], effects: {}, speech: [], commitments: [] });
                     if (scenario === 'legacy') draft.actions[0].request = input;
                     if (scenario === 'give') draft.events = [{ type: 'inventory', actor_id: 'player', status: 'completed', action: 'give', item: 'letter', passage_id: 'p1' }];
@@ -144,12 +149,12 @@ const root = path.resolve(__dirname, '..');
         });
         for (const result of results) {
             const { scenario } = result;
-            if (['missing_item', 'absent_actor', 'bad_twice', 'stale'].includes(scenario)) {
+            if (['missing_item', 'absent_actor', 'bad_twice', 'stale', 'compound_bad'].includes(scenario)) {
                 assert.equal(result.calls, 2, JSON.stringify(result));
                 assert.equal(result.source, 'frozen_no_receipt', JSON.stringify(result));
                 assert(!result.text.includes('Linda studies'));
             } else {
-                assert.equal(result.calls, scenario === 'local_no_schema' ? 3 : ['early_tool', 'early_content', 'no_tools'].includes(scenario) ? 2 : 1,
+                assert.equal(result.calls, scenario === 'local_no_schema' ? 3 : ['early_tool', 'early_content', 'no_tools', 'compound_repair'].includes(scenario) ? 2 : 1,
                     JSON.stringify({ ...result, firstMessages: undefined, schema: undefined, repair: undefined, finalRequest: undefined }));
                 assert.notEqual(result.source, 'frozen_no_receipt', JSON.stringify(result));
                 assert.equal(result.receipt.protocol, scenario === 'legacy' ? 'scene_draft_v2' : 'scene_draft_v3');
@@ -165,6 +170,14 @@ const root = path.resolve(__dirname, '..');
             }
             if (scenario === 'give') assert.equal(result.inventory.length, 0);
             else if (scenario !== 'missing_item') assert.equal(result.inventory.length, 1);
+            if (scenario.startsWith('compound')) {
+                assert(result.schema.properties.actions.items.required.includes('request'));
+                if (scenario !== 'compound') {
+                    assert(result.repairObservedCleanState);
+                    assert.equal(result.audit.receiptRepair, 1);
+                    assert(JSON.stringify(result.repair.messages).includes('REQUEST COVERAGE CORRECTION'));
+                }
+            }
             if (scenario === 'local_no_schema') assert.equal(result.finalRequest.response_format, undefined, 'remember unsupported schema capability');
             if (scenario.startsWith('old_')) {
                 const oldSource = result.firstMessages.find(message => message.role === 'system' && message.content.includes('"sourceMessageId":"d0"'));

@@ -163,11 +163,15 @@ const root = path.resolve(__dirname, '..');
             };
             document.getElementById('world-user-input').value = action;
             await executeWorldTurn();
-            return { text: sess.history.at(-1)?.text, audit: sess.lastTurnAudit };
+            renderWorldDirectorPanel(state.worlds.find(world => world.id === state.activeWorldId), sess);
+            return { text: sess.history.at(-1)?.text, audit: sess.lastTurnAudit,
+                director: document.getElementById('world-director-receipts').textContent };
         });
         assert.deepEqual(partialTurn.audit?.rejected || [], []);
         assert.match(partialTurn.audit?.unaddressed_player_request || '', /knock on the desk/);
-        assert.match(partialTurn.text, /Action note:.*knock on the desk/);
+        assert.doesNotMatch(partialTurn.text, /Action note:|Only verified changes were applied/);
+        assert.match(partialTurn.text, /Gloria returns your greeting/);
+        assert.match(partialTurn.director, /Action note:.*knock on the desk/);
         console.log('PASS local scene uses a closed JSON schema and commits a valid draft');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -13,6 +13,16 @@ const legacy = { events: { type: 'array', items: { type: 'object', properties: {
     to_location_id: { type: 'string' }
 }, required: ['type', 'actor_id', 'status'] } }, checks: { type: 'array', items: { type: 'object' } } };
 const contract = scene.schema(legacy, 'scene_draft_v3');
+for (const input of ['I take the cloth and clean the table.', 'Ich nehme das Tuch und reinige den Tisch.',
+    'I take the cloth; I do not move the vase.']) {
+    const compoundContract = scene.schema(legacy, 'scene_draft_v3', { input });
+    assert(compoundContract.properties.actions.items.required.includes('request'),
+        'the provider schema must require the same explicit coverage as the compiler');
+}
+assert(!scene.schema(legacy, 'scene_draft_v3', { input: 'I wave.' })
+    .properties.actions.items.required.includes('request'), 'simple actions keep compact input mapping');
+assert(scene.schema(legacy, 'scene_draft_v2', { input: 'I wave.' })
+    .properties.actions.items.required.includes('request'), 'v2 contract stays unchanged');
 const baseContext = { input: 'I show Linda the letter.', present: ['linda'], location: 'office', playerStart: 'office',
     actors: [{ id: 'linda', name: 'Linda' }], inventory: ['letter'], locations: ['office', 'hall'],
     effectKeys: ['checks'], now: 500, commitments: [], contract };
