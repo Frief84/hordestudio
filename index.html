@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261012-compact-exit-locks">
+    <link rel="stylesheet" href="style.css?v=20261014-centered-map">
     <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
 <link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
 </head>
@@ -1560,8 +1560,8 @@
                     <!-- Visual Map -->
                     <div id="tab-w-visual-map" class="studio-panel hidden">
                         <div class="panel-header">
-                            <h2>Visual World Graph</h2>
-                            <p>Buildings contain their rooms and yards; streets, paths, and regions remain distinct. Select a location to edit its role, parent, floor, or exits.</p>
+                            <h2>World Architect</h2>
+                            <p>Map: Räume auf dem Grundriss verschieben und skalieren, Connections mit Wegpunkten und Sperren bearbeiten. Graph: automatische Übersicht. Die Arbeitsfläche lässt sich unten rechts vergrößern und verkleinern.</p>
                         </div>
                         <div class="form-body">
                             <div id="world-visual-canvas" class="world-visual-canvas"></div>
@@ -5382,12 +5382,13 @@
     <script src="bundled-humans.js?v=20260913-v18-storage"></script>
     <script src="human-package.js?v=20260913-v18-storage"></script>
     <script src="large-archive.js?v=20261008-worlds-release"></script>
-    <script src="assets/worlds/world-lore.js?v=20261011-place-index-4"></script>
+    <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
     <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
     <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
     <script src="worlds/scene-draft.js?v=20261012-key-door-intents"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
-    <script src="app.js?v=20261012-direct-take-companion"></script>
+    <script src="assets/worlds/map-editor.js?v=20261014-centered-map"></script>
+    <script src="app.js?v=20261013-floor-plan"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

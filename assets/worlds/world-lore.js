@@ -103,15 +103,21 @@ function knows(world, fact, npcId) {
 }
 function knowledge(world, npcId) { return facts(world).filter(f => knows(world, f, npcId)); }
 function exitLock(exit, session, fromId = '', toId = '') {
-    const requiredItem = typeof exit?.requiredItem === 'string' ? exit.requiredItem.trim() : '';
-    const allowCheckUnlock = exit?.allowCheckUnlock === true;
+    const configuredLock = exit?.lockable === true && exit?.lockState === 'locked';
+    const requiredItem = String(exit?.requiredItem || (configuredLock ? exit.lockKeyItem : '') || '').trim();
+    const allowCheckUnlock = exit?.allowCheckUnlock === true || (configuredLock && exit.lockAllowCheckUnlock === true);
     // Routes start open unless the author explicitly marks them unknown or
     // locked. Missing metadata is the ordinary unlocked default, not a lint
     // defect; this also keeps legacy maps traversable as authored.
     const state = requiredItem || allowCheckUnlock || exit?.lockState === 'locked' ? 'locked'
         : exit?.lockState === 'unknown' ? 'unknown' : 'unlocked';
     const key = `${String(fromId).toLowerCase()}::${String(toId).toLowerCase()}`;
-    return { state, requiredItem, allowCheckUnlock, currentState: session?.unlockedExits?.[key] === true && state === 'locked' ? 'unlocked' : state };
+    const doorId = String(exit?.doorId || '').trim();
+    const opened = session?.unlockedExits?.[doorId] === true || session?.unlockedExits?.[key] === true;
+    return { doorId, state, requiredItem, allowCheckUnlock,
+        lockable: exit?.lockable === true || !!requiredItem || allowCheckUnlock,
+        lockKeyItem: String(exit?.requiredItem || exit?.lockKeyItem || ''),
+        currentState: opened && state === 'locked' ? 'unlocked' : state };
 }
 function graph(world) {
     const rows = records(world), edges = [];
@@ -157,7 +163,16 @@ function graph(world) {
     return { version: VERSION, nodes: rows.map(r => ({ id: r.source, kind: r.kind, name: r.name, type: r.data.placeType || r.data.mapType || r.kind, access: r.data.access ? clone(r.data.access) : null,
         placeAwareness: r.data.placeAwareness ? clone(r.data.placeAwareness) : null })), edges };
 }
+function authoredPlaceWorld(world) {
+    // Story-born places and people live in one timeline. Never bake them into
+    // the shared authored index when that world is later opened in Studio.
+    return { ...world,
+        locations: list(world.locations).filter(place => !place?.sessionOrigin),
+        regions: list(world.regions).filter(place => !place?.sessionOrigin),
+        entities: list(world.entities).filter(person => !person?.sessionOrigin) };
+}
 function fingerprint(world) {
+    world = authoredPlaceWorld(world);
     // The generated structure is a place index. Character/lore prose is still
     // available to Horde's lore systems, but it must not make the map index
     // stale unless it changes an access rule or a place reference.
@@ -175,14 +190,15 @@ function fingerprint(world) {
                 factionIds: list(d.factionIds), members: list(d.members) },
             list(d.exits).map(e => ({ target: exitTarget(world, e)?.id || (typeof e === 'string' ? e : e?.targetLocationId || e?.text),
                 travelTime: Number(e?.travelTime) || 0, mode: e?.mode || 'walk', routeName: e?.routeName || '',
-                lockState: e?.lockState || 'unlocked', requiredItem: e?.requiredItem || '', allowCheckUnlock: e?.allowCheckUnlock === true }))];
+                doorId: e?.doorId || '', lockState: e?.lockState || 'unlocked', requiredItem: e?.requiredItem || '', allowCheckUnlock: e?.allowCheckUnlock === true,
+                lockable: e?.lockable, lockKeyItem: e?.lockKeyItem, lockAllowCheckUnlock: e?.lockAllowCheckUnlock }))];
     }));
     let hash = 2166136261;
     for (let i = 0; i < text.length; i++) hash = Math.imul(hash ^ text.charCodeAt(i), 16777619);
     return `${text.length}:${(hash >>> 0).toString(16)}`;
 }
 function generate(world) {
-    const draft = clone(world);
+    const draft = clone(authoredPlaceWorld(world));
     migrate(draft);
     validateShape(draft);
     const allEdges = indexed(graph)(draft).edges;
@@ -200,7 +216,7 @@ function generate(world) {
             placeAwareness: d.placeAwareness ? clone(d.placeAwareness) : null,
             people: occupants,
             exits: list(d.exits).map(exit => { const target = exitTarget(draft, exit), lock = exitLock(exit);
-                return { targetId: target?.id || null, travelTime: exit?.travelTime ?? null,
+                return { targetId: target?.id || null, doorId: exit?.doorId || null, travelTime: exit?.travelTime ?? null,
                     mode: exit?.mode || 'walk', lock: lock.state }; }) };
     });
     const structure = { version: VERSION, nodes, edges: allEdges.filter(edge =>
@@ -537,7 +553,7 @@ function indexed(fn) { return function (world, ...args) {
     try { return fn(world, ...args); } finally { indexes.delete(world); }
 }; }
 function withIndex(world, fn) { return indexed(() => fn())(world); }
-root.HordeWorldLore = { exitLock, VERSION, TYPES, migrate, generate, stageProposals, applyProposal, rewriteReferences, validateShape, rememberPlace, withIndex,
+root.HordeWorldLore = { exitLock, VERSION, TYPES, migrate, generate, fingerprint, stageProposals, applyProposal, rewriteReferences, validateShape, rememberPlace, withIndex,
     ...Object.fromEntries(Object.entries({ records, get, parent, lineage, facts, knowledge, knows, access, placeAwareness, placeIndex, exitTarget, validate, context, graph, structureStatus, health }).map(([name, fn]) => [name, indexed(fn)])) };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldLore;
 })(globalThis);

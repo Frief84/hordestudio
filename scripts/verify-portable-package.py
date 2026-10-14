@@ -102,6 +102,7 @@ try:
                            ('/worlds/model-client.js', b'HordeWorldModelClient'),
                            ('/worlds/scene-draft.js', b'HordeWorldSceneDraft'),
                            ('/worlds/turn-context.js', b'HordeWorldTurnContext'),
+                           ('/assets/worlds/map-editor.js', b'HordeMapEditor'),
                            ('/virtual_humans/frontend/vh-page-builder.js', b'vhOpenPageBuilder'),
                            ('/health', b'Horde Studio')]:
         with opener.open('http://127.0.0.1:%s%s' % (server.server_port, path), timeout=10) as response:

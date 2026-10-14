@@ -1652,6 +1652,7 @@ function safeJsonClone(value) {
 function worldPersistenceManifest(world) {
     // Exclude media before cloning. Copying a large photo library and then
     // discarding it made every text turn pay for all World images again.
+    ensureWorldDoorIds(world);
     return safeJsonClone({ ...world, mediaAssets: [] });
 }
 
@@ -5281,6 +5282,7 @@ Respond ONLY with a valid JSON block.`;
                 else { const copy = safeJsonClone(newL); current.lorebook.push(copy); currentLoreByKeyword.set(key, copy); }
             });
 
+            globalThis.HordeMapEditor?.merge(current, g.mapLayout, locationIds);
             globalThis.HordeWorldLore?.generate(current);
 
             openWorldStudio();
@@ -15849,6 +15851,8 @@ function createNewWorld() {
     };
     applyWorldRuleProfile(state.editingWorld, 'adventure');
     openWorldStudio();
+    // A new world gets its AI place index without a model call.
+    queueWorldStructureSync(state.editingWorld);
     document.querySelector('.world-studio-tab[data-tab="w-overview"]')?.click();
 }
 
@@ -15901,6 +15905,20 @@ function renderWorldStudioPanel(target) {
 function setupWorldStudioLogic() {
 
     setupWorldArchitectLogic();
+
+    // Check after each editor handler mutates the draft. This also catches
+    // programmatic map and architect edits routed through editor buttons.
+    let structureEditTimer;
+    const scheduleStructureEditCheck = event => {
+        if (!event.target.closest('#tab-w-locations, #tab-w-visual-map, #tab-w-entities, #tab-w-factions, #tab-w-items, #tab-w-architect-agent, #world-record-overlay')) return;
+        const world = state.editingWorld;
+        clearTimeout(structureEditTimer);
+        structureEditTimer = setTimeout(() => {
+            if (state.editingWorld === world) syncEditedWorldStructure(world)
+                .catch(error => showToast(`World structure could not be updated: ${error.message || error}`, 'error'));
+        }, 80);
+    };
+    for (const type of ['change', 'click']) document.addEventListener(type, scheduleStructureEditCheck);
 
     const recordOverlay = document.getElementById('world-record-overlay');
     document.getElementById('world-record-close').onclick = closeWorldRecordInspector;
@@ -16384,6 +16402,8 @@ async function fetchWorldModelSettings() {
 }
 
 function openWorldStudio(worldId = null) {
+    const mapBody = document.querySelector('#tab-w-visual-map > .form-body');
+    if (mapBody) { mapBody.style.width = ''; mapBody.style.height = ''; }
     if (worldId) {
         const world = state.worlds.find(w => w.id === worldId);
         if (!world) return;
@@ -16549,13 +16569,24 @@ async function saveWorld() {
     // reach storage — otherwise the world is only repaired at the next reload,
     // and an export taken before then carries the damage to whoever opens it.
     normalizeAuthoredWorld(w);
+    ensureWorldDoorIds(w);
     try {
         if (pendingWorldStructureSyncWorld === w) await pendingWorldStructureSync;
-        if (w.worldStructure) {
-            await ensureWorldLoreModules();
-            if (globalThis.HordeWorldLore.structureStatus(w).state === 'stale') {
-                globalThis.HordeWorldLore.generate(w);
-            }
+        await ensureWorldLoreModules();
+        const lore = globalThis.HordeWorldLore;
+        const saved = state.worlds.find(world => world.id === w.id);
+        const comparableSaved = saved && safeJsonClone(saved);
+        if (comparableSaved) {
+            lore.migrate(comparableSaved);
+            normalizeAuthoredWorld(comparableSaved);
+            ensureWorldDoorIds(comparableSaved);
+        }
+        // An unchanged older world keeps its missing index. New and edited
+        // worlds get one, including edits a UI path did not refresh promptly.
+        const edited = !saved || lore.fingerprint(w) !== lore.fingerprint(comparableSaved);
+        if ((w.worldStructure && lore.structureStatus(w).state !== 'current') ||
+            (!w.worldStructure && edited)) {
+            lore.generate(w);
         }
     } catch (error) {
         showToast(`World structure could not be updated: ${error.message || error}`, 'error');
@@ -16611,10 +16642,10 @@ async function deleteWorld() {
     switchView('worlds');
 }
 
-function addWorldLocation(position = 'bottom', regionId = '', parentLocationId = '', mapType = '') {
-    const region = (state.editingWorld?.regions || []).find(item => item.id === regionId);
+function createWorldLocationRecord(world, regionId = '', parentLocationId = '', mapType = '') {
+    const region = (world?.regions || []).find(item => item.id === regionId);
     const loc = {
-        id: 'loc_' + Date.now(),
+        id: `loc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: '',
         regionId: region?.id || '',
         region: region?.name || '',
@@ -16626,6 +16657,11 @@ function addWorldLocation(position = 'bottom', regionId = '', parentLocationId =
         exits: [],
         secrets: []
     };
+    return loc;
+}
+
+function addWorldLocation(position = 'bottom', regionId = '', parentLocationId = '', mapType = '') {
+    const loc = createWorldLocationRecord(state.editingWorld, regionId, parentLocationId, mapType);
     if (position === 'top') {
         state.editingWorld.locations.unshift(loc);
     } else {
@@ -16796,8 +16832,79 @@ function worldExitUnlockKey(fromLocationId, toLocationId) {
     return from && to ? `${from}::${to}` : '';
 }
 
+function ensureWorldDoorIds(world, sess = null) {
+    const locations = Array.isArray(world?.locations) ? world.locations : [];
+    const byId = new Map();
+    const byName = new Map();
+    locations.forEach(location => {
+        const id = String(location.id || '').trim().toLowerCase();
+        if (id) byId.set(id, byId.has(id) ? null : location);
+        const name = String(location.name || '').trim().toLowerCase();
+        if (name) byName.set(name, byName.has(name) ? null : location);
+    });
+    const edges = new Map();
+    const targetOf = exit => {
+        const ref = String(getExitTargetName(exit) || '').trim().toLowerCase();
+        return byId.has(ref) ? byId.get(ref) : byName.get(ref) || null;
+    };
+    locations.forEach(from => (from.exits || []).forEach((entry, index) => {
+        const to = targetOf(entry);
+        if (!to || to.id === from.id) return;
+        const exit = typeof entry === 'string' ? (from.exits[index] = { text: entry }) : entry;
+        if (!exit || typeof exit !== 'object') return;
+        const key = `${from.id}\u0000${to.id}`;
+        if (!edges.has(key)) edges.set(key, []);
+        edges.get(key).push({ from, to, exit, index });
+    }));
+    const handled = new Set();
+    for (const group of edges.values()) for (const edge of group) {
+        if (handled.has(edge.exit)) continue;
+        const reverse = edges.get(`${edge.to.id}\u0000${edge.from.id}`) || [];
+        // Directional travel metadata does not make two reciprocal records
+        // separate physical locks. Only an absent or ambiguous reverse edge
+        // prevents pairing; route permissions remain checked independently.
+        const paired = group.length === 1 && reverse.length === 1 ? reverse[0] : null;
+        const sortedIds = [edge.from.id, edge.to.id].sort();
+        const baseId = `door:${sortedIds.map(encodeURIComponent).join('::')}`;
+        const previousIds = [edge.exit.doorId, paired?.exit.doorId]
+            .map(value => String(value || '').trim()).filter(Boolean);
+        const id = previousIds[0]
+            || (paired ? baseId : `${baseId}:${encodeURIComponent(edge.from.id)}:${edge.index}`);
+        edge.exit.doorId = id;
+        handled.add(edge.exit);
+        if (paired) {
+            paired.exit.doorId = id;
+            handled.add(paired.exit);
+            const key = String(edge.exit.requiredItem || paired.exit.requiredItem || '').trim();
+            if (key) {
+                if (!String(edge.exit.requiredItem || '').trim()) edge.exit.requiredItem = key;
+                if (!String(paired.exit.requiredItem || '').trim()) paired.exit.requiredItem = key;
+            }
+            if (edge.exit.lockState === 'locked' || paired.exit.lockState === 'locked') {
+                edge.exit.lockState = 'locked';
+                paired.exit.lockState = 'locked';
+            }
+            if (edge.exit.allowCheckUnlock === true && paired.exit.allowCheckUnlock == null) paired.exit.allowCheckUnlock = true;
+            if (paired.exit.allowCheckUnlock === true && edge.exit.allowCheckUnlock == null) edge.exit.allowCheckUnlock = true;
+        }
+        if (sess && isPlainObject(sess.unlockedExits)) {
+            const legacy = [
+                worldExitUnlockKey(edge.from.id, edge.to.id),
+                worldExitUnlockKey(edge.from.id, edge.exit.targetLocationId || getExitTargetName(edge.exit)),
+                ...(paired ? [
+                    worldExitUnlockKey(edge.to.id, edge.from.id),
+                    worldExitUnlockKey(edge.to.id, paired.exit.targetLocationId || getExitTargetName(paired.exit))
+                ] : [])
+            ].filter(Boolean);
+            const oldKeys = [...new Set([...legacy, ...previousIds])].filter(key => key !== id);
+            if (oldKeys.some(key => sess.unlockedExits[key] === true)) sess.unlockedExits[id] = true;
+            oldKeys.forEach(key => { delete sess.unlockedExits[key]; });
+        }
+    }
+}
+
 function worldPlayerHoldsExitItem(sess, exit) {
-    const requiredItem = String(exit?.requiredItem || '').trim();
+    const requiredItem = worldExitLockConfig(exit).requiredItem;
     if (!requiredItem) return false;
     const key = questTextKey(requiredItem);
     return Array.isArray(sess?.inventory) && sess.inventory.some(item => {
@@ -16807,6 +16914,7 @@ function worldPlayerHoldsExitItem(sess, exit) {
 }
 
 function worldExitDoorKeys(world, from, to, exit) {
+    if (String(exit?.doorId || '').trim()) return [String(exit.doorId).trim()];
     const reverse = (to.exits || []).find(candidate => candidate && typeof candidate === 'object'
         && resolveWorldExitTarget(world, candidate)?.id === from.id
         && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim());
@@ -16819,14 +16927,22 @@ function worldExitDoorKeys(world, from, to, exit) {
     ]))].filter(Boolean);
 }
 
+function worldExitLockConfig(exit) {
+    const configuredLock = exit?.lockable === true && exit?.lockState === 'locked';
+    return {
+        requiredItem: String(exit?.requiredItem || (configuredLock ? exit.lockKeyItem : '') || '').trim().slice(0, 160),
+        allowCheckUnlock: exit?.allowCheckUnlock === true || (configuredLock && exit.lockAllowCheckUnlock === true)
+    };
+}
+
 function worldExitRequirement(sess, exit, fromLocationId = '', npcId = '') {
-    const requiredItem = typeof exit === 'object'
-        ? String(exit?.requiredItem || '').trim().slice(0, 160) : '';
-    const allowCheckUnlock = typeof exit === 'object' && exit?.allowCheckUnlock === true;
+    const { requiredItem, allowCheckUnlock } = worldExitLockConfig(exit);
     const unlockKey = worldExitUnlockKey(fromLocationId,
         typeof exit === 'object' ? (exit?.targetLocationId || getExitTargetName(exit)) : getExitTargetName(exit));
+    const doorId = String(exit?.doorId || '').trim();
     const unlocked = !!((requiredItem || allowCheckUnlock || exit?.lockState === 'locked')
-        && unlockKey && sess?.unlockedExits?.[unlockKey] === true);
+        && ((doorId && sess?.unlockedExits?.[doorId] === true)
+            || (unlockKey && sess?.unlockedExits?.[unlockKey] === true)));
     if (unlocked) return { ok: true, requiredItem, allowCheckUnlock, unlocked: true };
     if (!requiredItem && !allowCheckUnlock && exit?.lockState !== 'locked') return { ok: true, requiredItem: '', allowCheckUnlock: false };
     const key = questTextKey(requiredItem);
@@ -17369,6 +17485,11 @@ function syncExitConnection(sourceLoc, exitText, isOneWay, travelTime, isDeleted
             allowCheckUnlock: sourceExit?.allowCheckUnlock === true,
             isOneWay: false
         };
+        if (sourceExit?.lockable !== undefined) {
+            reverseExitObj.lockable = sourceExit.lockable === true;
+            reverseExitObj.lockKeyItem = String(sourceExit.lockKeyItem || '').slice(0, 160);
+            reverseExitObj.lockAllowCheckUnlock = sourceExit.lockAllowCheckUnlock === true;
+        }
         
         if (existingIndex === -1) {
             targetLoc.exits.push(reverseExitObj);
@@ -17384,9 +17505,15 @@ function syncExitConnection(sourceLoc, exitText, isOneWay, travelTime, isDeleted
                 targetLoc.exits[existingIndex].cost = reverseExitObj.cost;
                 targetLoc.exits[existingIndex].requiredItem = reverseExitObj.requiredItem;
                 targetLoc.exits[existingIndex].allowCheckUnlock = reverseExitObj.allowCheckUnlock;
+                if (reverseExitObj.lockable !== undefined) {
+                    targetLoc.exits[existingIndex].lockable = reverseExitObj.lockable;
+                    targetLoc.exits[existingIndex].lockKeyItem = reverseExitObj.lockKeyItem;
+                    targetLoc.exits[existingIndex].lockAllowCheckUnlock = reverseExitObj.lockAllowCheckUnlock;
+                }
             }
         }
     }
+    ensureWorldDoorIds(state.editingWorld);
 }
 
 
@@ -17471,7 +17598,7 @@ function renderWorldVisuals() {
     byId('w-visual-opacity-value').textContent = `${presentation.panelOpacity}%`;
     const summary = worldMediaSummary(world);
     byId('w-visual-media-summary').textContent = `${summary.count} asset${summary.count === 1 ? '' : 's'} · ${formatByteSize(summary.bytes)}`;
-    const mapSkin = worldMediaSource(world, presentation.mapSkinAssetId);
+    const mapSkin = world.media?.mapBackground || worldMediaSource(world, presentation.mapSkinAssetId);
     const mapPreview = byId('w-visual-map-skin-preview');
     mapPreview.style.backgroundImage = mapSkin ? `url('${cssUrl(mapSkin)}')` : 'none';
     mapPreview.textContent = mapSkin ? '' : 'No map skin';
@@ -17485,6 +17612,8 @@ function renderWorldVisuals() {
         try {
             const image = await normalizeUploadedImage(file, 1600, 0.76);
             presentation.mapSkinAssetId = addWorldMediaAsset(world, image, 'map_skin', `${world.name} map skin`);
+            if (!isPlainObject(world.media)) world.media = {};
+            world.media.mapBackground = image;
             pruneWorldMediaAssets(world);
             renderWorldVisuals();
             showToast('Map skin embedded in this world.', 'success');
@@ -17498,6 +17627,8 @@ function renderWorldVisuals() {
         button.textContent = 'Generating…';
         try {
             presentation.mapSkinAssetId = await generateWorldMapSkin(world);
+            if (!isPlainObject(world.media)) world.media = {};
+            world.media.mapBackground = worldMediaSource(world, presentation.mapSkinAssetId);
             pruneWorldMediaAssets(world);
             renderWorldVisuals();
             showToast('Generated map skin embedded in this world.', 'success');
@@ -17510,6 +17641,7 @@ function renderWorldVisuals() {
     };
     byId('w-visual-map-skin-clear').onclick = () => {
         presentation.mapSkinAssetId = '';
+        if (world.media) delete world.media.mapBackground;
         pruneWorldMediaAssets(world);
         renderWorldVisuals();
     };
@@ -17906,6 +18038,7 @@ function normalizeWorldDirectoryData(world) {
             return record;
         });
     });
+    ensureWorldDoorIds(world);
 
     world.groups = (Array.isArray(world.groups) ? world.groups : [])
         .filter(isPlainObject).map((group, index) => ({
@@ -18348,6 +18481,7 @@ function upsertWorldTravelConnection(world, origin, target, details = {}) {
         if (reverse && typeof reverse === 'object') Object.assign(reverse, makeExit(target, origin), { isOneWay: false });
         else (target.exits ||= []).push({ ...makeExit(target, origin), isOneWay: false });
     }
+    ensureWorldDoorIds(world);
 }
 
 function renderWorldRegionLocationTreeHTML(world, locations) {
@@ -19353,6 +19487,7 @@ function renderWorldLocations() {
                     const index = Number(event.target.dataset.idx);
                     if (typeof loc.exits[index] === 'string') loc.exits[index] = { text: loc.exits[index] };
                     loc.exits[index].requiredItem = event.target.value.trim().slice(0, 160);
+                    if (loc.exits[index].lockable !== undefined) loc.exits[index].lockKeyItem = loc.exits[index].requiredItem;
                     syncExitConnection(loc, loc.exits[index].text,
                         loc.exits[index].isOneWay, loc.exits[index].travelTime, false);
                     renderWorldLocations();
@@ -19363,6 +19498,7 @@ function renderWorldLocations() {
                     const index = Number(event.target.dataset.idx);
                     if (typeof loc.exits[index] === 'string') loc.exits[index] = { text: loc.exits[index] };
                     loc.exits[index].allowCheckUnlock = event.target.checked;
+                    if (loc.exits[index].lockable !== undefined) loc.exits[index].lockAllowCheckUnlock = event.target.checked;
                     syncExitConnection(loc, loc.exits[index].text,
                         loc.exits[index].isOneWay, loc.exits[index].travelTime, false);
                     renderWorldLocations();
@@ -20266,17 +20402,59 @@ function focusWorldLocationCard(locationId) {
 
 function renderSemanticWorldMap(container, world, options = {}) {
     if (!container || !world) return null;
+    container._mapDispose?.();
     const ns = 'http://www.w3.org/2000/svg';
     const mode = options.mode || container.dataset.mapMode || 'map';
     const graph = buildSemanticWorldGraph(world);
     const layout = layoutSemanticWorldGraph(graph, options.currentLocationId || '');
+    if (mode === 'map' && globalThis.HordeMapEditor && (options.architect || world.mapLayout?.version === 1)) {
+        return globalThis.HordeMapEditor.render(container, world, layout, {
+            ...options, graph,
+            background: worldMediaSource(world, world.presentation?.mapSkinAssetId),
+            rerender: () => renderSemanticWorldMap(container, world, { ...options, mode: 'map' }),
+            onMode: next => renderSemanticWorldMap(container, world, { ...options, mode: next }),
+            onOpenLocation: id => focusWorldLocationCard(id),
+            onChange: structural => {
+                if (!options.architect || !structural) return;
+                ensureWorldDoorIds(world);
+                queueWorldStructureSync(world);
+                updateWorldTokenCount();
+            },
+            createLocation: name => {
+                if (!options.architect) throw new Error('This map is read-only.');
+                if ((world.locations || []).length >= 2000) throw new Error('The world already contains 2,000 locations.');
+                const location = createWorldLocationRecord(world, '', '', 'room');
+                location.name = name;
+                world.locations.push(location);
+                return location;
+            },
+            connect: (fromId, toId) => {
+                if (!options.architect) throw new Error('This map is read-only.');
+                const from = world.locations.find(location => location.id === fromId);
+                const to = world.locations.find(location => location.id === toId);
+                if (!from || !to || from === to) return;
+                // Upsert rewrites travel properties: use it only on a fresh pair.
+                if (globalThis.HordeMapEditor.connections(world).some(link =>
+                    [link.sourceId, link.targetId].includes(fromId) && [link.sourceId, link.targetId].includes(toId))) return;
+                if ((from.exits || []).length >= 500 || (to.exits || []).length >= 500) throw new Error('A location already contains 500 exits.');
+                const a = { id: from.id, name: from.name, exits: [] };
+                const b = { id: to.id, name: to.name, exits: [] };
+                upsertWorldTravelConnection({ locations: [a, b] }, a, b, { mode: 'walk', travelTime: 0 });
+                (from.exits ||= []).push(...a.exits);
+                (to.exits ||= []).push(...b.exits);
+            }
+        });
+    }
     container.replaceChildren();
     container.classList.add('semantic-map-host');
     container.classList.toggle('is-cartographic', mode === 'map');
     container.dataset.mapMode = mode;
+    // Older renderers painted the host behind both the toolbar and map.
+    container.style.backgroundImage = '';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'semantic-map-toolbar';
+    toolbar.style.backgroundImage = '';
     const summary = document.createElement('div');
     summary.className = 'semantic-map-summary';
     const hiddenLinks = Math.max(0, graph.collapsedConnectionCount - graph.displayEdges.length);
@@ -20327,6 +20505,19 @@ function renderSemanticWorldMap(container, world, options = {}) {
 
     const scroll = document.createElement('div');
     scroll.className = `semantic-map-scroll mode-${mode}`;
+    const mapBackground = world.media?.mapBackground
+        || worldMediaSource(world, world.presentation?.mapSkinAssetId);
+    if (mode === 'map' && mapBackground) {
+        scroll.style.backgroundImage = `url('${cssUrl(mapBackground)}')`;
+        scroll.style.backgroundSize = 'contain';
+        scroll.style.backgroundRepeat = 'no-repeat';
+        scroll.style.backgroundPosition = 'center';
+        scroll.style.backgroundColor = '#0a0a0a';
+        // Size and position against the scrolling content, so the floor plan
+        // travels with the SVG instead of remaining fixed to the viewport.
+        scroll.style.backgroundAttachment = 'local';
+        scroll.style.backgroundOrigin = 'content-box';
+    }
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${layout.width} ${layout.height}`);
     svg.setAttribute('role', 'img');
@@ -21640,7 +21831,7 @@ async function ensureWorldLoreModules() {
             if (globalThis[name]) continue;
             await new Promise((resolve, reject) => {
                 const script = document.createElement('script');
-                script.src = `assets/worlds/${file}?v=20261011-place-index-4`;
+                script.src = `assets/worlds/${file}?v=20261012-shared-door-id`;
                 const timeout = setTimeout(() => { script.remove(); reject(new Error('World Lore could not load. Reload the page and try again.')); }, 15000);
                 script.onload = () => { clearTimeout(timeout); globalThis[name] ? resolve() : reject(new Error('World Lore did not initialize. Reload the page and try again.')); };
                 script.onerror = () => { clearTimeout(timeout); script.remove(); reject(new Error('World Lore files could not be loaded from the local server. Reload the page and try again.')); };
@@ -21654,6 +21845,23 @@ async function ensureWorldLoreModules() {
 let pendingWorldStructureSync = Promise.resolve();
 let pendingWorldStructureSyncWorld = null;
 let worldStructureSyncRevision = 0;
+async function syncEditedWorldStructure(world) {
+    if (!world || state.editingWorld !== world) return;
+    await ensureWorldLoreModules();
+    if (state.editingWorld !== world) return;
+    const lore = globalThis.HordeWorldLore;
+    if (world.worldStructure) {
+        if (lore.structureStatus(world).state !== 'current') queueWorldStructureSync(world);
+        return;
+    }
+    const saved = state.worlds.find(candidate => candidate.id === world.id);
+    if (!saved) return void queueWorldStructureSync(world);
+    const comparableSaved = safeJsonClone(saved);
+    lore.migrate(comparableSaved);
+    normalizeAuthoredWorld(comparableSaved);
+    ensureWorldDoorIds(comparableSaved);
+    if (lore.fingerprint(world) !== lore.fingerprint(comparableSaved)) queueWorldStructureSync(world);
+}
 function queueWorldStructureSync(world) {
     const revision = ++worldStructureSyncRevision;
     pendingWorldStructureSyncWorld = world;
@@ -21662,6 +21870,7 @@ function queueWorldStructureSync(world) {
         if (state.editingWorld !== world || revision !== worldStructureSyncRevision) return;
         // This index contains generated place data only. Authored locations,
         // manual lore and AI proposals remain untouched.
+        ensureWorldDoorIds(world);
         globalThis.HordeWorldLore.generate(world);
         renderWorldStructureStatus();
     })();
@@ -21693,6 +21902,7 @@ async function clearGeneratedWorldStructure() {
     const saved = state.worlds.find(candidate => candidate.id === world.id);
     if (!world.worldStructure && !saved?.worldStructure) return;
     const nodeCount = world.worldStructure?.nodes?.length || saved?.worldStructure?.nodes?.length || 0;
+    ++worldStructureSyncRevision; // Cancel an in-flight automatic refresh.
     delete world.worldStructure;
     delete world.worldStructureVersion;
     if (saved) { delete saved.worldStructure; delete saved.worldStructureVersion; }
@@ -21764,6 +21974,7 @@ async function generateWorldStructure() {
         // Build an additive index directly from the draft. Do not run general
         // normalization here: it can truncate existing prose or repair fields
         // unrelated to this action. Existing lore and explicit rules win.
+        ensureWorldDoorIds(world);
         const structure = globalThis.HordeWorldLore.generate(world);
         let proposalCount = 0, rejectedCount = 0;
         if (model) {
@@ -33690,30 +33901,18 @@ function sessionNpcs(world, sess) {
 function sessionLocations(world, sess) {
     const extras = isPlainObject(sess?.dynamicExits) ? sess.dynamicExits : {};
     const visible = (world.locations || []).filter(location => isVisibleToSession(location, sess));
-    const view = { locations: visible };
-    return visible.map(location => {
+    ensureWorldDoorIds({ locations: visible }, sess);
+    const locations = visible.map(location => {
         const added = Array.isArray(extras[location.id]) ? extras[location.id] : [];
-        const exits = [...(Array.isArray(location.exits) ? location.exits : []), ...added];
-        let projected = false;
-        const resolved = exits.map(exit => {
-            if (!exit || typeof exit !== 'object' || exit.isOneWay === true
-                || (exit.lockState !== 'locked' && exit.allowCheckUnlock !== true)
-                || String(exit.requiredItem || '').trim()) return exit;
-            const destination = resolveWorldExitTarget(view, exit);
-            if (!destination) return exit;
-            const reciprocalKeys = [...new Set((destination.exits || [])
-                .filter(reverse => reverse && typeof reverse === 'object' && reverse.isOneWay !== true
-                    && resolveWorldExitTarget(view, reverse)?.id === location.id)
-                .map(reverse => String(reverse.requiredItem || '').trim()).filter(Boolean))];
-            if (reciprocalKeys.length !== 1) return exit;
-            // A two-way door is one physical lock. A legacy map may have the
-            // key on only one side; project it into this timeline's route view
-            // without rewriting authored exits or granting a free unlock.
-            projected = true;
-            return { ...exit, requiredItem: reciprocalKeys[0] };
-        });
-        return added.length || projected ? { ...location, exits: resolved } : location;
+        return added.length ? { ...location,
+            exits: [...(Array.isArray(location.exits) ? location.exits : []), ...added] } : location;
     });
+    // Exits retain their identity across views. Both directions refer to one
+    // stable door id; legacy one-sided key metadata is reconciled only once.
+    if (Object.values(extras).some(exits => Array.isArray(exits) && exits.length)) {
+        ensureWorldDoorIds({ locations }, sess);
+    }
+    return locations;
 }
 
 function worldForSession(world, sess) {
@@ -33870,17 +34069,9 @@ function applyWorldExitUnlocks(world, sess, requests) {
             candidate && typeof candidate === 'object' && candidate.allowCheckUnlock === true
             && resolveWorldExitTarget(view, candidate)?.id === target.id);
         if (!exit) return;
-        const key = worldExitUnlockKey(current.id, exit.targetLocationId || getExitTargetName(exit));
-        if (!key) return;
-        sess.unlockedExits[key] = true;
-        const reverse = (target.exits || []).find(candidate =>
-            candidate && typeof candidate === 'object' && candidate.allowCheckUnlock === true
-            && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim()
-            && resolveWorldExitTarget(view, candidate)?.id === current.id);
-        if (reverse) {
-            const reverseKey = worldExitUnlockKey(target.id, reverse.targetLocationId || getExitTargetName(reverse));
-            if (reverseKey) sess.unlockedExits[reverseKey] = true;
-        }
+        const keys = worldExitDoorKeys(view, current, target, exit);
+        if (!keys.length) return;
+        keys.forEach(key => { sess.unlockedExits[key] = true; });
         results.push({ from_location_id: current.id, to_location_id: target.id, unlocked: true });
     });
     return results;
@@ -34853,14 +35044,6 @@ async function renderWorldMap() {
 
     try {
         const sess = getCurrentWorldSession();
-        const presentation = worldPresentationForDisplay(world);
-        const mapSkin = worldMediaSource(world, presentation.mapSkinAssetId);
-        const effectiveMode = ['classic', 'cinematic'].includes(sess?.presentationMode)
-            ? sess.presentationMode : (presentation.enabled ? presentation.mode : 'classic');
-        container.style.backgroundImage = mapSkin && effectiveMode !== 'classic'
-            ? `linear-gradient(rgba(8,8,12,.5),rgba(8,8,12,.5)),url('${cssUrl(mapSkin)}')` : 'none';
-        container.style.backgroundSize = 'cover';
-        container.style.backgroundPosition = 'center';
         renderSemanticWorldMap(container, worldForSession(world, sess), {
             currentLocationId: sess?.playerLocation || ''
         });
@@ -35519,10 +35702,8 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     const travelWorld = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
     const selectedExit = Object.prototype.hasOwnProperty.call(options, 'exit');
     const origin = getLocationRef(travelWorld, sess.playerLocation);
-    // Session views may project a reciprocal door's key onto an exit. That
-    // produces a fresh object on every view build, including between rendering
-    // the button and handling its click. Match the authored data as well as the
-    // reference, but still reject a stale or fabricated exit.
+    // The selected exit normally retains its identity across session views.
+    // Also accept an exact authored copy, but reject stale or fabricated exits.
     const chosenExit = selectedExit ? (origin?.exits || []).find(exit =>
         exit === options.exit || JSON.stringify(exit) === JSON.stringify(options.exit)) : null;
     if (selectedExit && (!chosenExit
@@ -36195,6 +36376,7 @@ function normalizeAuthoredWorld(world) {
     // hole is not a place or a person — every pass below would throw on it.
     world.locations = (Array.isArray(world.locations) ? world.locations : []).filter(isPlainObject);
     world.entities = (Array.isArray(world.entities) ? world.entities : []).filter(isPlainObject);
+    globalThis.HordeMapEditor?.normalize(world);
     normalizeWorldPresentation(world);
     const validMediaIds = new Set(world.mediaAssets.map(asset => asset.id));
     if (world.presentation.mapSkinAssetId && !validMediaIds.has(world.presentation.mapSkinAssetId)) {
@@ -40184,8 +40366,9 @@ async function handleWorldArchitectAction(action) {
         // World Structure is a derived place index. Refresh it in the staged
         // draft after an approved map/access/lore edit while retaining the
         // world's authored lorebook and place records.
-        if (globalThis.HordeWorldLore && (staged.deltas.locations || staged.deltas.regions ||
-            (job.operations || []).some(operation => ['update_location', 'update_region', 'connect_locations', 'add_region'].includes(normalizeWorldArchitectOperation(operation)?.type)))) {
+        await ensureWorldLoreModules();
+        ensureWorldDoorIds(staged.world);
+        if (!staged.world.worldStructure || globalThis.HordeWorldLore.structureStatus(staged.world).state !== 'current') {
             globalThis.HordeWorldLore.generate(staged.world);
         }
         staged.world.authoringRevision = job.baseRevision + 1;

@@ -305,3 +305,47 @@ console.log('✓ nested building layout contains rooms without exact node overla
 console.log('✓ manual region → street → buildings → rooms hierarchy stays fully visible');
 console.log('✓ cartographic paths keep all connections, anchor to place boundaries, and round turns');
 console.log(`✓ 2,000-location limit laid out in ${layoutElapsed}ms and routed in ${routeElapsed}ms`);
+
+// Exercise the actual renderer without starting the rest of the application.
+function element() {
+    return {
+        style: {}, dataset: {}, children: [], attributes: {},
+        classList: { add() {}, toggle() {}, remove() {} },
+        setAttribute(key, value) { this.attributes[key] = value; },
+        append(...children) { this.children.push(...children); },
+        appendChild(child) { this.children.push(child); },
+        replaceChildren() { this.children = []; }
+    };
+}
+context.document = { createElement: element, createElementNS: element };
+context.cssUrl = value => value;
+context.worldMediaSource = (value, id) => value.mediaAssets?.find(asset => asset.id === id)?.data || '';
+const renderStart = app.indexOf('function renderSemanticWorldMap(');
+const renderEnd = app.indexOf('\nfunction ', renderStart + 1);
+vm.runInNewContext(app.slice(renderStart, renderEnd), context);
+const image = 'data:image/png;base64,aGVsbG8=';
+const portableWorld = JSON.parse(JSON.stringify({ ...world, media: { mapBackground: image } }));
+const host = element();
+host.style.backgroundImage = `url('${image}')`;
+context.renderSemanticWorldMap(host, portableWorld);
+assert.strictEqual(host.style.backgroundImage, '');
+assert.strictEqual(host.children[0].style.backgroundImage, '');
+const mapScroll = host.children[2];
+assert.strictEqual(mapScroll.className, 'semantic-map-scroll mode-map');
+assert.strictEqual(mapScroll.style.backgroundImage, `url('${image}')`);
+assert.strictEqual(mapScroll.style.backgroundSize, 'contain');
+assert.strictEqual(mapScroll.style.backgroundAttachment, 'local');
+assert.strictEqual(mapScroll.style.backgroundRepeat, 'no-repeat');
+assert.strictEqual(mapScroll.style.backgroundPosition, 'center');
+assert.strictEqual(mapScroll.style.backgroundColor, '#0a0a0a');
+assert.strictEqual(mapScroll.children[0].attributes.role, 'img');
+context.renderSemanticWorldMap(host, portableWorld, { mode: 'graph' });
+assert.strictEqual(host.children[2].style.backgroundImage, undefined);
+context.renderSemanticWorldMap(host, {
+    ...world, presentation: { mapSkinAssetId: 'legacy' },
+    mediaAssets: [{ id: 'legacy', data: image }]
+}, { mode: 'map' });
+assert.strictEqual(host.children[2].style.backgroundImage, `url('${image}')`);
+context.renderSemanticWorldMap(host, world, { mode: 'map' });
+assert.strictEqual(host.children[2].style.backgroundImage, undefined);
+console.log('✓ map background placement, portable data, legacy assets, view switching, and clearing');

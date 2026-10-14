@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Grundriss Editor – isolierte Browserprüfung</title>
+<link rel="stylesheet" href="../style.css?v=map-test">
+<style>body { display:block; overflow:auto; padding:12px; } .studio-panel{display:block} #test-status{white-space:pre-wrap;font:12px monospace;padding:8px} #test-controls{display:flex;gap:8px} .hidden{display:none!important}</style></head>
+<body><div id="test-controls"><button id="roundtrip">Export/Import testen</button><button id="play">Spielkarte testen</button><button id="edit">Editor testen</button><button id="checks">Geometrie prüfen</button></div>
+<section id="tab-w-visual-map" class="studio-panel"><h2>World Architect – Testwelt</h2><div class="form-body"><div id="world-visual-canvas" class="world-visual-canvas"></div></div></section>
+<pre id="test-status"></pre>
+<script src="../assets/worlds/map-editor.js"></script><script src="map_editor_fixture_source.js"></script>
+<script>
+let world = { id:'test',name:'Grundriss-Test',entities:[{id:'key',type:'item',name:'Messingschlüssel'}], locations:[
+ {id:'a',name:'Eingang',mapType:'room',exits:[{targetLocationId:'b',text:'to Flur',travelTime:2}]},
+ {id:'b',name:'Flur',mapType:'room',exits:[{targetLocationId:'a',text:'to Eingang',travelTime:2}]},
+ {id:'c',name:'Büro',mapType:'room',exits:[]}
+] };
+world.media = {mapBackground:'data:image/svg+xml;base64,'+btoa('<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="600"><rect width="1000" height="600" fill="#25303c"/><path d="M40 40H960V560H40Z M330 40V250M330 320V560M650 40V230M650 300V560" stroke="#cbd5e1" stroke-width="8" fill="none"/><text x="70" y="500" fill="#a5b4c4" font-size="30">TEST FLOOR PLAN</text></svg>')};
+ensureWorldDoorIds(world);
+world.mapLayout = {version:1,width:1000,height:600,nodes:{a:{x:180,y:180,width:150,height:70},b:{x:490,y:180,width:150,height:70},c:{x:820,y:180,width:150,height:70}},routes:{}};
+const host=document.getElementById('world-visual-canvas');
+let editing=true;
+function focusWorldLocationCard(id){document.getElementById('test-status').textContent='Ort bearbeiten: '+id;}
+function getLocationRef(w, ref){return w.locations.find(l=>l.id===ref||l.name===ref);}
+function queueWorldStructureSync(){}
+function updateWorldTokenCount(){report();}
+function report(){document.getElementById('test-status').textContent=JSON.stringify({rooms:world.locations.length,layout:world.mapLayout,exits:world.locations.map(l=>({id:l.id,exits:l.exits}))},null,1);}
+function render(){renderSemanticWorldMap(host,world,{architect:editing,mode:'map'});report();}
+document.getElementById('roundtrip').onclick=()=>{world=JSON.parse(JSON.stringify(world));HordeMapEditor.normalize(world);render();};
+document.getElementById('play').onclick=()=>{editing=false;render();};
+document.getElementById('edit').onclick=()=>{editing=true;render();};
+document.getElementById('checks').onclick=()=>{
+ const map=host.querySelector('.world-map-sheet'),svg=host.querySelector('svg'),toolbar=host.querySelector('.semantic-map-toolbar');
+ const a=map.getBoundingClientRect(),b=svg.getBoundingClientRect();
+ const checks={sameBounds:Math.abs(a.width-b.width)<1&&Math.abs(a.height-b.height)<1&&Math.abs(a.x-b.x)<1&&Math.abs(a.y-b.y)<1,background:getComputedStyle(map).backgroundSize,toolbar:getComputedStyle(toolbar).backgroundImage,resizable:getComputedStyle(host.parentElement).resize,editorTools:!!host.querySelector('.world-map-room-name')};
+ document.getElementById('test-status').textContent=JSON.stringify(checks);
+};
+host.addEventListener('pointerup',()=>setTimeout(report,0));
+render();
+</script></body></html>
