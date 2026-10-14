@@ -29295,10 +29295,10 @@ function extractUserMovementTarget(userInput) {
 }
 
 function worldDraggedCompanionIntent(userInput) {
-    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    const input = normalizeWorldPlayerCommandPronoun(String(userInput || '').replace(/[*_~]/g, ' ')).trim();
     if (!input || /^["'“‘]/.test(input)) return null;
     const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
-    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+(?:hand|arm|wrist|shoulder)\s+)?(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+(?:hand|arm|wrist|shoulder)\s+)?(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
     if (coordinated) return { index: coordinated.index, person: coordinated[1].trim(), target: coordinated[2].trim() };
     const direct = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led|escort(?:ed)?)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
     if (direct) return { index: direct.index, person: direct[1].trim(), target: direct[2].trim() };

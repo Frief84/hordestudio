@@ -74,6 +74,15 @@ assert.equal(ctx.extractUserMovementTarget('YYouYou gab Linda and drag her to th
     'an accidental doubled player pronoun must not hide an otherwise explicit move');
 assert.equal(ctx.extractUserMovementTarget('You take Linda by the arm and drag her to the Round Room'), 'the Round Room',
     'taking a companion by the arm before dragging must resolve to the destination');
+const grabLeadInput = '**Youyou grab Linda by the arm and lead her to the Hexagonal Room**';
+assert.equal(ctx.extractUserMovementTarget(grabLeadInput), 'the Hexagonal Room',
+    'grabbing a companion by the arm and leading her must resolve to the destination');
+const grabLeadIntent = ctx.worldDraggedCompanionIntent(grabLeadInput);
+assert.equal(grabLeadIntent?.index, 0);
+assert.equal(grabLeadIntent?.person, 'Linda');
+assert.equal(grabLeadIntent?.target, 'the Hexagonal Room');
+assert.equal(ctx.extractUserMovementTarget('You grab Linda by the arm and lead her'), '',
+    'leading a companion without an explicit destination must not authorize movement');
 assert.equal(ctx.extractUserMovementTarget('YYouyou go with Linda to the Round room'), 'the Round room',
     'going with a named companion must identify the destination');
 assert.equal(ctx.extractUserMovementTarget('You\nyou take linda to the round room'), 'the round room',
@@ -298,6 +307,35 @@ const dragInput = 'YouYou grab Linda and drag her to the Round Room';
 assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession, dragInput)), ['linda']);
 assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession,
     'You take Linda by the arm and drag her to the Round Room')), ['linda']);
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession,
+    grabLeadInput)), ['linda']);
+const grabLeadSession = { id: 'grab_lead_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const grabLeadCompanionIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld,
+    grabLeadSession, '**Youyou grab Linda by the arm and lead her to the Round Room**');
+assert.deepEqual(Array.from(grabLeadCompanionIds), ['linda']);
+const grabLeadTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget('**Youyou grab Linda by the arm and lead her to the Round Room**'), true, grabLeadSession);
+assert.equal(grabLeadTarget?.id, 'cellar');
+const grabLeadMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, grabLeadSession, grabLeadTarget,
+    { companionIds: grabLeadCompanionIds });
+assert.equal(grabLeadMove.ok, true);
+assert.equal(grabLeadSession.playerLocation, 'cellar');
+assert.equal(grabLeadSession.entityStates.linda.location, 'cellar');
+const absentLindaSession = { id: 'lead_absent_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }], entityStates: {}, turnCount: 8 };
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, absentLindaSession,
+    '**Youyou grab Linda by the arm and lead her to the Round Room**')), []);
+assert.equal(absentLindaSession.playerLocation, 'gate');
+const blockedLeadSession = { id: 'lead_blocked_route', playerLocation: 'gate', inventory: [],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const blockedLeadTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget('**Youyou grab Linda by the arm and lead her to the Round Room**'),
+    true, blockedLeadSession);
+assert.equal(blockedLeadTarget, null);
+assert.equal(blockedLeadSession.playerLocation, 'gate');
+assert.equal(blockedLeadSession.entityStates.linda.location, 'gate');
 const draggedTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
     ctx.extractUserMovementTarget(dragInput), true, dragSession);
 const draggedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, dragSession, draggedTarget,
