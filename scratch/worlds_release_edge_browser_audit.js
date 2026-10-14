@@ -60,6 +60,10 @@ const root = path.resolve(__dirname, '..');
                 conditionCases.push({ conditions: [...sess.entityStates.mara.conditions],
                     otherActor: [...sess.entityStates.ada.conditions], rejected: committed.audit.rejected });
             }
+            const unknownCondition = validateWorldTurnReceipt(world, sess, {
+                ...base, events: [{ type: 'condition', actor_id: 'mara', status: 'completed',
+                    action: 'remove', condition: 'unrecorded cuffs', evidence: 'The chain slackens.' }]
+            }, { engineScene: true }).rejectedEvents.map(item => item.reason);
             await saveWorldsState();
             const savedConditions = (await HordeDB.get('worldInstance:' + world.id)).sessions
                 .find(session => session.id === sess.id).entityStates.mara.conditions;
@@ -103,10 +107,12 @@ const root = path.resolve(__dirname, '..');
             const resetDuringTurn = await hardResetActiveWorldTimeline();
             const resetKeptCanon = JSON.stringify(sess) === beforeBlockedEdit;
             worldTurnInProgress = false;
-            return { conditionCases, savedConditions, clockClaims, recoveredPast,
+            return { conditionCases, unknownCondition, savedConditions, clockClaims, recoveredPast,
                 recoveryMutatedState, ordinaryTurn, urgentTurn, resetDuringTurn, resetKeptCanon };
         });
         assert.deepEqual(result.conditionCases.map(row => row.conditions), [['bleeding', 'poisoned'], [], [], ['bleeding']]);
+        assert(result.unknownCondition.includes('unknown_condition'),
+            'removing an unrecorded restraint condition must not pass validation');
         for (const row of result.conditionCases) {
             assert.deepEqual(row.otherActor, ['exhausted']); assert.deepEqual(row.rejected, []);
         }

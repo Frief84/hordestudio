@@ -72,6 +72,8 @@ assert.equal(ctx.extractUserMovementTarget('YouYou grab Linda and drag her to th
 assert.equal(ctx.extractUserMovementTarget('YouYou gab Linda and drag her to the round room'), 'the round room');
 assert.equal(ctx.extractUserMovementTarget('YYouYou gab Linda and drag her to the round room'), 'the round room',
     'an accidental doubled player pronoun must not hide an otherwise explicit move');
+assert.equal(ctx.extractUserMovementTarget('You take Linda by the arm and drag her to the Round Room'), 'the Round Room',
+    'taking a companion by the arm before dragging must resolve to the destination');
 assert.equal(ctx.extractUserMovementTarget('YYouyou go with Linda to the Round room'), 'the Round room',
     'going with a named companion must identify the destination');
 assert.equal(ctx.extractUserMovementTarget('You\nyou take linda to the round room'), 'the round room',
@@ -101,9 +103,13 @@ const asymmetricDoor = { locations: [
 const keyedSession = { id: 'keyed_route', playerLocation: 'corridor',
     inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {} };
 const projected = { ...asymmetricDoor, locations: ctx.sessionLocations(asymmetricDoor, keyedSession) };
-assert.equal(asymmetricDoor.locations[0].exits[0].requiredItem, undefined,
-    'runtime route repair must not overwrite authored map data');
-assert.equal(projected.locations[0].exits[0].requiredItem, 'Cell key');
+assert.equal(asymmetricDoor.locations[0].exits[0].requiredItem, 'Cell key',
+    'legacy one-sided key metadata is reconciled on the authored doorway');
+assert.equal(projected.locations[0].exits[0], asymmetricDoor.locations[0].exits[0],
+    'a session view must reuse the authored exit object');
+assert.equal(asymmetricDoor.locations[0].exits[0].doorId,
+    asymmetricDoor.locations[1].exits[0].doorId,
+    'both directions must point to one door id');
 const noKeySession = { id: 'no_key', playerLocation: 'corridor', inventory: [], entityStates: {} };
 assert.equal(ctx.resolveWorldMovementTarget(projected, 'corridor', 'Cell 2', true, noKeySession), null,
     'the reciprocal key projection must not grant access without the item');
@@ -290,6 +296,8 @@ const dragSession = { id: 'dragged_companion', playerLocation: 'gate',
     entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
 const dragInput = 'YouYou grab Linda and drag her to the Round Room';
 assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession, dragInput)), ['linda']);
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession,
+    'You take Linda by the arm and drag her to the Round Room')), ['linda']);
 const draggedTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
     ctx.extractUserMovementTarget(dragInput), true, dragSession);
 const draggedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, dragSession, draggedTarget,
@@ -423,13 +431,67 @@ const projectedWorld = { locations: [
         lockState: 'locked', requiredItem: 'Cell key', travelTime: 2
     }] }
 ] };
+const reciprocalOneWayLabels = { locations: [
+    { id: 'cell', name: 'Cell', exits: [{ targetLocationId: 'ante', isOneWay: true,
+        lockState: 'locked', requiredItem: 'Cell key' }] },
+    { id: 'ante', name: 'Antechamber', exits: [{ targetLocationId: 'cell', isOneWay: true,
+        lockState: 'locked', requiredItem: 'Cell key' }] }
+] };
+ctx.sessionLocations(reciprocalOneWayLabels, { unlockedExits: {} });
+assert.equal(reciprocalOneWayLabels.locations[0].exits[0].doorId,
+    reciprocalOneWayLabels.locations[1].exits[0].doorId,
+    'reciprocal exits share the physical lock even when travel metadata is directional');
+for (const [phrase, action] of [
+    ['I unlock the iron door with the Cell key.', 'opened'],
+    ['I use the Cell key to unlock the door.', 'opened'],
+    ['I insert the key and turn it to lock the door.', 'locked'],
+    ['I close the door and lock it behind me.', 'locked'],
+    ['I turn the key in the lock.', 'locked'],
+    ['The Master locks the door to the Antechamber with the Cell key.', 'locked']
+]) {
+    const doorSession = { playerLocation: 'cell', inventory: ['Cell key'],
+        playerIdentity: { personaName: 'Master' }, entityStates: {},
+        unlockedExits: action === 'locked' ? { [reciprocalOneWayLabels.locations[0].exits[0].doorId]: true } : {} };
+    assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, doorSession, phrase)?.action
+        || 'opened', action, phrase);
+    assert.equal(doorSession.unlockedExits[reciprocalOneWayLabels.locations[0].exits[0].doorId] === true,
+        action === 'opened', phrase);
+}
+const sharedDirectionalDoorId = reciprocalOneWayLabels.locations[0].exits[0].doorId;
+const reverseDoorSession = { playerLocation: 'ante', inventory: ['Cell key'], entityStates: {},
+    unlockedExits: { [sharedDirectionalDoorId]: true } };
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, reverseDoorSession,
+    'I lock the door to the Cell with the Cell key.')?.committed, true);
+assert.equal(reverseDoorSession.unlockedExits[sharedDirectionalDoorId], undefined);
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, reverseDoorSession,
+    'I unlock the door to the Cell with the Cell key.')?.committed, true);
+assert.equal(reverseDoorSession.unlockedExits[sharedDirectionalDoorId], true);
+for (const phrase of ['"I unlock the door," I tell Linda.', 'I ask Linda to unlock the door.',
+    'I do not unlock the door.', 'If I had the key, I would unlock the door.']) {
+    const inert = { playerLocation: 'cell', inventory: ['Cell key'], entityStates: {}, unlockedExits: {} };
+    assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, inert, phrase), null, phrase);
+    assert.deepEqual(inert.unlockedExits, {}, phrase);
+}
+const wrongNamedKey = { playerLocation: 'cell', inventory: ['Cell key'], entityStates: {},
+    unlockedExits: {} };
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, wrongNamedKey,
+    'I unlock the door with the Wooden key.')?.reason, 'wrong_key',
+    'naming a different key must not silently use the held correct key');
+assert.deepEqual(wrongNamedKey.unlockedExits, {});
 const projectedSession = { id: 'projected', playerLocation: 'corridor',
     inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {}, turnCount: 1 };
 const previousWorldForSession = ctx.worldForSession;
 ctx.worldForSession = (value, session) => ({ ...value, locations: ctx.sessionLocations(value, session) });
 const displayedExit = ctx.worldForSession(projectedWorld, projectedSession).locations[0].exits[0];
 assert.equal(displayedExit.requiredItem, 'Cell key',
-    'a key authored on the reciprocal edge is projected onto the displayed exit');
+    'the reciprocal key is reconciled onto the shared doorway');
+assert.equal(displayedExit, projectedWorld.locations[0].exits[0],
+    'view construction must not clone a keyed exit');
+assert.equal(displayedExit.doorId, projectedWorld.locations[1].exits[0].doorId);
+const generatedDoors = worldLore.generate(projectedWorld).nodes
+    .filter(node => node.kind === 'location').flatMap(node => node.exits.map(exit => exit.doorId));
+assert.deepEqual(generatedDoors, [displayedExit.doorId, displayedExit.doorId],
+    'generated World Lore must publish the same door id in both directions');
 assert.equal(ctx.movePlayerAlongWorldPath(projectedWorld, projectedSession,
     projectedWorld.locations[1], { exit: { ...displayedExit, targetLocationId: 'forged' } }).reason,
     'invalid_exit', 'a forged destination must still be rejected');
@@ -439,7 +501,61 @@ assert.equal(projectedMove.ok, true,
     'clicking a projected keyed exit must survive a fresh session-view build');
 assert.equal(projectedMove.travelMinutes, 2);
 assert.equal(projectedSession.playerLocation, 'cell_2');
-assert.equal(projectedSession.unlockedExits['corridor::cell_2'], true);
-assert.equal(projectedSession.unlockedExits['cell_2::corridor'], true);
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], true);
+assert.equal(projectedSession.unlockedExits['corridor::cell_2'], undefined);
+assert.equal(projectedSession.unlockedExits['cell_2::corridor'], undefined);
+assert.equal(worldLore.exitLock(projectedWorld.locations[1].exits[0], projectedSession,
+    'cell_2', 'corridor').currentState, 'unlocked',
+    'the reverse World Lore route sees the same open door');
+const relockedDoor = ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You lock the door to The Cell Corridor with the Cell key');
+assert.equal(relockedDoor?.committed, true);
+const missingCellKey = { id: 'missing_cell_key', playerLocation: 'cell_2', inventory: [], entityStates: {} };
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, missingCellKey,
+    'You lock the door to The Cell Corridor with the Cell key')?.reason, 'required_item',
+    'the key phrase must not grant a key absent from the recorded inventory');
+assert.equal(missingCellKey.unlockedExits, undefined);
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], undefined);
+assert.equal(worldLore.exitLock(displayedExit, projectedSession,
+    'corridor', 'cell_2').currentState, 'locked',
+    'locking from the other side closes both directions');
+const lockedFromCorridor = ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You unlock the door to The Cell Corridor');
+assert.equal(lockedFromCorridor?.committed, true);
+projectedSession.playerLocation = 'corridor';
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You lock the door to Cell 2 with the Cell key')?.committed, true,
+    'the same mapped lock can be secured from either side');
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], undefined);
+projectedSession.playerLocation = 'cell_2';
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You unlock the door to The Cell Corridor')?.committed, true);
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], true);
+const legacyDoorSession = { id: 'legacy_door', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {},
+    unlockedExits: { 'cell_2::corridor': true } };
+ctx.sessionLocations(projectedWorld, legacyDoorSession);
+assert.equal(legacyDoorSession.unlockedExits[displayedExit.doorId], true,
+    'an old directional unlock migrates to the shared door state');
+assert.equal(legacyDoorSession.unlockedExits['cell_2::corridor'], undefined);
+assert.equal(ctx.worldExitRequirement(legacyDoorSession, displayedExit, 'corridor').unlocked, true);
+const otherTimeline = { id: 'other_door', playerLocation: 'corridor', inventory: [], entityStates: {} };
+ctx.sessionLocations(projectedWorld, otherTimeline);
+assert.equal(ctx.worldExitRequirement(otherTimeline, displayedExit, 'corridor').unlocked, false,
+    'a door opened in one timeline stays locked in another');
+const mismatchedIds = { locations: [
+    { id: 'outside', name: 'Outside', exits: [{ targetLocationId: 'inside',
+        doorId: 'old_outer_door', lockState: 'locked' }] },
+    { id: 'inside', name: 'Inside', exits: [{ targetLocationId: 'outside',
+        doorId: 'old_inner_door', lockState: 'unlocked' }] }
+] };
+const mismatchedSession = { unlockedExits: { old_inner_door: true } };
+ctx.sessionLocations(mismatchedIds, mismatchedSession);
+assert.equal(mismatchedIds.locations[0].exits[0].doorId,
+    mismatchedIds.locations[1].exits[0].doorId);
+assert.equal(mismatchedSession.unlockedExits[mismatchedIds.locations[0].exits[0].doorId], true,
+    'merging old door ids keeps an existing open state');
+assert.equal(mismatchedIds.locations[1].exits[0].lockState, 'locked',
+    'an explicitly locked side cannot become freely passable from the reverse side');
 ctx.worldForSession = previousWorldForSession;
 console.log('✓ movement intent, item/check-gated exits, and NPC escort continuity');

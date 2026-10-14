@@ -75,8 +75,9 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             const keyDoor = {
                 committed: openedWithKey?.committed,
                 playerLocation: session.playerLocation,
-                unlocked: session.unlockedExits?.['gate::cellar'] === true,
-                reverseUnlocked: session.unlockedExits?.['cellar::gate'] === true,
+                unlocked: session.unlockedExits?.[exit.doorId] === true,
+                reverseUnlocked: exit.doorId === reverse.doorId
+                    && session.unlockedExits?.[reverse.doorId] === true,
                 loreLock: HordeWorldLore.exitLock(exit, session, 'gate', 'cellar').currentState
             };
             renderWorldPlayState();
@@ -109,7 +110,7 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             };
             await saveWorldsState({ worldId: world.id });
             const persisted = await HordeDB.get(`worldInstance:${world.id}`);
-            const savedUnlock = persisted?.sessions?.[0]?.unlockedExits?.['gate::cellar'] === true;
+            const savedUnlock = persisted?.sessions?.[0]?.unlockedExits?.[exit.doorId] === true;
             const travel = await travelThroughWorldExit(world, session, exit);
             const afterTravel = await HordeDB.get(`worldInstance:${world.id}`);
             const movementEvents = (afterTravel?.sessions?.[0]?.turnEvents || [])

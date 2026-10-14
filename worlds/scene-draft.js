@@ -58,6 +58,15 @@ function playerRequestCoverage(input, actions) {
     return { ok: false, excerpt };
 }
 
+function reachableResolutions(commitments, location, now, plannedWait = 0) {
+    return (commitments || []).filter(item => item && typeof item.id === 'string'
+        && !item.sceneResolution && (!item.locationId || item.locationId === location)
+        && (item.status === 'triggered' || item.status === 'scheduled'
+            && Number.isFinite(item.dueMinute) && Number.isFinite(now)
+            && Number.isFinite(plannedWait) && plannedWait > 0
+            && item.dueMinute <= now + plannedWait));
+}
+
 function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
     const excluded = new Set(['summary', 'scene', 'events', 'entity_updates', 'state_updates',
         'action_resolution', 'npc_observations', 'world_events']);
@@ -105,7 +114,9 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         events.items.properties.passage_id = passage;
         events.items.required = [...new Set([...(events.items.required || []).filter(k => k !== 'evidence'), 'actor_id', 'passage_id'])];
         if (events.items.properties.action) events.items.properties.action.description =
-            'Required for inventory events: add/gain/take or remove/lose/consume/give/drop. Other events may describe the action. Never record an offered-but-unaccepted item as gained.';
+            'Inventory: add/gain/take or remove/lose/consume/give/drop. Condition: explicit add/remove/clear/recover and an exact lasting condition name. Gestures, mood and momentary poses are not conditions. Never record an offered-but-unaccepted item as gained.';
+        if (events.items.properties.condition) events.items.properties.condition.description =
+            'Required for type condition: exact named lasting condition. For remove/clear/recover, name an existing condition of this actor. Loosening a tether without freeing its wearer does not remove cuffs.';
     }
     const contract = shape({
         protocol: { type: 'string', enum: ['scene_draft_v2'] },
@@ -162,8 +173,18 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         contract.properties.narrative.description = 'Ordered scene passages; reference their IDs without repeating prose.';
         if (contract.properties.events?.items?.properties?.type)
             contract.properties.events.items.properties.type.description =
-                'Canonical event type. Movement changes mapped places; gestures and showing held items do not. Use inventory for transfers, activity for lasting poses, status only for alive/dead/gone.';
+                'Canonical event type. Movement changes mapped places; gestures and showing held items do not. Escort means an NPC joins/leaves as a continuing follower: actor_id must be that NPC, never player. Taking or dragging a person to a named room is travel, not escort; the engine may already have committed both arrivals. Use inventory for transfers, activity for lasting poses, condition only with a named lasting condition, status only for alive/dead/gone.';
         contract.properties.effects.description = 'Changed enabled fields only. Omit when nothing changes.';
+        if (Array.isArray(options.commitments)) {
+            const reachable = reachableResolutions(options.commitments, options.location,
+                options.now, options.plannedWait);
+            if (reachable.length) {
+                contract.properties.resolutions.items.properties.id = {
+                    type: 'string', enum: [...new Set(reachable.map(item => item.id))],
+                    description: 'Exact ID of a reachable, unresolved commitment.'
+                };
+            } else delete contract.properties.resolutions;
+        }
     }
     return contract;
 }
@@ -192,7 +213,10 @@ function localInteraction(request, context) {
         (typeof item === 'string' || item?.quantity === undefined || Number(item.quantity) > 0)
             && normalize(typeof item === 'string' ? item : item?.name) === normalize(match[1]));
     match = input.match(/^(?:I|you)\s+(?:walk up to|approach|wave to|wave at|nod to|nod at)\s+(.+)$/i)
-        || input.match(/^(?:Ich|Du)\s+(?:geh(?:e|st) zu|wink(?:e|st))\s+(.+)$/i);
+        || input.match(/^(?:I|you)\s+smile\s+at\s+(.+)$/i)
+        || input.match(/^(?:I|you)\s+(?:greet|tap|touch|pat)\s+(.+?)(?:\s+on the shoulder)?$/i)
+        || input.match(/^(?:I|you)\s+shake\s+(.+?)(?:'s|’s)\s+hand$/i)
+        || input.match(/^(?:Ich|Du)\s+(?:geh(?:e|st) zu|wink(?:e|st)|grüß(?:e|t)|berühr(?:e|st))\s+(.+)$/i);
     if (match) return names.includes(normalize(match[1]));
     return /^(?:(?:I|you)\s+(?:wave|nod|smile)|(?:Ich|Du)\s+(?:wink(?:e|st)|nick(?:e|st)|lächel(?:e|st)))$/i.test(input);
 }
@@ -201,9 +225,10 @@ function decode(value) {
     let source = String(value).trim();
     // An exact enclosing Markdown fence is a transport wrapper, not prose to
     // recover. Never scan for braces or repair malformed JSON inside it.
-    if (source.endsWith('```')) {
-        if (source.startsWith('```json\n')) source = source.slice(8, -3).trim();
-        else if (source.startsWith('```\n')) source = source.slice(4, -3).trim();
+    if (source.startsWith('```')) {
+        const fence = /^```(?:json)?\r?\n([\s\S]*?)```$/i.exec(source);
+        if (!fence) return null;
+        source = fence[1].trim();
     }
     if (source.startsWith('<world_turn_receipt>') && source.endsWith('</world_turn_receipt>'))
         source = source.slice('<world_turn_receipt>'.length, -'</world_turn_receipt>'.length).trim();
@@ -213,6 +238,17 @@ function decode(value) {
         return object(result) ? result : null;
     }
     catch { return null; }
+}
+function transportFailureReason(value, finishReason = '') {
+    if (finishReason === 'length') return 'truncated_receipt';
+    const source = String(value || '').trim();
+    const reader = streamValidator(null);
+    reader.push(source);
+    const openFence = source.startsWith('```') && !source.endsWith('```');
+    const openTag = source.startsWith('<world_turn_receipt>')
+        && !source.endsWith('</world_turn_receipt>');
+    return openFence || openTag || reader.started && !reader.finished && !reader.error
+        ? 'incomplete_json_transport' : 'invalid_json_transport';
 }
 
 // Migration adapter for engine-owned instructions, not a parser for model prose.
@@ -238,8 +274,19 @@ function compile(draft, context) {
     if (!isDraft(draft)) return { ok: false, errors: [{ reason: 'invalid_scene_protocol' }] };
     draft = copy(draft);
     if (draft.protocol === 'scene_draft_v3') {
-        for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+        for (const key of ['events', 'speech', 'commitments'])
             if (draft[key] === undefined) draft[key] = [];
+        if (!context.contract?.properties || context.contract.properties.resolutions) {
+            if (draft.resolutions === undefined) draft.resolutions = [];
+        } else if (Array.isArray(draft.resolutions) && !draft.resolutions.length) {
+            delete draft.resolutions;
+        } else if (draft.resolutions !== undefined) {
+            if (Array.isArray(draft.resolutions)) draft.resolutions.forEach((item, index) =>
+                fail(`resolutions.${index}`, 'unverified_commitment_resolution',
+                    `${String(item?.id || '?').slice(0, 80)}: no_reachable_commitment`));
+            else fail('resolutions', 'unverified_commitment_resolution', 'no_reachable_commitment');
+            delete draft.resolutions;
+        }
         if (draft.effects === undefined) draft.effects = {};
         if (Array.isArray(draft.actions)) draft.actions.forEach((action, index) => {
             if (!object(action) || action.request !== undefined) return;
@@ -274,6 +321,39 @@ function compile(draft, context) {
         event.activity = descriptions[0].trim();
         if (Object.prototype.hasOwnProperty.call(event, 'posture')) delete event.posture;
     });
+    const cosmeticGestureEvents = new Set();
+    if (draft.protocol === 'scene_draft_v3' && Array.isArray(draft.events)) {
+        draft.events.forEach((event, index) => {
+            if (!object(event) || event.type !== 'condition') return;
+            const condition = typeof event.condition === 'string' ? event.condition.trim() : '';
+            const alias = typeof event.value === 'string' ? event.value.trim() : '';
+            if (!condition && alias && !Object.prototype.hasOwnProperty.call(event, 'condition')) {
+                event.condition = alias;
+                delete event.value;
+            }
+            const passageText = Array.isArray(draft.narrative)
+                ? String(draft.narrative.find(passage => passage?.id === event.passage_id)?.text || '') : '';
+            const gestureStem = /^(smil|nod|wav|shrug)/i.exec(String(event.action || '').trim())?.[1];
+            if (!String(event.condition || '').trim()
+                && event.status === 'completed'
+                && /^(?:smile|smiles|smiled|nod|nods|nodded|wave|waves|waved|shrug|shrugs|shrugged)$/i
+                    .test(String(event.action || '').trim())
+                && gestureStem && new RegExp(`\\b${gestureStem}\\w*`, 'i').test(passageText)
+                && !/\b(?:poison\w*|injur\w*|wound\w*|exhaust\w*|restrain\w*|bound|handcuff\w*|sick|infect\w*|paraly\w*|bleed\w*|recover\w*|cured|healed|freed|released)\b/i.test(passageText)
+                && Object.keys(event).every(key => ['id', 'type', 'actor_id', 'status', 'action',
+                    'passage_id', 'participants', 'witnessed_by', 'visibility'].includes(key))) {
+                event.type = 'other';
+                cosmeticGestureEvents.add(index);
+                return;
+            }
+            if (!String(event.condition || '').trim()) errors.push({ type: 'scene_draft',
+                reason: 'missing_condition', detail: `events.${index}.condition`,
+                index, actor_id: event.actor_id });
+            if (!['add', 'remove', 'clear', 'recover'].includes(String(event.action || '').toLowerCase()))
+                errors.push({ type: 'scene_draft', reason: 'missing_condition_action',
+                    detail: `events.${index}.action`, index, actor_id: event.actor_id });
+        });
+    }
     if (errors.length) return { ok: false, errors };
     // Older drafts carried alternative outcome prose. It has never been state
     // authority; strip it before schema checking as well as before compiling
@@ -366,6 +446,10 @@ function compile(draft, context) {
     actions.forEach(action => {
         if (object(action)) delete action.verifiedLocalInteraction;
         if (object(action) && action.kind === 'physical' && action.status === 'resolved'
+            && actions.length === 1 && !Object.keys(effects).length
+            && (draft.events || []).every((_, index) => cosmeticGestureEvents.has(index))
+            && !(draft.commitments || []).length
+            && !(draft.resolutions || []).length
             && localInteraction(action.request, context)) action.verifiedLocalInteraction = true;
     });
     const coverage = playerRequestCoverage(context.input, actions);
@@ -518,15 +602,22 @@ function compile(draft, context) {
         const reached = previous?.status === 'triggered' || previous?.status === 'scheduled'
             && Number.isFinite(previous.dueMinute) && proposedElapsed > 0
             && previous.dueMinute <= context.now + proposedElapsed;
-        if (!previous || !reached || previous.sceneResolution
-            || (previous.locationId && previous.locationId !== context.location)
-            || typeof resolution.response !== 'string' || !resolution.response.trim()
-            || !narrative.includes(resolution.response) || event?.status !== 'completed'
-            || event.type === 'time'
-            || typeof event.evidence !== 'string' || !event.evidence.trim() || !narrative.includes(event.evidence)
-            || !(event.evidence.includes(resolution.response) || resolution.response.includes(event.evidence))
-            || resolutions.some(item => item.id === resolution.id)) {
-            fail(`resolutions.${index}`, 'unverified_commitment_resolution'); continue;
+        const invalidReason = !previous ? 'unknown_commitment_id'
+            : !reached ? 'deadline_not_reached'
+            : previous.sceneResolution ? 'already_resolved'
+            : previous.locationId && previous.locationId !== context.location ? 'wrong_location'
+            : !event || event.status !== 'completed' || event.type === 'time'
+                ? 'missing_completed_consequence_event'
+                : typeof resolution.response !== 'string' || !resolution.response.trim()
+                    || !narrative.includes(resolution.response)
+                    || typeof event.evidence !== 'string' || !event.evidence.trim()
+                    || !narrative.includes(event.evidence)
+                    || !(event.evidence.includes(resolution.response) || resolution.response.includes(event.evidence))
+                    ? 'consequence_not_grounded_in_passage'
+                    : resolutions.some(item => item.id === resolution.id) ? 'duplicate_resolution' : '';
+        if (invalidReason) {
+            fail(`resolutions.${index}`, 'unverified_commitment_resolution',
+                `${String(resolution?.id || '?').slice(0, 80)}: ${invalidReason}`); continue;
         }
         resolutions.push(copy(resolution));
     }
@@ -587,10 +678,10 @@ function streamValidator(contract) {
         // arbitrary prose for a brace. Wait until their opening is complete.
         if (!started) {
             const trimmed = source.trimStart();
-            const wrappers = ['<world_turn_receipt>', '```json\n', '```\n'];
-            const wrapper = wrappers.find(prefix => trimmed.startsWith(prefix));
+            const wrappers = ['<world_turn_receipt>', '```json\r\n', '```json\n', '```\r\n', '```\n'];
+            const wrapper = wrappers.find(prefix => trimmed.toLowerCase().startsWith(prefix));
             if (wrapper) pos = source.length - trimmed.length + wrapper.length;
-            else if (wrappers.some(prefix => prefix.startsWith(trimmed))) return null;
+            else if (wrappers.some(prefix => prefix.startsWith(trimmed.toLowerCase()))) return null;
             else if (!trimmed.startsWith('{')) return null;
             else pos = source.length - trimmed.length;
             started = true;
@@ -648,9 +739,11 @@ function streamValidator(contract) {
         }
         return error;
     }
-    return { push };
+    return { push, get started() { return started; }, get finished() { return finished; },
+        get error() { return error; } };
 }
 
-root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, alignInstructions, streamValidator, simpleRequest, localInteraction };
+root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, transportFailureReason,
+    alignInstructions, streamValidator, simpleRequest, localInteraction };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldSceneDraft;
 })(globalThis);

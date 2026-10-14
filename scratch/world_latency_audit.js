@@ -9,7 +9,8 @@ const accumulator = new Function(`${source.slice(source.indexOf('function accumu
 const legacy = { events: { type: 'array', items: { type: 'object', properties: {
     type: { type: 'string', enum: ['interaction', 'inventory', 'movement', 'activity'] },
     actor_id: { type: 'string' }, status: { type: 'string', enum: ['completed', 'attempted'] },
-    action: { type: 'string' }, item: { type: 'string' }, from_location_id: { type: 'string' },
+    action: { type: 'string' }, item: { type: 'string' }, minutes_elapsed: { type: 'integer' },
+    from_location_id: { type: 'string' },
     to_location_id: { type: 'string' }
 }, required: ['type', 'actor_id', 'status'] } }, checks: { type: 'array', items: { type: 'object' } } };
 const contract = scene.schema(legacy, 'scene_draft_v3');
@@ -42,17 +43,124 @@ for (const input of ['I give Linda the letter.', 'I go to the hall.', 'I do not 
 for (const input of ['I approach Linda.', 'I wave.', 'Ich zeige Linda den Brief.']) {
     assert(scene.localInteraction(input, { ...baseContext, inventory: ['Brief'] }), input);
 }
+assert(scene.localInteraction('I smile at Linda.', baseContext),
+    'a harmless gesture toward a present character is a verified local interaction');
+assert.equal(scene.localInteraction('I smile at Linda.', { ...baseContext, present: [] }), false);
+for (const input of ['I greet Linda.', 'I tap Linda on the shoulder.', "I shake Linda's hand."]) {
+    assert(scene.localInteraction(input, baseContext), input);
+    assert.equal(scene.localInteraction(input, { ...baseContext, present: [] }), false, input);
+}
 assert.equal(scene.localInteraction(baseContext.input, { ...baseContext, inventory: [] }), false);
 assert.equal(scene.localInteraction(baseContext.input, { ...baseContext, present: [] }), false);
+const cosmeticCondition = scene.compile({ ...draft,
+    narrative: [{ id: 'p1', text: 'You smile at Linda; she smiles back.' }],
+    events: [{ type: 'condition', actor_id: 'linda', status: 'completed',
+        action: 'smile', passage_id: 'p1' }] }, { ...baseContext, input: 'I smile at Linda.' });
+assert(cosmeticCondition.ok, JSON.stringify(cosmeticCondition.errors));
+assert.equal(cosmeticCondition.receipt.events[0].type, 'other',
+    'a gesture mislabeled as a condition must not propose a persistent condition');
+const lastingGestureClaim = scene.compile({ ...draft,
+    narrative: [{ id: 'p1', text: 'Linda smiles, but remains poisoned.' }],
+    events: [{ type: 'condition', actor_id: 'linda', status: 'completed',
+        action: 'smile', passage_id: 'p1' }] }, { ...baseContext, input: 'I smile at Linda.' });
+assert(lastingGestureClaim.errors.some(error => error.reason === 'missing_condition'),
+    'a passage mentioning lasting harm cannot lose its missing condition event');
+const unnamedCondition = scene.compile({ ...draft,
+    events: [{ type: 'condition', actor_id: 'linda', status: 'completed',
+        action: 'remove', passage_id: 'p1' }] }, baseContext);
+assert(unnamedCondition.errors.some(error => error.reason === 'missing_condition'),
+    'an unnamed lasting condition removal must fail before the reducer');
+const unactedCondition = scene.compile({ ...draft,
+    events: [{ type: 'condition', actor_id: 'linda', status: 'completed',
+        condition: 'Poisoned', passage_id: 'p1' }] }, baseContext);
+assert(unactedCondition.errors.some(error => error.reason === 'missing_condition_action'),
+    'a lasting condition needs an explicit operation');
+const conditionAlias = scene.compile({ ...draft,
+    events: [{ type: 'condition', actor_id: 'linda', status: 'completed',
+        action: 'add', value: 'Poisoned', passage_id: 'p1' }] }, { ...baseContext, contract: null });
+assert(conditionAlias.ok, JSON.stringify(conditionAlias.errors));
+assert.equal(conditionAlias.receipt.events[0].condition, 'Poisoned',
+    'a lossless condition-value alias remains subject to the normal reducer');
 assert(scene.localInteraction('I show Linda Smith the letter.', { ...baseContext, actors: [{ id: 'linda', name: 'Linda Smith' }] }));
 assert.equal(scene.localInteraction(baseContext.input, { ...baseContext, inventory: [{ name: 'letter', quantity: 0 }] }), false);
+const transient = { ...draft, narrative: [{ id: 'p1', text: 'You tap Linda on the shoulder; she turns.' }] };
+assert(scene.compile(transient, { ...baseContext, input: 'I tap Linda on the shoulder.' }).actions[0]
+    .verifiedLocalInteraction, 'present, non-durable contact needs no extra proof event');
+assert(!scene.compile({ ...transient, effects: { checks: [] } },
+    { ...baseContext, input: 'I tap Linda on the shoulder.' }).actions[0].verifiedLocalInteraction,
+    'a proposed lasting or check effect cannot inherit the local exemption');
 assert(!scene.compile(draft, { ...baseContext, input: 'I show Linda the letter and ask the deadline.' }).ok);
 assert(!scene.compile({ ...draft, effects: { invented: [] } }, baseContext).ok);
 assert(!scene.compile({ ...draft, actions: [{ ...draft.actions[0], status: 'attempted', request: null }] }, baseContext).ok);
 const forged = scene.compile({ ...draft, actions: [{ ...draft.actions[0], verifiedLocalInteraction: true }] }, baseContext);
 assert(!forged.ok, 'model cannot supply a compiler exemption');
+const falseResolution = scene.compile({ ...draft, resolutions: [{ id: 'unrelated', passage_id: 'p1', event_index: 0 }] }, baseContext);
+assert.equal(falseResolution.ok, false);
+assert(falseResolution.errors.some(error => error.reason === 'unverified_commitment_resolution'
+    && error.detail.includes('unknown_commitment_id')),
+    'an unrelated action cannot resolve an unknown commitment, and the reason is diagnosable');
+const withoutDeadline = scene.schema(legacy, 'scene_draft_v3', { input: baseContext.input,
+    commitments: [], location: 'office', now: 500 });
+assert(!('resolutions' in withoutDeadline.properties), 'no reachable deadline removes the field');
+assert(scene.compile({ ...draft, resolutions: [] }, { ...baseContext, contract: withoutDeadline }).ok,
+    'empty legacy-style resolutions may be dropped without another model call');
+assert(scene.compile({ ...draft, resolutions: [{ id: 'unknown', passage_id: 'p1', event_index: 0 }] },
+    { ...baseContext, contract: withoutDeadline }).errors.some(error =>
+    error.reason === 'unverified_commitment_resolution' && error.detail.includes('unknown')),
+    'nonempty unsupported resolutions remain explicit errors');
+const deadlines = [
+    { id: 'triggered_here', status: 'triggered', locationId: 'office', dueMinute: 450 },
+    { id: 'scheduled_soon', status: 'scheduled', locationId: 'office', dueMinute: 510 },
+    { id: 'scheduled_late', status: 'scheduled', locationId: 'office', dueMinute: 700 },
+    { id: 'triggered_away', status: 'triggered', locationId: 'hall', dueMinute: 450 },
+    { id: 'resolved_here', status: 'triggered', locationId: 'office', dueMinute: 450, sceneResolution: 'done' }
+];
+const deadlineSchema = scene.schema(legacy, 'scene_draft_v3', { input: baseContext.input,
+    commitments: deadlines, location: 'office', now: 500, plannedWait: 15 });
+assert.deepEqual(deadlineSchema.properties.resolutions.items.properties.id.enum,
+    ['triggered_here', 'scheduled_soon']);
+const noWaitSchema = scene.schema(legacy, 'scene_draft_v3', { input: baseContext.input,
+    commitments: deadlines, location: 'office', now: 500 });
+assert.deepEqual(noWaitSchema.properties.resolutions.items.properties.id.enum, ['triggered_here']);
+assert(scene.schema(legacy, 'scene_draft_v2', { input: baseContext.input,
+    commitments: [], location: 'office', now: 500 }).properties.resolutions,
+    'v2 retains the stable legacy field');
+const resolutionDraft = { protocol: 'scene_draft_v3', narrative: [{ id: 'p1',
+    text: 'Linda confirms that the deadline has passed and closes the appointment.' }],
+    actions: [], events: [{ type: 'interaction', actor_id: 'linda', status: 'completed',
+        action: 'close the appointment', passage_id: 'p1' }],
+    resolutions: [{ id: 'triggered_here', event_index: 0, passage_id: 'p1' }] };
+const triggeredContext = { ...baseContext, input: '', commitments: [{ ...deadlines[0], sourceReceiptId: 'old' }],
+    contract: noWaitSchema };
+assert(scene.compile(resolutionDraft, triggeredContext).ok,
+    'a reached, witnessed deadline remains resolvable');
+const scheduledDraft = { ...resolutionDraft,
+    events: [{ type: 'time', actor_id: 'player', status: 'completed', minutes_elapsed: 15,
+        passage_id: 'p1' }, resolutionDraft.events[0]],
+    resolutions: [{ id: 'scheduled_soon', event_index: 1, passage_id: 'p1' }] };
+const scheduledResult = scene.compile(scheduledDraft, { ...triggeredContext,
+    commitments: [deadlines[1]], contract: deadlineSchema });
+assert(scheduledResult.ok, JSON.stringify(scheduledResult.errors));
+assert(scene.compile({ ...scheduledDraft, events: [resolutionDraft.events[0]],
+    resolutions: [{ id: 'scheduled_soon', event_index: 0, passage_id: 'p1' }] },
+{ ...triggeredContext, commitments: [deadlines[1]], contract: deadlineSchema }).errors.some(error =>
+    error.detail.includes('deadline_not_reached')), 'future deadline cannot resolve without elapsed time');
+for (const past of [deadlines[3], deadlines[4]]) {
+    const rejected = scene.compile({ ...resolutionDraft,
+        resolutions: [{ id: past.id, event_index: 0, passage_id: 'p1' }] },
+    { ...triggeredContext, commitments: [past], contract: deadlineSchema });
+    assert(!rejected.ok, `remote or already resolved commitment ${past.id} stays rejected`);
+}
 const duplicate = '{"protocol":"scene_draft_v3","actions":[],"actions":[]}';
 assert.equal(scene.decode(duplicate), null);
+assert.deepEqual(scene.decode('```json\r\n{"protocol":"scene_draft_v3","actions":[]}```'),
+    { protocol: 'scene_draft_v3', actions: [] },
+    'CRLF fenced JSON with an adjacent closing fence is valid');
+assert.equal(scene.transportFailureReason('{"protocol":"scene_draft_v3","actions":['),
+    'incomplete_json_transport');
+assert.equal(scene.transportFailureReason('{"protocol":"scene_draft_v3","actions":[', 'length'),
+    'truncated_receipt');
+assert.equal(scene.transportFailureReason('Here is some JSON:'), 'invalid_json_transport');
 
 const valid = JSON.stringify({ ...draft, narrative: [{ id: 'p1', text: 'A quote: "yes", a brace: }, a slash: \\, and Unicode: ä.' }] });
 for (let size = 1; size < valid.length; size++) {
@@ -72,7 +180,8 @@ accumulator(snapshots, { index: 0, function: { name: 'turn', arguments: valid } 
 accumulator(snapshots, { index: 0, function: { name: 'commit_world_turn', arguments: valid } });
 assert.equal(snapshots.get('index:0').function.arguments, valid);
 assert.equal(snapshots.get('index:0').function.name, 'commit_world_turn');
-for (const wrapper of [s => s, s => `<world_turn_receipt>${s}</world_turn_receipt>`, s => '```json\n' + s + '\n```']) {
+for (const wrapper of [s => s, s => `<world_turn_receipt>${s}</world_turn_receipt>`,
+    s => '```json\n' + s + '\n```', s => '```json\r\n' + s + '```']) {
     const source = wrapper(valid);
     for (let size = 1; size <= source.length; size++) {
         const validator = scene.streamValidator(contract);
@@ -113,6 +222,10 @@ const failed = [...history.slice(0, -1), { role: 'user', text: 'Abandoned.' },
     { id: 'bad', role: 'dm', text: 'Rejected.', stateSource: 'frozen_no_receipt', sceneMemory: history[1].sceneMemory }, history.at(-1)];
 assert(!JSON.stringify(context.history({ ...opts, history: failed, start: failed.length - 1, maxTurns: 5 })).includes('Abandoned'));
 assert(!context.recall(failed, 'letter', 'office').includes('"sourceMessageId":"bad"'));
+const retryHistory = failed.slice(0, -1);
+const retryMessages = context.history({ ...opts, history: retryHistory, start: retryHistory.length - 2, maxTurns: 5 });
+assert.equal(retryMessages.at(-1).content, 'Abandoned.', 'reroll must retain the current request even when its previous reply was rejected');
+assert(!JSON.stringify(retryMessages).includes('Rejected.'), 'the rejected reply itself must stay out of context');
 const sample = (duration, repair = 0, stateSource = 'tool_call', model = 'test') => ({ role: 'dm', stateSource,
     callAudit: { protocol: 'scene_draft_v3', receiptRepair: repair, metrics: { acceptedDisplayMs: duration },
         calls: [{ provider: 'local', model }] } });
@@ -147,5 +260,7 @@ for (const [name, input, kind, status, changes] of [
 console.table(rows);
 console.log(JSON.stringify({ legacyHistoryCharacters: JSON.stringify(context.history(opts)).length,
     recentHistoryCharacters: JSON.stringify(selected).length,
-    v2SchemaCharacters: JSON.stringify(scene.schema(legacy)).length, v3SchemaCharacters: JSON.stringify(contract).length }));
+    v2SchemaCharacters: JSON.stringify(scene.schema(legacy)).length,
+    v3SchemaCharacters: JSON.stringify(contract).length,
+    v3NoDeadlineSchemaCharacters: JSON.stringify(withoutDeadline).length }));
 console.log('PASS v3 compatibility, local proofs, streaming boundaries, five-turn context and fixture size comparisons (no live model latency claims)');

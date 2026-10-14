@@ -122,7 +122,7 @@ const host = 'world-negated-movement-receipt.test';
             const persisted = await HordeDB.get(`worldInstance:${world.id}`);
             const saved = persisted?.sessions?.find(item => item.id === sess.id);
             const lastReceipt = sess.worldTurnReceipts.at(-1);
-            const prompt = mainRequests[0]?.messages?.at(-1)?.content || '';
+            const prompt = (mainRequests[0]?.messages || []).map(message => message.content || '').join('\n');
             return {
                 parser, before,
                 after: {

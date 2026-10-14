@@ -605,6 +605,7 @@ let generationController = null;
 let chatTurnInProgress = false;
 let worldTurnInProgress = false; // re-entry guard for executeWorldTurn
 let worldPendingTurnUI = null; // Presentation only; never saved as world state.
+const WORLD_PLAYER_INPUT_FIDELITY = '[PLAYER WORDING AND INTENT]\nRespond to the player\'s words; do not rewrite their dialogue as a new speech. If quoting them, preserve the original wording. An established delivery style or tone may continue when consistent with the current input; it must not change what the player says or intends. Do not invent motives, threats, promises, permissions, refusals or actions for the player. Minor typo interpretation must preserve meaning, negation, actor, target and scope. If unclear wording would change an action or its consequences, ask a brief in-character clarification and leave that part unresolved; never replace it with a plausible new meaning.';
 const WORLD_HOSTED_TURN_DEADLINE_MS = 150000;
 let worldMutationInProgress = false; // short, persisted non-generation commands
 let worldTurnPersistenceFence = null;
@@ -10342,7 +10343,10 @@ function worldActionResolutionFailures(receipt, playerInput, context = {}) {
     if (!String(playerInput || '').trim() || context.specialCommand) return [];
     const resolution = receipt?.action_resolution;
     const fail = (reason, detail) => [{ index: -1, type: 'action_resolution',
-        reason, actor_id: 'player', detail }];
+        reason, actor_id: 'player', detail,
+        ...(Number.isInteger(context.actionIndex) ? { actionIndex: context.actionIndex,
+            actionRequest: String(playerInput).slice(0, 180) } : {}),
+        ...(context.proofStatus ? { proofStatus: context.proofStatus } : {}) }];
     if (!isPlainObject(resolution)) return fail('missing_action_resolution',
         'The receipt did not say how the current player action was handled.');
     const kinds = new Set(['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other']);
@@ -10393,7 +10397,9 @@ function worldActionResolutionFailures(receipt, playerInput, context = {}) {
     if (resolution.kind === 'physical' && resolution.status === 'resolved'
         && !checks.length && !playerEvents.some(event => event.status === 'completed')
         && !context.precommittedAction && !context.verifiedLocalInteraction)
-        return fail('uncommitted_player_action', 'A completed physical action needs a completed player event or check.');
+        return fail('uncommitted_player_action', context.proofStatus === 'invalid'
+            ? 'A proposed player event did not pass validation or did not match this action passage; no valid completed proof remains.'
+            : 'No completed player event or check was supplied for this action.');
     if (resolution.kind === 'physical' && resolution.status === 'attempted'
         && !checks.length && !playerEvents.some(event =>
             ['attempted', 'in_progress', 'failed'].includes(event.status)))
@@ -10845,6 +10851,8 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
     const informationalEvents = [];
     const entityPatches = [];
     const projectedNpcConditions = new Map();
+    let projectedPlayerConditions = Array.isArray(sess.playerState?.conditions)
+        ? [...sess.playerState.conditions] : [];
     const legacyArgs = { ...receipt.state_updates };
     // A provider can return syntactically valid JSON containing invented
     // fields (for example player_health or inventory_updates). Ignoring those
@@ -11233,7 +11241,18 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
             const action = ['remove', 'clear', 'recover'].includes(String(event.action || '').toLowerCase())
                 ? 'remove' : 'add';
             if (!condition) {
-                reject(index, event, 'missing_condition');
+                reject(index, event, 'missing_condition',
+                    'A condition event needs a named lasting condition. For removal, use an exact existing condition of this actor; otherwise omit this event or record the physical interaction/activity without claiming the condition ended.');
+                return;
+            }
+            const current = actorId === 'player' ? projectedPlayerConditions
+                : projectedNpcConditions.get(actorId)
+                    || (Array.isArray(sess.entityStates?.[actorId]?.conditions)
+                        ? sess.entityStates[actorId].conditions : []);
+            if (action === 'remove' && !current.some(value =>
+                value.toLowerCase() === condition.toLowerCase())) {
+                reject(index, event, 'unknown_condition',
+                    `No recorded condition named ${condition} exists for this actor.`);
                 return;
             }
             if (actorId === 'player') {
@@ -11241,13 +11260,13 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                     ...(Array.isArray(legacyArgs.player_condition_updates) ? legacyArgs.player_condition_updates : []),
                     { condition, action }
                 ];
+                projectedPlayerConditions = action === 'add'
+                    ? [...new Set([...current, condition])]
+                    : current.filter(value => value.toLowerCase() !== condition.toLowerCase());
             } else {
                 // Patches are applied only after the entire receipt validates.
                 // Fold this actor's events in order rather than deriving every
                 // patch from the same pre-turn array and losing earlier changes.
-                const current = projectedNpcConditions.get(actorId)
-                    || (Array.isArray(sess.entityStates?.[actorId]?.conditions)
-                        ? sess.entityStates[actorId].conditions : []);
                 const next = action === 'add'
                     ? [...new Set([...current, condition])]
                     : current.filter(value => value.toLowerCase() !== condition.toLowerCase());
@@ -12609,7 +12628,7 @@ function worldNarratedUrgentClockClaim(narrative) {
 // The mandatory receipt may be accepted before a tool-only response receives
 // its final prose. Compare that *final* text with the pre-turn and committed
 // state, without replaying the receipt or giving prose mutation authority.
-function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrative, playerInput = '', receipt = null) {
+function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrative, playerInput = '', receipt = null, committedDoor = null) {
     if (!beforeSession || !afterSession) return [];
     const modules = normalizeWorldGameRules(world).modules;
     const sentences = worldNarrativeSentences(scrubNarrativeArtifacts(narrative));
@@ -12619,6 +12638,13 @@ function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrat
     }, narrative));
     const lockedExitClaim = worldLockedExitClaimConflict(world, afterSession, narrative);
     if (lockedExitClaim) conflicts.push(lockedExitClaim);
+    if (committedDoor?.action === 'locked' && committedDoor.committed) {
+        const account = stripSpokenDialogue(narrative);
+        const inventedOneWayLock = /\b(?:lock|bolt|mechanism)\b[^.!?]{0,65}\bone[ -]?way\b|\bsecured\s+only\s+from\b[^.!?]{0,70}\bside\b/i.test(account)
+            && !/\b(?:no|not|never)\s+(?:a\s+)?one[ -]?way\b/i.test(account);
+        if (inventedOneWayLock || /\b(?:key|lock|bolt)\b[^.!?]{0,100}\b(?:refuses? to (?:turn|rotate|lock)|fails? to (?:turn|rotate|lock)|cannot (?:turn|rotate|lock)|won'?t (?:turn|rotate|lock)|stays? (?:stationary|open)|remains? (?:stationary|open))\b|\bdoor\b[^.!?]{0,100}\b(?:remains?|stays?)\s+(?:open|unlocked|a\s+(?:gap|yawning\s+gap))\b/i.test(account))
+            conflicts.push({ reason: 'contradicted_precommitted_door', detail: committedDoor.toId });
+    }
     worldNarratedUncommittedRouteClosures(world, afterSession, narrative)
         .forEach(location => conflicts.push({ reason: 'uncommitted_route_closure', detail: location.id }));
     // The receipt, not its presentation writer, decides who entered the scene.
@@ -24101,8 +24127,15 @@ function renderWorldDirectorPanel(world, sess) {
             ].filter(Boolean);
             details.appendChild(text('p', timings.join(' · '), 'world-director-fact'));
         }
-        (reply?.callAudit?.correctionReasons || []).forEach(failure =>
-            details.appendChild(text('p', `Correction: ${failure.reason} · ${failure.detail || ''}`, 'world-director-fact')));
+        (reply?.callAudit?.correctionReasons || []).forEach(failure => {
+            const part = Number.isInteger(failure.actionIndex)
+                ? ` · player part ${failure.actionIndex + 1}: “${failure.actionRequest || ''}”` : '';
+            const proof = failure.reason === 'uncommitted_player_action'
+                ? failure.proofStatus === 'invalid' ? ' · proposed event invalid or unmatched'
+                    : ' · completed player event missing' : '';
+            details.appendChild(text('p', `Correction: ${failure.reason}${part}${proof} · ${failure.detail || ''}`,
+                'world-director-fact'));
+        });
         const calls = Array.isArray(reply?.callAudit?.calls) ? reply.callAudit.calls : [];
         calls.slice(0, 8).forEach(call => {
             const usage = call.usage && typeof call.usage === 'object' ? call.usage : null;
@@ -24127,7 +24160,12 @@ function renderWorldDirectorPanel(world, sess) {
             const reason = String(rejection.reason || 'invalid_world_state_proposal').replace(/_/g, ' ');
             const detail = String(rejection.detail || '').trim();
             const actor = String(rejection.actor_id || '').trim();
-            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${reason}${actor ? ` (actor: ${actor})` : ''}${detail ? `: ${detail}` : ''}`, 'world-director-fact is-rejected'));
+            const part = Number.isInteger(rejection.actionIndex)
+                ? ` · player part ${rejection.actionIndex + 1}: “${rejection.actionRequest || ''}”` : '';
+            const proof = rejection.reason === 'uncommitted_player_action'
+                ? rejection.proofStatus === 'invalid' ? ' · proposed event invalid or unmatched'
+                    : ' · completed player event missing' : '';
+            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${reason}${part}${proof}${actor ? ` (actor: ${actor})` : ''}${detail ? `: ${detail}` : ''}`, 'world-director-fact is-rejected'));
         });
         if (!events.length && !rejectedCount) details.appendChild(empty('No lasting change was proposed.'));
         receiptsList.appendChild(details);
@@ -29258,7 +29296,7 @@ function worldDraggedCompanionIntent(userInput) {
     const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
     if (!input || /^["'“‘]/.test(input)) return null;
     const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
-    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+(?:hand|arm|wrist|shoulder)\s+)?(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
     if (coordinated) return { index: coordinated.index, person: coordinated[1].trim(), target: coordinated[2].trim() };
     const direct = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led|escort(?:ed)?)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
     if (direct) return { index: direct.index, person: direct[1].trim(), target: direct[2].trim() };
@@ -29342,18 +29380,62 @@ function userRequestsWorldDoorRelock(userInput) {
     return !/\b(?:do\s+not|don't|did\s+not|didn't|never|without)\s+(?:\w+\s+){0,4}$/i.test(preceding);
 }
 
-function applyPlayerKeyDoorOpening(world, sess, userInput) {
+function worldRequestedDoorTargetName(phrase) {
+    return normalizeLocationSearchText(String(phrase || '')
+        .split(/\s+(?:and|then|before|after|while)\b/i)[0]
+        .replace(/\s+(?:with|using)\s+(?:(?:the|a|an|my|your)\s+)?[^,.;!?]{1,60}?\b(?:key|keycard)\b.*$/i, ''));
+}
+
+function worldNamedDoorKey(phrase) {
+    const match = /\b(?:with|using|use|used|insert|inserted)\s+(?:(?:the|my|a|an)\s+)?([\w-]+(?:\s+[\w-]+){0,3}\s+key(?:card)?)\b/i.exec(String(phrase || ''));
+    const name = String(match?.[1] || '').replace(/^(?:the|my|a|an)\s+/i, '').trim();
+    return /^(?:key|keycard)$/i.test(name) ? '' : name;
+}
+
+function normalizeWorldPlayerDoorCommand(world, sess, userInput) {
+    let input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)
+        || /\b(?:if|unless|without|would|could|might|do not|don't|did not|didn't|never)\b/i.test(input)) return input;
+    const personaName = String(sess?.playerIdentity?.personaName || '').trim();
+    const knownNpc = personaName && sessionNpcs(world, sess).some(npc =>
+        String(npc.name || '').trim().toLowerCase() === personaName.toLowerCase());
+    if (personaName && !knownNpc) {
+        const escaped = personaName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const named = new RegExp(`^(?:the\\s+)?${escaped}\\s+(locks?|unlocks?|opens?|closes?)\\b`, 'i').exec(input);
+        if (named) input = `You ${named[1].toLowerCase().replace(/s$/, '')}${input.slice(named[0].length)}`;
+    }
+    input = input.replace(/^the\s+player\s+(locks?|unlocks?|opens?|closes?)\b/i,
+        (_, verb) => `You ${verb.toLowerCase().replace(/s$/, '')}`);
+    const inserted = /^(?:i|we|you)\s+insert(?:s|ed)?\s+(?:(?:the|a|an|my|your)\s+)?(?:[\w-]+\s+){0,3}key\b[^.!?]{0,80}?\s+and\s+turn(?:s|ed)?\s+it\s+to\s+(lock|unlock)\s+((?:(?:the|a|an)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b[^.!?]*)/i.exec(input);
+    if (inserted) return `You ${inserted[1]} ${inserted[2]}`;
+    const closed = /^(?:i|we|you)\s+close(?:s|d)?\s+((?:(?:the|a|an)\s+)?(?:door|gate|entrance|exit)\b[^.!?]*?)\s+and\s+lock(?:s|ed)?\s+it(?:\s+behind\s+(?:me|us|you))?\s*[.!?]?$/i.exec(input);
+    if (closed) return `You lock ${closed[1]}`;
+    if (/^(?:i|we|you)\s+turn(?:s|ed)?\s+(?:the|my|a)\s+key\s+in\s+(?:the|a)\s+lock\s*[.!?]?$/i.test(input)) {
+        const view = worldForSession(world, sess);
+        const from = getLocationRef(view, sess.playerLocation);
+        const doors = new Map((from?.exits || []).filter(exit => exit && typeof exit === 'object'
+            && worldExitLockConfig(exit).requiredItem).map(exit => [exit.doorId || getExitTargetName(exit), exit]));
+        if (doors.size === 1) {
+            const exit = doors.values().next().value;
+            const opened = sess.unlockedExits?.[exit.doorId] === true;
+            return `You ${opened ? 'lock' : 'unlock'} the door`;
+        }
+    }
+    return input;
+}
+
+function applyPlayerKeyDoorOpening(world, sess, userInput, keyPhrase = userInput) {
     const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
     if (!input || /^["'“‘]/.test(input)) return null;
     const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
-    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:(?:use|used)\s+[^.!?]{1,60}?\s+to\s+)?(?:open|opened|unlock|unlocked)\s+(?:(?:the|a|an|this|that)\s+)?(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:(?:use|used)\s+[^.!?]{1,60}?\s+to\s+)?(?:open(?:s|ed)?|unlock(?:s|ed)?)\s+(?:(?:the|a|an|this|that)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
     if (!match) return null;
     const clause = actionText.slice(match.index).split(/[.!?]/)[0];
     if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
     const view = worldForSession(world, sess);
     const from = getLocationRef(view, sess.playerLocation);
     if (!from) return null;
-    const targetName = normalizeLocationSearchText(String(match[1] || '').split(/\s+(?:and|then|before|after|while)\b/i)[0]);
+    const targetName = worldRequestedDoorTargetName(match[1]);
     const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
         .filter(candidate => candidate.to && (!targetName
             || normalizeLocationSearchText(candidate.to.name) === targetName
@@ -29365,6 +29447,11 @@ function applyPlayerKeyDoorOpening(world, sess, userInput) {
     if (distinct.length !== 1) return { matched: true, committed: false,
         reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
     const { exit, to } = distinct[0];
+    const namedKey = worldNamedDoorKey(keyPhrase);
+    const requiredKey = worldExitLockConfig(exit).requiredItem;
+    if (namedKey && requiredKey && questTextKey(namedKey) !== questTextKey(requiredKey))
+        return { matched: true, committed: false, reason: 'wrong_key',
+            targetName: to.name, requiredItem: requiredKey, providedItem: namedKey };
     const blockedRoute = worldLocationTravelBlock(sess, to.id);
     if (blockedRoute) return { matched: true, committed: false, reason: 'sealed_route',
         targetName: to.name, detail: blockedRoute.label };
@@ -29381,18 +29468,18 @@ function applyPlayerKeyDoorOpening(world, sess, userInput) {
         toId: to.id, targetName: to.name, requiredItem: requirement.requiredItem };
 }
 
-function applyPlayerKeyDoorLocking(world, sess, userInput) {
+function applyPlayerKeyDoorLocking(world, sess, userInput, keyPhrase = userInput) {
     const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
     if (!input || /^["'“‘]/.test(input)) return null;
     const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
-    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:lock|locked|relock|relocked)\s+(?:(?:the|a|an|this|that)\s+)?(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:lock(?:s|ed)?|relock(?:s|ed)?)\s+(?:(?:the|a|an|this|that)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
     if (!match) return null;
     const clause = actionText.slice(match.index).split(/[.!?]/)[0];
     if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
     const view = worldForSession(world, sess);
     const from = getLocationRef(view, sess.playerLocation);
     if (!from) return null;
-    const targetName = normalizeLocationSearchText(String(match[1] || '').split(/\s+(?:and|then|before|after|while)\b/i)[0]);
+    const targetName = worldRequestedDoorTargetName(match[1]);
     const namesCurrentRoom = targetName && [from.name, from.id]
         .some(name => normalizeLocationSearchText(name) === targetName);
     const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
@@ -29408,6 +29495,11 @@ function applyPlayerKeyDoorLocking(world, sess, userInput) {
     if (distinct.length !== 1) return { matched: true, committed: false, action: 'locked',
         reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
     const { exit, to } = distinct[0];
+    const namedKey = worldNamedDoorKey(keyPhrase);
+    const requiredKey = worldExitLockConfig(exit).requiredItem;
+    if (namedKey && requiredKey && questTextKey(namedKey) !== questTextKey(requiredKey))
+        return { matched: true, committed: false, action: 'locked', reason: 'wrong_key',
+            targetName: to.name, requiredItem: requiredKey, providedItem: namedKey };
     if (!worldPlayerHoldsExitItem(sess, exit)) return { matched: true, committed: false,
         action: 'locked', reason: 'required_item', targetName: to.name, requiredItem: exit.requiredItem };
     if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
@@ -29420,22 +29512,26 @@ function applyPlayerKeyDoorLocking(world, sess, userInput) {
 }
 
 function applyPlayerKeyDoorAction(world, sess, userInput) {
-    return applyPlayerKeyDoorLocking(world, sess, userInput)
-        || applyPlayerKeyDoorOpening(world, sess, userInput);
+    const command = normalizeWorldPlayerDoorCommand(world, sess, userInput);
+    return applyPlayerKeyDoorLocking(world, sess, command, userInput)
+        || applyPlayerKeyDoorOpening(world, sess, command, userInput);
 }
 
 function worldDoorOpeningContext(result) {
     if (!result?.matched) return '';
     if (result.action === 'locked') {
-        if (result.committed) return `\n[SYSTEM: The player locked the mapped door at ${result.targetName}${result.changed ? ' with the required item' : '; it was already locked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate movement.]`;
+        if (result.committed) return `\n[SYSTEM: The player locked the mapped door at ${result.targetName}${result.changed ? ' with the required item' : '; it was already locked'}. Its shared lock is secured from both mapped sides. The player remains at ${result.fromId}. This door action is already committed. Do not contradict it, invent a one-way lock, duplicate it as an effect, or narrate movement.]`;
         const obstacle = result.reason === 'required_item'
             ? `The player lacks ${result.requiredItem || 'the required key'}`
+            : result.reason === 'wrong_key'
+                ? `${result.providedItem} is not the mapped door's required key (${result.requiredItem})`
             : 'There is no unique adjacent lockable door matching that request';
         return `\n[SYSTEM: The requested door locking was not committed. ${obstacle}. Do not claim the door was locked; explain the obstacle.]`;
     }
     if (result.committed) return `\n[SYSTEM: The player opened the mapped door to ${result.targetName} from ${result.fromId}${result.changed ? ' with the required item; its lock is now unlocked' : '; its lock was already unlocked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate arrival in ${result.targetName} without a separate valid move.]`;
     const obstacle = result.reason === 'sealed_route' ? `The route is blocked by ${result.detail}`
         : result.reason === 'required_item' ? `The player lacks ${result.requiredItem}`
+        : result.reason === 'wrong_key' ? `${result.providedItem} is not the mapped door's required key (${result.requiredItem})`
         : result.reason === 'locked_exit' && result.allowCheckUnlock ? 'Opening this door requires a successful check'
         : 'There is no unique adjacent door matching that request';
     return `\n[SYSTEM: The requested door opening was not committed. ${obstacle}. Keep the player in the current place, do not claim the door opened, and explain the obstacle or propose the permitted next step.]`;
@@ -30124,7 +30220,14 @@ async function executeWorldTurn(commandOrReroll = null) {
         const depth = WORLD_DIRECTORY_DEPTHS.includes(npc.simulationDepth)
             ? npc.simulationDepth : (npc.isMajor ? 'core' : 'background');
         const personaStr = npc.persona ? `\nPERSONALITY & VOICE: ${npc.persona}` : "";
-        const activity = ruleModules.schedules && entState.currentActivity ? `\nCurrently: ${entState.currentActivity}` : "";
+        // Current physical state is independent of schedule simulation. Keep
+        // explicit empty conditions distinct from missing legacy state, and
+        // do not truncate away a later clause that supersedes an old pose.
+        const activity = `\nCURRENT RECORDED STATE (overrides historical descriptions): ${JSON.stringify({
+            activity: entState.currentActivity ?? entState.activity ?? null,
+            outfit: entState.outfit ?? null,
+            conditions: Array.isArray(entState.conditions) ? entState.conditions : null
+        })}\nThese are current values, not memories. An empty conditions list means no recorded conditions; null means unknown, not proof of absence. Older scenes describe earlier states: do not restore superseded clothing, equipment, poses or conditions merely because an old memory mentions them. New lasting changes still require events.`;
         const dispo = entState.disposition !== undefined ? entState.disposition : 50;
         const dispoStr = ruleModules.relationships
             ? `\nDISPOSITION TOWARD PLAYER: ${dispo}/100 (${dispositionLabel(dispo)}) — let this color their tone, openness, and willingness to help.`
@@ -30580,6 +30683,7 @@ ${modularMandate}
 ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the final narrative passage.' : ''}` : '';
         if (compactSceneRules) finalMandate = `\n[CURRENT TURN] Time: ${exactTimeStr} (${period}). Honor the authoritative scene, knowledge boundaries and current player request. Describe only validated outcomes; stop before the next unrequested player decision.`;
         else if (sceneDrafts) finalMandate = HordeWorldSceneDraft.alignInstructions(finalMandate);
+        systemPrompt = WORLD_PLAYER_INPUT_FIDELITY + '\n\n' + systemPrompt;
         if (sceneDrafts) {
             const start = systemPrompt.indexOf('[ENGINE MANDATE: CANONICAL TURN COMMIT]');
             const end = systemPrompt.indexOf('[LOCATION MANIFEST', start);
@@ -30613,6 +30717,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         const startIdx = isReroll ? sess.history.length - 2 : sess.history.length - 1;
         const latestAction = !['init', 'look', 'continue'].includes(command) ? sess.history[startIdx] : null;
         const latestActionText = latestAction?.role === 'user' ? canonicalMsgText(latestAction) : '';
+        const draftPlannedWait = parseExplicitWorldWaitMinutes(latestActionText || userInput,
+            currentTotalMinutes);
         const resolveFirst = !!latestActionText && normalizeWorldKernelConfig(world).resolveFirst;
         const requiredTokens = Math.ceil(String(latestActionText || '').length / TOKEN_DIVIDER);
         if (latestAction && !latestActionText) {
@@ -30761,7 +30867,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                                     label: { type: "string" },
                                     item: { type: "string" },
                                     outfit: { type: "string", description: "Required for an outfit event. Describe the resulting complete outfit in a concise phrase. If no outfit is established, invent one that fits the character, setting, weather and story; never leave blank." },
-                                    condition: { type: "string" },
+                                    condition: { type: "string", description: "Required for a condition event: exact lasting condition name. To remove one, copy an existing condition of that actor; loosening a tether alone does not remove cuffs." },
                                     minutes_elapsed: { type: "integer" },
                                     observation: { type: "string" },
                                     place_id: { type: "string", description: "For a verified told observation: exact ID of a place the NPC learns exists." },
@@ -31313,7 +31419,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         const legacyWorldTool = JSON.parse(JSON.stringify(worldStateTool));
         if (sceneDrafts) {
             worldStateTool.function.parameters = HordeWorldSceneDraft.schema(worldStateProperties, sceneProtocol,
-                { input: latestActionText || userInput });
+                { input: latestActionText || userInput, commitments: sess.scheduledEvents || [],
+                    location: sess.playerLocation, now: currentTotalMinutes, plannedWait: draftPlannedWait });
             worldStateTool.function.description = 'Submit one provisional scene draft with narrative and proposed changes. The engine builds the final receipt and ending scene.';
         }
         const sceneDraftFieldGuide = sceneDrafts
@@ -31336,8 +31443,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         const escapeHatch = `\n\n[TURN RECEIPT DELIVERY FAILSAFE]\nUse commit_world_turn as a real tool call. If and only if this provider cannot emit that tool call, append exactly one block at the end instead:\n<world_turn_receipt>{"scene":{"player_location_id":"${sess.playerLocation}","player_location_changed":false,"present_character_ids":[]},"events":[],"entity_updates":[],"state_updates":{}${resolveFirst ? ',"action_resolution":{"kind":"other","status":"needs_clarification","outcome":"The action needs one more detail before the world can respond."}' : ''}}</world_turn_receipt>\nThe receipt is mandatory even when nothing changes. Fill it with the same actor-scoped events, full ending cast and updates you would have sent to the tool. Never send both a successful tool call and the tagged block.${resolveFirst ? '\nBefore any final scene is shown, decide how the current player action resolves. Put that concrete disposition in action_resolution. A physical success needs a completed player event or check; a risky unresolved attempt needs a check or an actor-scoped attempt. A question or speech act can be answered without changing durable state. Your initial prose, if any, is a PRIVATE draft; the engine will request final prose only after accepting the receipt.' : ''}${knownToolShy ? '\nThis model has previously failed to deliver tool calls, so use the tagged receipt rather than dropping state.' : ''}`;
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
         let draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Treat the player's instruction as a goal: attempt its necessary feasible steps in order without asking the player to repeat obvious steps. Use actions to cover the full request in order, with response_id referencing the passage answering each step. If a step is blocked, explain the actual obstacle and keep already verified steps; never claim success for a step the engine did not commit. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        const resolutionGuidance = sceneProtocol === 'scene_draft_v3'
+            && !worldStateTool.function.parameters.properties.resolutions
+            ? 'No commitment can be resolved at this location in this turn; omit resolutions entirely. A distant deadline remains unresolved until witnessed.'
+            : 'Only resolve a listed commitment when needsResolution is true, or when a completed time event in this draft reaches its exact dueMinute. A resolution needs a separate completed, evidenced consequence event at event_index, grounded in the same narrative passage; a time event alone is not that consequence. Otherwise omit resolutions entirely. Show an observed consequence for every needsResolution commitment. A distant deadline\'s outcome remains unknown until observed; do not invent remote harm.';
         if (sceneDrafts) messages.push({ role: 'system', content:
             'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. events[].status is progress (intended, attempted, in_progress, completed, cancelled, failed). Type status is only for NPC lifecycle and requires next_status: alive, dead or gone; never use it for activity, pose, mood or temporary condition. Walking up to someone in the same mapped place and showing an already held object are local interactions, not a place change or lifecycle status. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Precommitted player key-door opening and re-locking are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
+        if (sceneDrafts) messages.push({ role: 'system', content:
+            'CONDITION EVENT RULE: Use type:"condition" only for a named lasting condition, with condition:"exact name". To remove one, copy the actor’s currently recorded condition label. Loosening a tether while cuffs remain is a completed physical interaction and possibly a changed activity, not proof that the restrained condition or cuffs ended. Do not invent a condition name or silently free the person.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -31348,7 +31461,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         }
         if (sceneDrafts && sceneProtocol === 'scene_draft_v3') {
             draftInstruction = draftInstruction.replaceAll('scene_draft_v2', sceneProtocol).replace('[SCENE DRAFT V2]', '[SCENE DRAFT V3]');
-            const compactRules = '\nEmpty events, effects, speech, commitments and resolutions may be omitted. For exactly one simple action, omit actions[0].request: the engine supplies the original input. Compound requests require explicit contiguous request excerpts covering every step. Gestures, approaching a present person and showing an already held item in this room need no movement or transfer event. Never use duplicate JSON keys.';
+            const compactRules = '\nEmpty events, effects, speech and commitments may be omitted. Use resolutions only when the schema offers reachable IDs; otherwise omit it. For exactly one simple action, omit actions[0].request: the engine supplies the original input. Compound requests require explicit contiguous request excerpts covering every step. Gestures, approaching a present person and showing an already held item in this room need no movement or transfer event. Escort records an NPC voluntarily joining or leaving as a continuing follower; its actor_id is the NPC, never player. Taking or dragging someone to a named room is a joint trip, not an escort join. If the engine already moved both people, narrate that result without duplicate movement or escort events. Never use duplicate JSON keys.';
             draftInstruction = draftInstruction.replace('\nCurrent day:', compactRules + '\nCurrent day:');
         }
         if (sceneDrafts) {
@@ -31367,7 +31480,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     locationId: event.locationId, sceneResolution: event.sceneResolution,
                     needsResolution: !!event.sourceReceiptId && event.status === 'triggered' && !event.sceneResolution
                         && (!event.locationId || event.locationId === sess.playerLocation)
-                })))}\nFor every needsResolution commitment, show the observed consequence in this scene and include resolutions:{id,passage_id,event_index} as an ARRAY entry referencing a completed evidenced event. Include corresponding lasting changes in effects. A distant deadline's outcome remains unknown until observed; do not invent remote harm.` });
+                })))}\n${resolutionGuidance}` });
 
         const requestBody = {
             model: modelId,
@@ -31812,15 +31925,62 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     submittedInput || userInput, compiled ? { ...receiptContext, specialCommand: true } : receiptContext).forEach(failure =>
                     committed.audit.rejected.push(failure));
                 if (compiled) {
-                    for (const action of compiled.actions) {
-                        worldActionResolutionFailures({ ...committed.validation.receipt,
+                    const usedPlayerProofs = new Set();
+                    const mechanicalProofRejected = committed.audit.rejected.some(failure =>
+                        ['event', 'mechanic', 'inventory', 'movement', 'checks', 'condition'].includes(failure.type))
+                        || (committed.actionResult?.inventoryFailures || []).length > 0
+                        || (committed.actionResult?.transactionResults || []).some(item => !item.success)
+                        || committed.actionResult?.movementResult?.ok === false
+                        || (committed.actionResult?.moduleRejections || []).length > 0;
+                    for (const [actionIndex, action] of compiled.actions.entries()) {
+                        const precommittedForAction = compiled.actions.length === 1
+                            && HordeWorldSceneDraft.simpleRequest(action.request)
+                            ? candidateContext.precommittedAction
+                            : (() => {
+                                const request = String(action.request || '').replace(/^\s*(?:and|then)\s+/i, 'You ');
+                                const command = normalizeWorldPlayerDoorCommand(world, sess, request);
+                                const doorVerb = /^(?:i|we|you)\s+(re[ -]?lock|lock|unlock|open)\b/i.exec(command)?.[1]?.toLowerCase();
+                                const doorTarget = /\b(?:door|gate|entrance|exit)\s+(?:to|into|of)\s+([^,.;!?]+)/i.exec(command)?.[1];
+                                const doorMatches = committedDoor && doorVerb
+                                    && HordeWorldSceneDraft.simpleRequest(command)
+                                    && (committedDoor.action === 'locked' ? /^(?:re[ -]?lock|lock)$/.test(doorVerb) : /^(?:unlock|open)$/.test(doorVerb))
+                                    && (!doorTarget || [committedDoor.targetName, committedDoor.toId]
+                                        .some(name => normalizeLocationSearchText(name) === worldRequestedDoorTargetName(doorTarget)));
+                                const moveTarget = committedMovement && extractUserMovementTarget(request);
+                                const moveMatches = moveTarget && resolveWorldMovementTarget(receiptView,
+                                    receiptPlayerStart, moveTarget, true, sess)?.id === committedMovement.destinationId
+                                    && (HordeWorldSceneDraft.simpleRequest(request) || worldDraggedCompanionIntent(request));
+                                const outfit = committedOutfit && detectPlayerOutfitIntent(request);
+                                const outfitMatches = outfit && outfit.mode === committedOutfit.mode
+                                    && outfit.item.toLowerCase() === committedOutfit.item.toLowerCase()
+                                    && HordeWorldSceneDraft.simpleRequest(request);
+                                return !!(doorMatches || moveMatches || outfitMatches);
+                            })();
+                        const proposedPlayerEvents = (compiled.receipt.events || []).filter(event =>
+                            event?.actor_id === 'player' && event.status === 'completed');
+                        const acceptedPlayerEvents = mechanicalProofRejected ? []
+                            : committed.validation.acceptedEvents || [];
+                        const matchingProofIndex = action.kind === 'physical' && action.status === 'resolved'
+                            ? acceptedPlayerEvents.findIndex((event, index) =>
+                                !usedPlayerProofs.has(index) && event?.actor_id === 'player'
+                                && event.status === 'completed' && event.evidence === action.response)
+                            : -1;
+                        if (matchingProofIndex >= 0) usedPlayerProofs.add(matchingProofIndex);
+                        const scopedReceipt = action.kind === 'physical' && action.status === 'resolved'
+                            ? { ...committed.validation.receipt,
+                                events: matchingProofIndex < 0 ? [] : [acceptedPlayerEvents[matchingProofIndex]] }
+                            : committed.validation.receipt;
+                        worldActionResolutionFailures({ ...scopedReceipt,
                             action_resolution: { kind: action.kind, status: action.status, outcome: action.response } },
                         action.request, { ...candidateContext, sceneDraft: true, currentTotalMinutes,
+                            precommittedAction: precommittedForAction,
+                            actionIndex, proofStatus: proposedPlayerEvents.some(event =>
+                                event.evidence === action.response) ? 'invalid' : 'missing',
                             verifiedLocalInteraction: action.verifiedLocalInteraction === true })
                             .forEach(failure => committed.audit.rejected.push(failure));
                     }
                     worldFinalNarrativeConflicts(world, beforeScene, sess, candidateContext.narrativeText,
-                        submittedInput || userInput, committed.validation.receipt).forEach(conflict =>
+                        submittedInput || userInput, committed.validation.receipt, committedDoor).forEach(conflict =>
                         committed.audit.rejected.push({ type: 'narrative', ...conflict }));
                     if (knowledgeSafeReceipt.dropped) committed.audit.rejected.push({
                         reason: 'unproven_scene_knowledge', type: 'speech', detail: 'A declared knowledge change was rejected.' });
@@ -31930,7 +32090,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 rejectedReceiptProposal = args;
                 receiptValidationFeedback = (attempt.result?.committed?.audit?.rejected || [])
                     .slice(0, 12).map(item => ({ index: item.index, reason: item.reason, type: item.type,
-                        detail: item.detail, actor_id: item.actor_id }));
+                        detail: item.detail, actor_id: item.actor_id,
+                        ...(Number.isInteger(item.actionIndex) ? { actionIndex: item.actionIndex,
+                            actionRequest: item.actionRequest, proofStatus: item.proofStatus } : {}) }));
                 if (!receiptValidationFeedback.length) receiptValidationFeedback = [{
                     reason: 'reducer_rejected', type: 'receipt',
                     detail: 'A proposed mechanic could not be applied to the authoritative world state.'
@@ -32046,7 +32208,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 console.error('Horde Engine: Failed to parse tool call', error);
                 if (sceneDrafts && call.function.name === 'commit_world_turn' && !successfulStateCall
                     && !receiptValidationFeedback.length) {
-                    receiptValidationFeedback = [{reason:'invalid_tool_arguments',type:'transport',detail:error.message}];
+                    receiptValidationFeedback = [{ reason: sceneProtocol === 'scene_draft_v3'
+                        ? HordeWorldSceneDraft.transportFailureReason(call.function.arguments, lastFinishReason)
+                        : 'invalid_tool_arguments', type: 'transport', detail: error.message }];
                     rejectedReceiptProposal = {unparsedArguments:String(call.function.arguments || '').slice(0,16000)};
                 }
                 responsePayload = { success: false, status: error.message };
@@ -32079,7 +32243,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 : sceneJsonTransport ? HordeWorldSceneDraft.decode(fullText) : extractInlineWorldTurnReceipt(fullText);
             if (sceneJsonTransport && !inlineReceipt) {
                 rejectedReceiptProposal = { raw: fullText.slice(0, 16000) };
-                receiptValidationFeedback = [{ type: 'scene_draft', reason: 'invalid_json_transport',
+                receiptValidationFeedback = [{ type: 'scene_draft',
+                    reason: sceneProtocol === 'scene_draft_v3'
+                        ? HordeWorldSceneDraft.transportFailureReason(fullText, lastFinishReason)
+                        : 'invalid_json_transport',
                     detail: 'Return one complete valid JSON object. Do not include surrounding prose, function tokens or malformed strings.' }];
             }
             if (inlineReceipt) {
@@ -32177,18 +32344,62 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         return `\nMOVEMENT CORRECTION: The rejected movements are not canon. Player location remains ${sess.playerLocation}; authorized player destination for this turn: ${receiptAuthorizedTarget?.id || 'none'}. NPC permitted adjacent IDs (possible future steps, NOT completed arrivals): ${JSON.stringify(npcOptions)}. A tour invitation or agreement is not a completed move by itself. Remove denied or premature movement events AND rewrite any passage that claims those arrivals; describe the surroundings or an offered next step from the current place instead. If there is no completed movement, use events:[] and effects:{} for movement. Do not replace a rejected move with a teleport, invented route or unearned discovery.`;
                     })() : '';
                     turnCallAudit.correctionReasons = receiptValidationFeedback.map(item => ({
-                        reason: item.reason, type: item.type, detail: String(item.detail || '').slice(0, 300)
+                        reason: item.reason, type: item.type, detail: String(item.detail || '').slice(0, 300),
+                        ...(Number.isInteger(item.actionIndex) ? { actionIndex: item.actionIndex,
+                            actionRequest: item.actionRequest, proofStatus: item.proofStatus } : {})
                     }));
                     repairBody.messages = [{ role: 'system', content:
                         `[WORLD SCENE DRAFT CORRECTION]\nReturn one compact JSON object only with protocol:"${sceneProtocol}" with narrative, actions and proposed changes. Empty optional collections may be omitted in v3. No reasoning, Markdown, repeated prose, ending checksum or legacy receipt. The proposal is uncommitted. Correct only the listed failures; preserve valid actions and fiction. Keep narrative to at most three short passages unless the player requested more. Use IDs to refer to passages rather than repeating their text. Empty arrays and effects:{} are valid when nothing changed. The engine checks every proposed action before it becomes canon.\nFailures: ${JSON.stringify(receiptValidationFeedback)}${movementCorrection}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown local locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nPlayer action: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}` }];
                 }
+                repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_FIDELITY;
                 if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'explicit_request_coverage_required')) {
                     repairBody.messages[0].content += '\nREQUEST COVERAGE CORRECTION: This input is compound. Every action MUST include request, even if there is only one action entry. Copy contiguous excerpts that together cover the complete input below in order, including negations. Account for each step in the linked narrative and its disposition; blocked or unresolved steps must not be claimed as completed. Complete input: '
                         + JSON.stringify(String(submittedInput || userInput));
                 }
+                if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
+                    item.reason === 'uncommitted_player_action')) {
+                    repairBody.messages[0].content += `\nPLAYER ACTION CORRECTION: Part ${Number.isInteger(failure.actionIndex) ? failure.actionIndex + 1 : '?'} ${JSON.stringify(failure.actionRequest || submittedInput || userInput)} has ${failure.proofStatus === 'invalid' ? 'a proposed but invalid or mismatched player event' : 'no completed player proof'}. For a truly completed action, supply one actor_id:"player", status:"completed" event linked by passage_id to this part, with a valid canonical event type and required state fields. If completion is uncertain, mark the action attempted or blocked and describe only that attempt. Never infer success from the narrative.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['missing_condition', 'missing_condition_action', 'unknown_condition'].includes(item.reason))) {
+                    const conditionFailures = receiptValidationFeedback.filter(item =>
+                        ['missing_condition', 'missing_condition_action', 'unknown_condition'].includes(item.reason))
+                        .map(item => {
+                            const actorId = resolveWorldActorId(world, sess, item.actor_id) || item.actor_id;
+                            const actorState = actorId === 'player' ? sess.playerState : sess.entityStates?.[actorId];
+                            return { event_index: item.index, reason: item.reason, actor_id: actorId,
+                                current_conditions: (actorState?.conditions || []).slice(0, 12),
+                                ...(actorId !== 'player' ? { current_activity: String(actorState?.currentActivity || '').slice(0, 180) } : {}) };
+                        });
+                    repairBody.messages[0].content += `\nCONDITION CORRECTION: ${JSON.stringify(conditionFailures)}. A type:"condition" event needs an exact lasting condition name and an explicit add/remove/clear/recover action. Removal may name only a condition already recorded for that actor. A temporary expression, gesture, tether adjustment or pose is not a condition change; preserve the player interaction and any verified ongoing NPC activity instead. Do not claim a lasting condition ended without its validated event. Preserve the actual player action and its passage.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['invalid_escort_actor', 'invalid_escort_event', 'escort_actor_not_present', 'missing_escort_evidence'].includes(item.reason))) {
+                    const escortFailures = receiptValidationFeedback.filter(item =>
+                        ['invalid_escort_actor', 'invalid_escort_event', 'escort_actor_not_present', 'missing_escort_evidence'].includes(item.reason))
+                        .map(item => ({ index: item.index, reason: item.reason, actor_id: item.actor_id }));
+                    repairBody.messages[0].content += `\nESCORT CORRECTION: ${JSON.stringify(escortFailures)}. Escort is only an NPC joining or leaving as an ongoing follower with that NPC as actor_id and explicit evidence. The player taking or dragging someone to a mapped room is travel, not an escort event. Authoritative player location: ${sess.playerLocation}; present NPC locations: ${JSON.stringify(repairKnownActors.map(actor => ({ id: actor.id, location_id: sess.entityStates?.[actor.id]?.location || null })))}. ${committedMovement ? `The engine already moved the player and these companions: ${JSON.stringify(committedMovement.companionIds || [])}; omit duplicate movement and escort events and describe the committed arrival.` : 'If a permitted journey actually completes, use actor-scoped movement with exact route IDs and required elapsed time; otherwise describe only the attempt from the current room.'} Delete the rejected escort event. Never infer follower status or a completed journey from prose alone.`;
+                }
+                if (repairingScene && committedDoor?.action === 'locked'
+                    && receiptValidationFeedback.some(item => item.reason === 'contradicted_precommitted_door')) {
+                    repairBody.messages[0].content += `\nDOOR CORRECTION: The player already locked the mapped door between ${committedDoor.fromId} and ${committedDoor.toId} with the recorded key. This is one shared door accessible from either mapped side. Rewrite the passage to show the lock engaging; remove claims that the key failed, the bolt stayed open, or this is an invented one-way lock. Do not add a duplicate door event or effect.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['unverified_commitment_resolution', 'reached_commitment_needs_scene_resolution'].includes(item.reason))) {
+                    const reachable = (sess.scheduledEvents || []).filter(event =>
+                        !event.sceneResolution && (!event.locationId || event.locationId === sess.playerLocation)
+                        && (event.status === 'triggered' || event.status === 'scheduled'
+                            && draftPlannedWait > 0 && Number.isFinite(event.dueMinute)
+                            && event.dueMinute <= currentTotalMinutes + draftPlannedWait))
+                        .map(event => ({ id: event.id, status: event.status, dueMinute: event.dueMinute }));
+                    const failures = receiptValidationFeedback.filter(item =>
+                        ['unverified_commitment_resolution', 'reached_commitment_needs_scene_resolution'].includes(item.reason))
+                        .map(item => item.detail);
+                    repairBody.messages[0].content += `\nDEADLINE CORRECTION: Failed entries ${JSON.stringify(failures)}. Reachable existing commitments here: ${JSON.stringify(reachable)}; current minute ${currentTotalMinutes}. Remove unsupported resolutions. Resolve a reachable ID only when a completed, evidenced consequence event at event_index is grounded in the same passage; scheduled deadlines additionally require a validated time advance reaching dueMinute. A mention or time event alone is no consequence.`;
+                }
                 if (repairingScene) repairBody.messages[0].content += '\nUse only exact passage IDs present in narrative[].id for every response_id and passage_id; never invent or alter IDs. When present, actions[].request must copy the full player input in order, split into contiguous excerpts with no gaps. Allowed action kind values: physical, speech, question, observation, travel, wait, other. Allowed status values: resolved, answered, attempted, pending_check, blocked, needs_clarification. Do not put present_character_ids or activities inside effects; the engine computes the ending cast and does not accept these as effects. Add speech entries only for dialogue present in the draft, with exact known actor IDs (or player) for speaker and listeners. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard, servant or other role NPC. Background crowds may be scenery only, never actors or speakers. A request for an NPC to perform an action is the player speaking, not the player completing that physical action.';
-                if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. For a handshake, gesture, or other non-durable action, omit the event. Durable event types must use the allowed event vocabulary only.';
+                if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. A simple, non-durable interaction with a known present person can omit an event only when the engine can verify it from the player input and current state; otherwise give a completed interaction event. Durable event types must use the allowed event vocabulary only.';
                 repairBody.messages[0].content += '\nSTATUS EVENT CONTRACT: events[].status is the event progress (intended, attempted, in_progress, completed, cancelled or failed). events[].type="status" is only for a lasting NPC lifecycle change and requires next_status exactly alive, dead or gone. Never put an activity, pose, mood or temporary condition in next_status or value. Walking up to a person within the same place and showing a held item need no location or lifecycle change. If a rejected status event describes an ongoing activity, express only an actually completed lasting change with type="activity" and activity text; otherwise omit that status event. Keep the established narrative and all other valid changes.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'unsupported_draft_effect')) {
                     const allowedEffects = Object.keys(worldStateTool.function.parameters.properties.effects.properties);
@@ -32679,7 +32890,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (!frozenReceiptApplied && hasReadableWorldNarrative(fullText)
             && !narrativeConflict && (successfulStateCall || inlineStateApplied || repairedReceiptApplied)) {
             const conflicts = worldFinalNarrativeConflicts(world, turnSnapshot?.session, sess,
-                fullText, submittedInput || userInput, acceptedTurnReceipt);
+                fullText, submittedInput || userInput, acceptedTurnReceipt, committedDoor);
             if (conflicts.length) {
                 narrativeConflict = true;
                 if (sess.lastTurnAudit) conflicts.forEach(conflict => sess.lastTurnAudit.rejected.push({
@@ -32812,6 +33023,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         ? unknownDestination
                             ? ` Unknown movement destination: ${unknownDestination} (actor: ${unknownDestinationActor}). The destination ID or name does not match a place in this world.`
                             : ` Movement event for ${unknownDestinationActor} has no destination. If this is movement within the same room/place, omit the movement event; only movement between mapped places needs an exact destination ID.`
+                    : verificationReason === 'invalid_escort_actor'
+                        ? ' The model treated a player-led trip as a persistent NPC escort. That event cannot verify the journey; check the current locations before rerolling.'
+                    : verificationReason === 'contradicted_precommitted_door'
+                        ? ' The engine secured the mapped door with the recorded key, but the DM narrative claimed the lock failed. That contradictory story text was discarded.'
                     : verificationReason === 'unscoped_actor_mutation'
                         ? ` Unscoped actor change: ${unscopedMutationField || '(field not reported)'}.${unscopedMutationGuidance}`
                     : verificationReason === 'missing_player_response'
