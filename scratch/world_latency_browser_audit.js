@@ -30,7 +30,7 @@ const root = path.resolve(__dirname, '..');
                 'missing_item', 'absent_actor', 'give',
                 'early_tool', 'early_content', 'bad_twice', 'stale', 'tagged', 'plain_json', 'no_tools', 'local', 'local_no_schema', 'legacy', 'old_memory', 'old_prose',
                 'compound', 'compound_repair', 'compound_bad', 'two_actions_repair', 'two_actions_bad',
-                'current_state', 'three_exits', 'commitment_repair', 'resolution_repair', 'invalid_proof_repair',
+                'current_state', 'three_exits', 'spoken_directive_repair', 'commitment_repair', 'resolution_repair', 'invalid_proof_repair',
                 'missing_condition_repair', 'missing_condition_bad', 'missing_condition_action_repair',
                 'unknown_condition_repair',
                 'drag_success', 'drag_escort_repair', 'door_lock_success', 'door_lock_compound_bad', 'door_lock_compound_repair', 'door_lock_aggregate_bad', 'door_lock_repair',
@@ -108,6 +108,7 @@ const root = path.resolve(__dirname, '..');
                 switchView('worldPlay'); renderWorldPlayState();
                 const input = scenario.startsWith('compound') ? 'I ask Linda her name and ask about the letter.'
                     : scenario.startsWith('two_actions') ? 'I knock on the desk and tap Linda on the shoulder.'
+                    : scenario === 'spoken_directive_repair' ? 'You now its time to proceed girl'
                     : scenario === 'old_memory' ? 'What had she promised?'
                     : scenario === 'old_prose' ? 'What was the festival password?'
                     : scenario === 'approach' ? 'I approach Linda.' : scenario === 'gesture' ? 'I wave.'
@@ -125,6 +126,7 @@ const root = path.resolve(__dirname, '..');
                         ? "I loosen the chain above Linda's cuffs." : 'I show Linda the letter.';
                 const narrative = scenario.startsWith('compound') ? 'Linda tells you her name and explains that the letter is addressed to her.'
                     : scenario.startsWith('two_actions') ? 'You knock on the desk; Linda looks up.'
+                    : scenario === 'spoken_directive_repair' ? 'Linda hears your direction and answers that she is ready.'
                     : scenario === 'old_memory' ? 'Linda promised to bring the silver compass after the festival.'
                     : scenario === 'old_prose' ? 'The festival password was marigold.'
                     : scenario === 'approach' ? 'You approach Linda beside the desk.'
@@ -176,6 +178,10 @@ const root = path.resolve(__dirname, '..');
                         narrative: [{ id: 'p1', text: narrative }],
                         actions: [{ kind: scenario.startsWith('old_') || scenario.startsWith('compound') ? 'question' : 'physical',
                             status: scenario.startsWith('old_') || scenario.startsWith('compound') ? 'answered' : 'resolved', response_id: 'p1' }] };
+                    if (scenario === 'spoken_directive_repair' && calls === 2) {
+                        draft.actions[0].kind = 'speech';
+                        draft.actions[0].status = 'answered';
+                    }
                     if (scenario === 'door_lock_wrong_key') draft.actions[0].status = 'blocked';
                     if (['door_lock_compound_bad', 'door_lock_compound_repair'].includes(scenario)) {
                         draft.actions[0].request = 'You lock the door to the Antechamber with the Cell key ';
@@ -318,7 +324,7 @@ const root = path.resolve(__dirname, '..');
                 assert.equal(result.source, 'frozen_no_receipt', JSON.stringify(result));
                 assert(!result.text.includes('Linda studies'));
             } else {
-                assert.equal(result.calls, scenario === 'local_no_schema' ? 3 : ['early_tool', 'early_content', 'no_tools', 'compound_repair', 'commitment_repair', 'resolution_repair', 'two_actions_repair', 'invalid_proof_repair', 'missing_condition_repair', 'missing_condition_action_repair', 'unknown_condition_repair', 'drag_escort_repair', 'door_lock_compound_repair', 'door_lock_repair', 'door_lock_oneway_repair', 'door_lock_reroll', 'truncated_json_repair', 'malformed_json_repair'].includes(scenario) ? 2 : 1,
+                assert.equal(result.calls, scenario === 'local_no_schema' ? 3 : ['early_tool', 'early_content', 'no_tools', 'compound_repair', 'commitment_repair', 'resolution_repair', 'two_actions_repair', 'invalid_proof_repair', 'missing_condition_repair', 'missing_condition_action_repair', 'unknown_condition_repair', 'drag_escort_repair', 'door_lock_compound_repair', 'door_lock_repair', 'door_lock_oneway_repair', 'door_lock_reroll', 'truncated_json_repair', 'malformed_json_repair', 'spoken_directive_repair'].includes(scenario) ? 2 : 1,
                     JSON.stringify({ ...result, firstMessages: undefined, schema: undefined, repair: undefined, finalRequest: undefined }));
                 assert.notEqual(result.source, 'frozen_no_receipt', JSON.stringify(result));
                 assert.equal(result.receipt.protocol, scenario === 'legacy' ? 'scene_draft_v2' : 'scene_draft_v3');
@@ -348,6 +354,12 @@ const root = path.resolve(__dirname, '..');
                 assert(/never infer that other exits do not exist/i.test(prompt));
                 assert.deepEqual(result.targetedRoutes.find(route => route.actor_id === 'player')?.allowed_next.map(edge => edge.to), ['ante'],
                     'targeted movement may narrow allowed routes while all room exits stay visible');
+            }
+            if (scenario === 'spoken_directive_repair') {
+                assert(result.firstMessages.some(message => message.content.includes('PLAYER SPEECH VS ACTION')));
+                assert(result.repair.messages.some(message => message.content.includes('PLAYER SPEECH VS ACTION CORRECTION')));
+                assert.equal(result.playerLocation, 'office');
+                assert.equal(result.audit.receiptRepair, 1);
             }
             if (scenario.startsWith('compound')) {
                 assert(result.schema.properties.actions.items.required.includes('request'));
