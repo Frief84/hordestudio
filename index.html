@@ -852,18 +852,6 @@
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-sandbox"><span>04</span><strong>Starting lives</strong><small>Define who players can begin as, including world-specific skills and perks.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-ai"><span>05</span><strong>Rules &amp; models</strong><small>Choose narrative-only play or optional RPG rules, checks and model behavior.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-visuals"><span>06</span><strong>Presentation</strong><small>Add optional banners, room art, portraits and visual styling.</small></button>
-                            <div class="creator-overview-card world-structure-card">
-                                <span>07</span>
-                                <strong>World Structure</strong>
-                                <small>Generate a map guide from your places, routes, access rules and door states.</small>
-                                <details class="world-structure-options">
-                                    <summary><span data-world-structure-mode-label>Without AI · options &amp; status</span></summary>
-                                    <div class="world-lore-model-controls" data-world-lore-model-controls></div>
-                                    <p class="world-structure-status" data-world-structure-status role="status"></p>
-                                </details>
-                                <button type="button" class="btn btn-primary" data-generate-world-structure>Generate World Structure</button>
-                                <button type="button" class="btn btn-ghost" data-clear-world-structure hidden>Remove generated structure</button>
-                            </div>
                             <details class="creator-advanced-card">
                                 <summary>Advanced world systems</summary>
                                 <div><button type="button" data-world-studio-target="w-items">Items &amp; objects</button><button type="button" data-world-studio-target="w-factions">Factions</button><button type="button" data-world-studio-target="w-lore">Lore</button><button type="button" data-world-studio-target="w-note">Author's Note</button><button type="button" data-world-studio-target="w-hud">HUD &amp; Stats</button><button type="button" data-world-studio-target="w-visual-map">World Architect</button><button type="button" data-world-studio-target="w-architect-agent">Architect Agent</button><button type="button" data-world-studio-target="w-builder">AI Builder</button></div>
@@ -1585,7 +1573,7 @@
                             <details class="world-lore-structure-panel">
                                 <summary><span><strong>Explore World Structure</strong><small>Browse places, rooms, routes, access and current world details.</small></span><span class="world-lore-structure-chevron" aria-hidden="true">⌄</span></summary>
                                 <div class="world-lore-explore-controls">
-                                    <p class="form-hint">Generate or update the connected place structure. Choose whether to use existing world data only, the world’s model, or another available model.</p>
+                                    <p class="form-hint">The place index updates automatically when you edit the world, without using AI. Generate it here for an unchanged older world or request optional AI suggestions with the world’s model or another model.</p>
                                     <div class="world-lore-model-controls" data-world-lore-model-controls></div>
                                     <div class="world-lore-explore-actions">
                                         <button type="button" class="btn btn-primary" data-generate-world-structure>Generate World Structure</button>
@@ -5385,7 +5373,7 @@
     <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
     <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
     <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
-    <script src="worlds/scene-draft.js?v=20261012-key-door-intents"></script>
+    <script src="worlds/scene-draft.js?v=20261012-status-attempt-repair"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
     <script src="app.js?v=20261013-floor-plan"></script>

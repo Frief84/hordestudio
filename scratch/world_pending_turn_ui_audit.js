@@ -27,7 +27,7 @@ const root = path.resolve(__dirname, '..');
             clearInterval(companionAgencyTimer); clearInterval(companionAlwaysOnTimer);
             state.apiKey = 'offline'; state.globalSettings.apiProvider = 'openrouter';
             const realFetch = window.fetch, realMicroFrame = requestWorldMicroFrame, results = [];
-            for (const scenario of ['success', 'repair', 'abort', 'error', 'reroll', 'switch']) {
+            for (const scenario of ['success', 'repair', 'abort', 'error', 'reroll', 'reroll_rejected', 'switch']) {
                 const world = { id: `pending_${scenario}`, name: 'Office', model: 'offline/model',
                     contextSize: 32768, maxTokens: 2048, startLocationId: 'office',
                     locations: [{ id: 'office', name: 'Office', exits: [] }], entities: [],
@@ -76,7 +76,8 @@ const root = path.resolve(__dirname, '..');
                     if (scenario === 'error') return new Response('Offline test error', { status: 500 });
                     const body = JSON.parse(options.body);
                     const draft = { protocol: 'scene_draft_v3', narrative: [{ id: 'p', text: 'You wave toward the empty doorway.' }],
-                        actions: [{ kind: 'physical', status: scenario === 'repair' && calls === 1 ? 'invalid' : 'resolved', response_id: 'p' }] };
+                        actions: [{ kind: 'physical', status: (scenario === 'repair' && calls === 1)
+                            || (scenario === 'reroll_rejected' && calls <= 2) ? 'invalid' : 'resolved', response_id: 'p' }] };
                     const message = body.tools ? { tool_calls: [{ id: 'draft', type: 'function',
                         function: { name: 'commit_world_turn', arguments: JSON.stringify(draft) } }] }
                         : { content: JSON.stringify(draft) };
@@ -85,10 +86,13 @@ const root = path.resolve(__dirname, '..');
                 document.getElementById('world-user-input').value = 'I wave.';
                 const task = executeWorldTurn();
                 await task;
-                if (scenario === 'reroll') await executeWorldTurn(true);
+                if (scenario === 'reroll_rejected' && sess.history.at(-1)?.stateSource !== 'frozen_no_receipt')
+                    throw Error('Fixture must reject the first turn before rerolling');
+                if (scenario === 'reroll' || scenario === 'reroll_rejected') await executeWorldTurn(true);
                 results.push({ scenario, probes, calls, final: probe(),
                     users: sess.history.filter(m => m.role === 'user').length,
-                    replies: sess.history.filter(m => m.role === 'dm').length });
+                    replies: sess.history.filter(m => m.role === 'dm').length,
+                    source: sess.history.at(-1)?.stateSource });
             }
             window.fetch = realFetch;
             requestWorldMicroFrame = realMicroFrame;
@@ -106,7 +110,8 @@ const root = path.resolve(__dirname, '..');
             assert.equal(result.replies, failed ? 0 : 1, JSON.stringify(result));
             assert.equal(result.final.users, failed ? 0 : 1, JSON.stringify(result));
             assert.equal(result.final.input, failed ? 'I wave.' : '', JSON.stringify(result));
-            assert.equal(result.calls, ['repair', 'reroll'].includes(result.scenario) ? 2 : 1);
+            assert.equal(result.calls, result.scenario === 'reroll_rejected' ? 3 : ['repair', 'reroll'].includes(result.scenario) ? 2 : 1);
+            if (result.scenario === 'reroll_rejected') assert.notEqual(result.source, 'frozen_no_receipt');
             if (result.scenario === 'repair') assert(result.probes.some(p => /reconciling/.test(p.label)));
         }
         assert.deepEqual(errors, []);

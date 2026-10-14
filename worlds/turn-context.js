@@ -52,7 +52,10 @@ function recentHistory(options) {
     for (let i = 0; i <= options.start; i++) {
         const m = options.history[i];
         if (!m || m.stateSource === 'frozen_no_receipt') continue;
-        if (m.role === 'user' && options.history[i + 1]?.stateSource === 'frozen_no_receipt') continue;
+        // A reroll ends its context at the original request, before the
+        // rejected reply. That request is active again, not abandoned.
+        if (i !== options.start && m.role === 'user'
+            && options.history[i + 1]?.stateSource === 'frozen_no_receipt') continue;
         if (m.role === 'user') pending.push({ m, i });
         else if (m.role === 'dm') {
             groups.push([...pending, { m, i }]);

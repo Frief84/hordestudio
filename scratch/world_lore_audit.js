@@ -77,6 +77,21 @@ const beforeGeneration = structuredClone(world);
 assert.equal(L.structureStatus(world).state, 'missing');
 L.generate(world);
 assert.equal(L.structureStatus(world).state, 'current');
+const authoredIndex = structuredClone(world.worldStructure);
+world.locations.push({ id: 'timeline-room', name: 'Built in one timeline', sessionOrigin: 'session-a', exits: [] });
+assert.equal(L.fingerprint(world), authoredIndex.sourceFingerprint,
+    'a room created in one timeline must not stale the shared authored index');
+assert(!L.health(world).some(issue => issue.source === 'world:structure'),
+    'timeline-only construction must not make the shared World Health Check report a stale index');
+L.generate(world);
+assert(!world.worldStructure.nodes.some(node => node.name === 'Built in one timeline'),
+    'timeline-only rooms must not enter the shared authored index');
+assert(L.placeIndex({ ...world, locations: world.locations.filter(place => !place.sessionOrigin || place.sessionOrigin === 'session-a') })
+    .byId.has('timeline-room'), 'the owning timeline can browse its new room');
+assert(!L.placeIndex({ ...world, locations: world.locations.filter(place => !place.sessionOrigin || place.sessionOrigin === 'session-b') })
+    .byId.has('timeline-room'), 'other timelines cannot browse that room');
+world.locations.pop();
+assert.deepEqual(world.lorebook, beforeGeneration.lorebook, 'timeline refresh preserves manual lore');
 assert.deepEqual(world.lorebook, beforeGeneration.lorebook, 'generation must preserve existing lore exactly');
 assert.deepEqual(world.locations, beforeGeneration.locations, 'generation must preserve descriptions, secrets, exits and explicit access rules');
 assert.deepEqual(world.entities, beforeGeneration.entities, 'generation must not rewrite the cast');
