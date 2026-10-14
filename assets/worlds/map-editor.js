@@ -142,7 +142,7 @@
     function setConnectionLock(world, link, settings) {
         const lockable = settings.lockable === true;
         const key = lockable ? String(settings.key || '').trim().slice(0, 160) : '';
-        if (lockable && !key && !settings.allowCheckUnlock) throw new Error('Bitte einen Schlüssel/Gegenstand oder eine Öffnungsprobe angeben.');
+        if (lockable && !key && !settings.allowCheckUnlock) throw new Error('Enter a key/item or allow an unlock check.');
         for (const entry of link.entries) {
             const exit = typeof entry.exit === 'string' ? { text: entry.exit } : entry.exit;
             entry.from.exits[entry.index] = exit;
@@ -172,7 +172,7 @@
             const item = from.at(-1); if (!item) return false;
             if (!same(capture(item.structural), item[expected])) {
                 undo.length = redo.length = 0;
-                throw new Error('Die Welt wurde außerhalb der Karte geändert. Der Kartenverlauf wurde zurückgesetzt.');
+                throw new Error('The world changed outside the map. Map history has been reset.');
             }
             restore(item[side]); from.pop(); to.push(item); notify(item.structural);
             item[side] = capture(item.structural);
@@ -186,7 +186,7 @@
         const editable = api.architect === true;
         let state = sessions.get(world);
         if (!state) {
-            state = { zoom: 1, selected: null, tool: 'select', first: null, left: 0, top: 0 };
+            state = { zoom: 1, selected: null, tool: 'select', first: null, left: 0, top: 0, showMarkers: true };
             state.history = history(world, structural => api.onChange?.(structural));
             sessions.set(world, state);
         }
@@ -204,15 +204,23 @@
         const el = (tag, className, text) => { const e = document.createElement(tag); if (className) e.className = className; if (text) e.textContent = text; return e; };
         const svgEl = (tag, attrs = {}, text) => { const e = document.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); if (text) e.textContent = text; return e; };
         const toolbar = el('div', 'semantic-map-toolbar');
-        toolbar.append(el('strong', 'semantic-map-summary', editable ? 'Grundriss bearbeiten' : 'Map'));
+        toolbar.append(el('strong', 'semantic-map-summary', editable ? 'Edit floor plan' : 'Map'));
         const controls = el('div', 'world-map-tools');
         const button = (label, handler, parent = controls) => { const b = el('button', 'tool-btn', label); b.type = 'button'; b.onclick = handler; parent.append(b); return b; };
         const mapButton = button('Map', () => {}, toolbar); mapButton.setAttribute('aria-pressed', 'true');
         button('Graph', () => { cancel(); api.onMode('graph'); }, toolbar);
-        const detail = el('div', 'semantic-map-detail', editable ? 'Marker ziehen · Kanten zum Skalieren · Doppelklick auf Linie: Wegpunkt · Leere Fläche ziehen: Ansicht' : 'Ort auswählen für Details.');
+        if (!editable) {
+            const markerToggle = el('label', 'world-map-marker-toggle');
+            const markerInput = el('input'); markerInput.type = 'checkbox'; markerInput.checked = state.showMarkers;
+            markerInput.setAttribute('aria-label', 'Show room markers');
+            markerInput.onchange = () => { state.showMarkers = markerInput.checked; nodes.style.display = state.showMarkers ? '' : 'none'; };
+            markerToggle.append(markerInput, document.createTextNode('Show markers'));
+            toolbar.append(markerToggle);
+        }
+        const detail = el('div', 'semantic-map-detail', editable ? 'Drag markers · drag edges to resize · double-click a line to add a waypoint · drag empty space to pan' : 'Select a location for details.');
         detail.setAttribute('aria-live', 'polite');
         const viewport = el('div', 'world-map-viewport'); viewport.tabIndex = 0;
-        viewport.setAttribute('aria-label', editable ? 'Grundriss-Arbeitsfläche' : 'Karte');
+        viewport.setAttribute('aria-label', editable ? 'Floor plan workspace' : 'Map');
         const scroll = el('div', 'semantic-map-scroll mode-map world-map-sheet');
         const bg = world.media?.mapBackground || api.background || '';
         scroll.style.backgroundImage = bg ? `url(${JSON.stringify(bg)})` : 'none';
@@ -243,21 +251,21 @@
         const toolButtons = [];
         let nameInput, undoButton, redoButton, openButton, clearButton, pointButton;
         if (editable) {
-            toolButtons.push(['select', button('Auswählen', () => setTool('select'))], ['connect', button('Verbinden', () => setTool('connect'))]);
-            nameInput = el('input', 'form-input world-map-room-name'); nameInput.placeholder = 'Neuer Raum'; nameInput.maxLength = 300; nameInput.setAttribute('aria-label', 'Name des neuen Raums'); controls.append(nameInput);
-            toolButtons.push(['add', button('Raum platzieren', () => {
-                if (!nameInput.value.trim()) { nameInput.focus(); report('Bitte zuerst einen Raumnamen eingeben.'); return; }
+            toolButtons.push(['select', button('Select', () => setTool('select'))], ['connect', button('Connect', () => setTool('connect'))]);
+            nameInput = el('input', 'form-input world-map-room-name'); nameInput.placeholder = 'New room'; nameInput.maxLength = 300; nameInput.setAttribute('aria-label', 'New room name'); controls.append(nameInput);
+            toolButtons.push(['add', button('Place room', () => {
+                if (!nameInput.value.trim()) { nameInput.focus(); report('Enter a room name first.'); return; }
                 setTool('add');
             })]);
-            openButton = button('Ort bearbeiten', () => api.onOpenLocation?.(state.selected?.id));
-            pointButton = button('Wegpunkt setzen', () => setTool('waypoint'));
-            clearButton = button('Wegpunkt entfernen', () => transaction(() => {
+            openButton = button('Edit location', () => api.onOpenLocation?.(state.selected?.id));
+            pointButton = button('Add waypoint', () => setTool('waypoint'));
+            clearButton = button('Remove waypoint', () => transaction(() => {
                 const route = world.mapLayout.routes[state.selected.key];
                 route.points.splice(state.selected.index, 1);
                 state.selected = { kind: 'link', key: state.selected.key };
             }));
-            undoButton = button('Rückgängig', () => { try { state.history.undo(); refresh(); } catch (e) { report(e); updateTools(); } });
-            redoButton = button('Wiederholen', () => { try { state.history.redo(); refresh(); } catch (e) { report(e); updateTools(); } });
+            undoButton = button('Undo', () => { try { state.history.undo(); refresh(); } catch (e) { report(e); updateTools(); } });
+            redoButton = button('Redo', () => { try { state.history.redo(); refresh(); } catch (e) { report(e); updateTools(); } });
         }
         const zoomLabel = el('span', 'world-map-zoom');
         // Auto margins center smaller sheets, but become zero on overflowing axes.
@@ -274,9 +282,9 @@
             viewport.scrollLeft = after.x + cx * state.zoom - viewport.clientWidth / 2;
             viewport.scrollTop = after.y + cy * state.zoom - viewport.clientHeight / 2;
         }
-        button('−', () => zoom(state.zoom / 1.2)).setAttribute('aria-label', 'Verkleinern'); controls.append(zoomLabel);
-        button('+', () => zoom(state.zoom * 1.2)).setAttribute('aria-label', 'Vergrößern');
-        button('Alles anzeigen', () => { zoom(Math.min(viewport.clientWidth / layout.width, viewport.clientHeight / layout.height)); viewport.scrollLeft = viewport.scrollTop = 0; });
+        button('−', () => zoom(state.zoom / 1.2)).setAttribute('aria-label', 'Zoom out'); controls.append(zoomLabel);
+        button('+', () => zoom(state.zoom * 1.2)).setAttribute('aria-label', 'Zoom in');
+        button('Fit map', () => { zoom(Math.min(viewport.clientWidth / layout.width, viewport.clientHeight / layout.height)); viewport.scrollLeft = viewport.scrollTop = 0; });
         function applySize() {
             scroll.style.width = `${layout.width * state.zoom}px`; scroll.style.height = `${layout.height * state.zoom}px`;
             svg.style.width = '100%'; svg.style.height = '100%'; zoomLabel.textContent = `${Math.round(state.zoom * 100)} %`;
@@ -289,15 +297,15 @@
             clearButton.disabled = state.selected?.kind !== 'point';
             undoButton.disabled = !state.history.canUndo; redoButton.disabled = !state.history.canRedo;
             viewport.dataset.tool = state.tool;
-            if (state.tool === 'connect') detail.textContent = state.first ? 'Jetzt den Zielraum auswählen.' : 'Ersten Raum auswählen, dann den Zielraum. Bestehende Verbindungen bleiben erhalten.';
-            if (state.tool === 'add') detail.textContent = 'Auf den Grundriss klicken, um den benannten Raum zu platzieren.';
-            if (state.tool === 'waypoint') detail.textContent = 'Auf die Karte klicken, um einen Wegpunkt für die ausgewählte Verbindung zu setzen.';
+            if (state.tool === 'connect') detail.textContent = state.first ? 'Select the destination room.' : 'Select a starting room, then a destination. Existing connections are preserved.';
+            if (state.tool === 'add') detail.textContent = 'Click the floor plan to place the named room.';
+            if (state.tool === 'waypoint') detail.textContent = 'Click the map to add a waypoint to the selected connection.';
         }
         function select(value, inspect = true) {
             state.selected = value;
             if (value?.kind === 'node') {
                 const loc = locById.get(value.id); detail.textContent = editable
-                    ? `${loc?.name || value.id} · Ziehen oder mit Pfeiltasten verschieben · Ort bearbeiten für Raumdetails`
+                    ? `${loc?.name || value.id} · Drag or use the arrow keys to move · Edit location to change room details`
                     : `${loc?.name || value.id} · ${loc?.description || ''}`;
             }
             drawHandles(); updateTools(); if (inspect) showInspector();
@@ -311,19 +319,19 @@
             const exit = link.entries.find(e => e.exit?.lockState === 'locked' || e.exit?.requiredItem)?.exit
                 || link.entries.find(e => typeof e.exit === 'object')?.exit || {};
             function check(label, checked) { const wrapper = el('label'); const input = el('input'); input.type = 'checkbox'; input.checked = checked; wrapper.append(input, document.createTextNode(label)); inspector.append(wrapper); return input; }
-            const lockable = check('Abschließbar', exit.lockable || !!(exit.requiredItem || exit.allowCheckUnlock || exit.lockState === 'locked'));
-            const keyLabel = el('label', '', 'Schlüssel / Gegenstand');
-            const key = el('input', 'form-input'); key.maxLength = 160; key.value = exit.requiredItem || exit.lockKeyItem || ''; key.setAttribute('aria-label', 'Schlüssel / Gegenstand');
+            const lockable = check('Lockable', exit.lockable || !!(exit.requiredItem || exit.allowCheckUnlock || exit.lockState === 'locked'));
+            const keyLabel = el('label', '', 'Key / item');
+            const key = el('input', 'form-input'); key.maxLength = 160; key.value = exit.requiredItem || exit.lockKeyItem || ''; key.setAttribute('aria-label', 'Key / item');
             const list = el('datalist'); list.id = 'world-map-key-items'; key.setAttribute('list', list.id);
             (world.entities || []).filter(e => e.type === 'item').forEach(item => { const o = el('option'); o.value = item.name; list.append(o); });
             keyLabel.append(key, list); inspector.append(keyLabel);
-            const locked = check('Anfangs abgeschlossen', exit.lockState === 'locked' || !!exit.requiredItem || !!exit.allowCheckUnlock);
-            const checkUnlock = check('Öffnungsprobe erlaubt', exit.lockAllowCheckUnlock ?? exit.allowCheckUnlock === true);
+            const locked = check('Locked initially', exit.lockState === 'locked' || !!exit.requiredItem || !!exit.allowCheckUnlock);
+            const checkUnlock = check('Unlock check allowed', exit.lockAllowCheckUnlock ?? exit.allowCheckUnlock === true);
             const enable = () => { key.disabled = locked.disabled = checkUnlock.disabled = !lockable.checked; }; lockable.onchange = enable; enable();
-            button('Connection speichern', () => transaction(() => setConnectionLock(world, link, {
+            button('Save connection', () => transaction(() => setConnectionLock(world, link, {
                 lockable: lockable.checked, key: key.value, locked: locked.checked, allowCheckUnlock: checkUnlock.checked
             }), true), inspector);
-            inspector.append(el('small', '', 'Sperre und Schlüssel gelten für diese Connection in beiden vorhandenen Richtungen. Vorhandene Spielzustände bleiben erhalten.'));
+            inspector.append(el('small', '', 'The lock and key apply to this connection in both directions. Existing game states are preserved.'));
         }
         const nodeElements = new Map(), pathElements = new Map();
         function draw() {
@@ -344,6 +352,7 @@
                 const text = svgEl('text', { class: 'semantic-node-label', x: box.x, y: box.y + 4, 'text-anchor': 'middle' }, label.length > max ? `${label.slice(0, max - 1)}…` : label);
                 g.append(text, svgEl('title', {}, `${label}\n${loc.description || ''}`)); nodes.append(g); nodeElements.set(loc.id, g);
             }
+            nodes.style.display = state.showMarkers ? '' : 'none';
             drawHandles();
         }
         function drawHandles() {
@@ -410,7 +419,7 @@
                 const index = nearest(routePoints(layout, link), p).index;
                 transaction(() => {
                     const points = world.mapLayout.routes[link.key].points;
-                    if (points.length >= 100) throw new Error('Maximal 100 Wegpunkte pro Verbindung.');
+                    if (points.length >= 100) throw new Error('A connection can have at most 100 waypoints.');
                     points.splice(index, 0, p); state.selected = { kind: 'point', key: link.key, index }; state.tool = 'select';
                 }); return;
             }
@@ -459,7 +468,7 @@
             const link = links.find(l => l.key === hit.key), p = coords(event), index = nearest(routePoints(layout, link), p).index;
             transaction(() => {
                 const points = world.mapLayout.routes[hit.key].points;
-                if (points.length >= 100) throw new Error('Maximal 100 Wegpunkte pro Verbindung.');
+                if (points.length >= 100) throw new Error('A connection can have at most 100 waypoints.');
                 points.splice(index, 0, p); state.selected = { kind: 'point', key: hit.key, index };
             });
         };

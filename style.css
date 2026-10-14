@@ -3185,6 +3185,8 @@ input[type=number].form-input::-webkit-inner-spin-button {
 .world-map-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; background: var(--surface2); flex-shrink: 0; max-height: 120px; overflow: auto; }
 .world-map-tools .tool-btn[aria-pressed="true"] { border-color: var(--red); background: var(--surface3); }
 .world-map-tools .tool-btn:disabled { opacity: .4; cursor: default; }
+.world-map-marker-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; }
+.world-map-marker-toggle input { accent-color: var(--red); }
 .world-map-room-name { width: 140px; min-width: 80px; font-size: 12px; padding: 5px 8px; }
 .world-map-zoom { align-self: center; min-width: 40px; text-align: center; font-size: 12px; }
 .world-map-viewport { display: flex; flex: 1; min-height: 60px; overflow: auto; background: #0a0a0a; touch-action: none; overscroll-behavior: contain; }
