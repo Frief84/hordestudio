@@ -4692,13 +4692,13 @@ async function setupAIBuilderLogic() {
 
     const searchChar = document.getElementById('builder-model-search');
     if (searchChar) {
-        const defaultCharModel = state.editingChar?.model || 'google/gemini-2.5-pro';
+        const defaultCharModel = state.editingChar?.model || state.globalSettings.defaultModel || '';
         searchChar.value = defaultCharModel;
     }
 
     const searchWorld = document.getElementById('w-builder-model-search');
     if (searchWorld) {
-        const defaultWorldModel = state.editingWorld?.model || 'google/gemini-2.5-pro';
+        const defaultWorldModel = state.editingWorld?.model || state.globalSettings.defaultModel || '';
         searchWorld.value = defaultWorldModel;
     }
 
@@ -4710,7 +4710,8 @@ async function setupAIBuilderLogic() {
 
             if (!hasApiCredentials()) return showToast(`API Key is missing. Add your ${cloudProviderName()} key in Settings.`, "error");
 
-            const modelId = document.getElementById('builder-model-search').value.trim() || 'google/gemini-2.5-pro';
+            const modelId = document.getElementById('builder-model-search').value.trim() || String(state.editingChar?.model || state.globalSettings.defaultModel || '').trim();
+            if (!modelId) return showToast('Select a generator model or set a default text model in Settings.', 'error');
 
             btnGenChar.disabled = true;
             btnGenChar.textContent = "⚡ Building Persona...";
@@ -4909,7 +4910,8 @@ Ensure the JSON is strictly formatted and parsable. Make the character feel rich
 
             if (!hasApiCredentials()) return showToast(`API Key is missing. Add your ${cloudProviderName()} key in Settings.`, "error");
 
-            const modelId = document.getElementById('w-builder-model-search').value.trim() || 'google/gemini-2.5-pro';
+            const modelId = document.getElementById('w-builder-model-search').value.trim() || String(state.editingWorld?.model || state.globalSettings.defaultModel || '').trim();
+            if (!modelId) return showToast('Select a generator model or set a default text model in Settings.', 'error');
 
             btnGenWorld.disabled = true;
             btnGenWorld.textContent = "⚡ Constructing Universe...";
@@ -30148,7 +30150,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             locDesc += ` Current persistent conditions: ${currentLocationState.conditions.map(condition => condition.label).join(', ')}.`;
         }
         const locHidden = loc?.hiddenDescription ? `\n[DM-ONLY DETAILS (Secret facts/Vibes)]: ${loc.hiddenDescription}` : "";
-        const locExits = globalThis.HordeWorldLore ? 'See WORLD LORE local connections.' : loc ? (loc.exits || []).map(ex => {
+        const locExits = loc ? (loc.exits || []).map(ex => {
             if (typeof ex === 'string') return ex;
             const target = getLocationRef(visibleWorld, ex.targetLocationId || getExitTargetName(ex));
             const label = target ? `${getExitDirection(ex) ? `${getExitDirection(ex)} ` : ''}to ${target.name}` : ex.text;
@@ -30174,7 +30176,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             npcIds: presentNPCs.map(n => n.id), query: userInput, session: sess });
         packet.movementOptions = buildWorldMovementOptions(world, sess, presentNPCs.map(n => n.id), userInput);
         worldLoreContextSnapshots.set(sess.id, packet);
-        relevantLore = '\n[WORLD LORE — authoritative source for movement between mapped places. Before proposing a place-to-place move, check movementOptions for that actor. Use only listed outgoing route IDs, modes and travel times. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcPlaces lists place IDs each present NPC knows.]\n' + JSON.stringify(packet);
+        relevantLore = '\n[WORLD LORE — authoritative map and movement rules. The CURRENT WORLD STATE Exits line and places[].connections list every authored exit from the current place; these are the physical exits that exist. movementOptions[].allowed_next lists only routes currently permitted for that actor and may be a subset, especially when the player named a destination. Never infer that other exits do not exist or call one route the only exit merely because allowed_next is narrower. Describe a route as blocked, locked or inaccessible only when its connection data says so. Before proposing a place-to-place move, use only allowed_next route IDs, modes and travel times for that actor. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcPlaces lists place IDs each present NPC knows.]\n' + JSON.stringify(packet);
         if (turnCallAudit?.metrics) turnCallAudit.metrics.loreCharacters = relevantLore.length;
     } else {
         relevantLore = (world.lorebook || []).filter(entry => entry.keyword && entry.text

@@ -30,7 +30,7 @@ const root = path.resolve(__dirname, '..');
                 'missing_item', 'absent_actor', 'give',
                 'early_tool', 'early_content', 'bad_twice', 'stale', 'tagged', 'plain_json', 'no_tools', 'local', 'local_no_schema', 'legacy', 'old_memory', 'old_prose',
                 'compound', 'compound_repair', 'compound_bad', 'two_actions_repair', 'two_actions_bad',
-                'current_state', 'commitment_repair', 'resolution_repair', 'invalid_proof_repair',
+                'current_state', 'three_exits', 'commitment_repair', 'resolution_repair', 'invalid_proof_repair',
                 'missing_condition_repair', 'missing_condition_bad', 'missing_condition_action_repair',
                 'unknown_condition_repair',
                 'drag_success', 'drag_escort_repair', 'door_lock_success', 'door_lock_compound_bad', 'door_lock_compound_repair', 'door_lock_aggregate_bad', 'door_lock_repair',
@@ -42,6 +42,18 @@ const root = path.resolve(__dirname, '..');
                     kernel: { sceneDrafts: true, ...(scenario === 'legacy' ? { sceneDraftProtocol: 'scene_draft_v2' } : {}) },
                     gameRules: { profileId: 'adventure', modules: { inventory: true } },
                     hudConfig: { startTimeHours: 9, startTimeMinutes: 0, timeStep: 5 } };
+                if (scenario === 'three_exits') {
+                    world.startLocationId = 'round';
+                    world.locations = [
+                        { id: 'round', name: 'Round Room', exits: [
+                            { targetLocationId: 'ante', travelTime: 1 },
+                            { targetLocationId: 'hall', travelTime: 1 },
+                            { targetLocationId: 'stairs', travelTime: 1 }] },
+                        { id: 'ante', name: 'Antechamber', exits: [{ targetLocationId: 'round', travelTime: 1 }] },
+                        { id: 'hall', name: 'West Hall', exits: [{ targetLocationId: 'round', travelTime: 1 }] },
+                        { id: 'stairs', name: 'Lower Stairs', exits: [{ targetLocationId: 'round', travelTime: 1 }] }
+                    ];
+                }
                 if (scenario.startsWith('drag_')) world.locations = [
                     { id: 'office', name: 'Office', exits: [{ targetLocationId: 'hex', travelTime: 1 }] },
                     { id: 'hex', name: 'Hexagonal Room', exits: [{ targetLocationId: 'office', travelTime: 1 }] }
@@ -58,7 +70,10 @@ const root = path.resolve(__dirname, '..');
                     || scenario === 'malformed_json_repair' ? 'local' : 'openrouter';
                 state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
                 const sess = prepareCurrentWorldSession(); sess.setupComplete = true;
-                sess.entityStates.linda.location = scenario === 'absent_actor' ? 'elsewhere' : 'office';
+                const targetedRoutes = scenario === 'three_exits'
+                    ? buildWorldMovementOptions(world, sess, ['linda'], 'I go to the Antechamber') : null;
+                sess.entityStates.linda.location = scenario === 'absent_actor' ? 'elsewhere'
+                    : scenario === 'three_exits' ? 'round' : 'office';
                 sess.inventory = scenario === 'missing_item' ? [] : ['letter'];
                 if (scenario.startsWith('door_lock_')) sess.inventory = ['Cell key'];
                 if (scenario.startsWith('door_lock_')) {
@@ -280,6 +295,7 @@ const root = path.resolve(__dirname, '..');
                     lindaFollowing: sess.entityStates.linda.followingPlayer === true,
                     doorKeys: safeJsonClone(sess.unlockedExits || {}),
                     savedDoorKeys: safeJsonClone(savedSession?.unlockedExits || {}),
+                    targetedRoutes: safeJsonClone(targetedRoutes),
                     userMessageCount: sess.history.filter(message => message.role === 'user' && message.text === input).length,
                     firstMessages: requests[0]?.messages, repair: requests[1], finalRequest: requests.at(-1),
                     schema: requests[0]?.tools?.find(t => t.function.name === 'commit_world_turn')?.function.parameters
@@ -324,6 +340,14 @@ const root = path.resolve(__dirname, '..');
                 assert(prompt.includes('A green coat; the old red scarf has been removed.'));
                 assert(prompt.includes('Her hands are now free.'), 'preserve a state change beyond the frame truncation limit');
                 assert(prompt.includes('"conditions":[]'), 'explicit cleared conditions must reach the provider');
+            }
+            if (scenario === 'three_exits') {
+                const prompt = result.firstMessages.map(message => message.content).join('\n');
+                assert(prompt.includes('to Antechamber') && prompt.includes('to West Hall')
+                    && prompt.includes('to Lower Stairs'), 'all three current-room exits must reach the prompt');
+                assert(/never infer that other exits do not exist/i.test(prompt));
+                assert.deepEqual(result.targetedRoutes.find(route => route.actor_id === 'player')?.allowed_next.map(edge => edge.to), ['ante'],
+                    'targeted movement may narrow allowed routes while all room exits stay visible');
             }
             if (scenario.startsWith('compound')) {
                 assert(result.schema.properties.actions.items.required.includes('request'));
