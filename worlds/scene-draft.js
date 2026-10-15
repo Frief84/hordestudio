@@ -324,6 +324,13 @@ function validateActionLinks(draft, context, fail) {
                 || ['npc_observations', 'world_events'].includes(key))
                 fail(`actions.${index}.action_effects.${key}`, 'unsupported_draft_effect');
     });
+    // In a single simple request there is only one possible owner for an
+    // event whose action reference was omitted. Fill that mechanical link
+    // locally; compound requests still require explicit model-authored links.
+    const soleSimpleActionId = draft.actions.length === 1 && simpleRequest(context.input)
+        ? ids.keys().next().value : null;
+    if (soleSimpleActionId) for (const event of draft.events || [])
+        if (object(event) && event.action_id === undefined) event.action_id = soleSimpleActionId;
     if (object(draft.effects) && Object.keys(draft.effects).length)
         fail('effects', 'unlinked_effects_in_linked_draft');
     const edges = new Map();

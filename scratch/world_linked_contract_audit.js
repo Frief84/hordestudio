@@ -37,6 +37,21 @@ for (const outcome of ['pending', 'unresolved', 'skipped'])
         .includes('unconfirmed_dependency_outcome'));
 assert(reasons({ ...draft, events: [{ type: 'interaction', actor_id: 'player',
     status: 'completed', passage_id: 'p1' }] }).includes('unknown_action_reference'));
+const singleActionInput = '*you smack her ass*';
+const singleAction = { protocol: 'scene_draft_v3',
+    narrative: [{ id: 'p1', text: 'You smack her ass; she reacts.' }],
+    actions: [{ action_id: 'smack', kind: 'physical', status: 'resolved', response_id: 'p1',
+        action_effects: {} }],
+    events: [{ type: 'interaction', actor_id: 'player', status: 'completed',
+        action: 'smack her ass', passage_id: 'p1' }],
+    effects: {}, speech: [], commitments: [] };
+const singleActionCompiled = compile(singleAction, { ...context, input: singleActionInput,
+    linkedRequired: true });
+assert(singleActionCompiled.ok, JSON.stringify(singleActionCompiled.errors));
+assert.equal(singleActionCompiled.linkedPlan.events[0].action_id, 'smack',
+    'a missing event link in a single simple action is assigned to its only possible action');
+assert(reasons({ ...singleAction, events: [{ ...singleAction.events[0], action_id: 'unknown' }] })
+    .includes('unknown_action_reference'), 'an explicitly wrong reference is still rejected');
 assert(reasons({ ...draft, effects: { inventory_add: ['key'] } })
     .includes('unlinked_effects_in_linked_draft'));
 const legacy = structuredClone(draft);
