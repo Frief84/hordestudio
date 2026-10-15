@@ -12,6 +12,9 @@ Character cards & group rooms · Living Worlds · Virtual Humans 2.0 · Optional
 
 Horde Studio brings your characters, stories and simulations into one local application. Import a character card and start a conversation, build a world with places and consequences, host a campaign with friends, or create a virtual human whose conversations draw on an ongoing life. Connect your own local models or cloud providers; the application does not include paid inference.
 
+> [!NOTE]
+> **About this fork:** `Frief84/hordestudio` includes the Worlds changes described below. The v18.3.6 download and release notes above point to the upstream release and do not include these fork changes. To try them, run this repository's `main` branch from source using the [development instructions](#development). These changes have not been merged upstream.
+
 ## Built-in user manual and Pip
 
 Open **User manual** directly beneath **Pip** in the sidebar. The complete illustrated guide includes searchable setup instructions, real screenshots, examples, workflow diagrams and a linked A–Z index, with detailed routes for Worlds and Virtual Humans. **Print manual** prepares the full guide for printing or your browser’s Save as PDF option.
@@ -93,6 +96,22 @@ Virtual Humans 2.0 is the new flagship. Character roleplay, worldbuilding and sh
 
 *Living Worlds and Multiplayer screenshots are from v16.6 and illustrate those continuing modes.*
 
+### Worlds changes in this fork
+
+The goal is to make the authored map, the model's account of a scene, and the saved game agree. Previously, a plausible sentence could imply movement or an opened door while the map and saved state still said otherwise. Large worlds also need enough local context for NPCs to make grounded decisions without sending the entire world to a model on every turn.
+
+| Area | What changed | Why |
+| --- | --- | --- |
+| **World structure and lore** | **Generate World Structure** in World Overview or World Lore builds a stable place and connection index from existing records without AI by default. Optional AI suggestions are staged for review. The place guide shows routes, access, contents and who knows a place. | The DM and NPC simulation can use relevant, bounded place information while authored lore and permissions remain the source of truth. Generation does not invent routes or silently replace hand-written content. |
+| **Map and floor plan** | World Architect now offers an editable floor plan alongside the graph. Place or move rooms, resize markers, connect rooms, bend paths with waypoints, pan, zoom and fit the map. A connection inspector can set its initial lock, required key or item, and whether an unlock check is allowed. | Authors can see and edit the same connections the travel rules use. Moving a marker or bending a line changes only the drawing; creating a connection changes the actual route. The map does not grant travel through a blocked or nonexistent exit. |
+| **Travel and doors** | Player movement, companions and NPC travel use shared directed exits, travel times, access rules and current door state. Keys and permitted checks can open mapped doors; blocked routes stay blocked and are reported. The play map marks the current location. | The story, NPC locations and map should reflect the same confirmed journey, including multi-step travel and people moving together. |
+| **Linked World actions** | A World turn can contain ordered actions with explicit dependencies and typed effects. The engine validates them against a temporary working state, then saves the complete result atomically. Model-written narration waits until that commit succeeds; a later blocked step may follow an earlier confirmed success. Turn failures remain visible beside the input. | Compound requests can keep real partial outcomes without saving a broken half-turn or presenting an uncommitted result as fact. New wording and combinations of existing operations do not need a new language-specific parser. |
+| **Existing campaigns** | Legacy V2/V3 receipts retain their replay path. Isolated copies of two existing campaigns, **The Submission Vault** and **Aurelia**, were continued for several turns, saved and reloaded while preserving their prior world state. | Existing saves need to remain playable, not merely importable. The test copies did not overwrite the original saves. |
+
+The map is an authoring and inspection tool, not a shortcut around World rules: selecting a place during play shows its details; travel still follows valid exits and confirmed actions. Technical effects remain limited to registered operations. A model that proposes an unknown effect or an invalid action reference cannot commit it. Successful turns use the existing regular model call; a malformed response can still require bounded repair, and waiting for validation and storage may delay when story text first appears.
+
+For implementation details and acceptance evidence, see [World Lore and structure](docs/world-lore.md) and [linked World actions](worlds/LINKED_WORLD_ACTIONS_IMPLEMENTATION.md).
+
 ## Your models, your machine
 
 Horde Studio is free to run and its source is available in this repository. The browser interface and local services run on your computer. Connect local OpenAI-compatible text servers, ComfyUI and supported local image endpoints, or choose cloud text and media providers.
@@ -135,6 +154,8 @@ Horde Studio is free to run and its source is available in this repository. The 
 ## Quick start
 
 Download the [v18.3.6 portable ZIP](https://github.com/ddkhan24/hordestudio/releases/tag/v18.3.6), extract the complete folder, then run the launcher for your operating system. Do not open `index.html` by itself. When updating, keep a verified backup, restart the launcher and refresh the browser.
+
+That portable ZIP is the upstream release. For the Worlds changes in this fork, clone or download this repository's `main` branch and launch it from the source folder as shown under [Development](#development).
 
 ### Requirements
 
@@ -346,7 +367,7 @@ This makes the project easy to inspect, modify, back up, and run without a packa
 Clone or download the repository, then run the local bridge:
 
 ```bash
-git clone https://github.com/ddkhan24/hordestudio.git
+git clone https://github.com/Frief84/hordestudio.git
 cd hordestudio
 python3 horde_mcp_bridge.py --open
 ```
