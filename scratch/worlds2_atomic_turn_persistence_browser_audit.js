@@ -73,8 +73,17 @@ const root = path.resolve(__dirname, '..');
             document.getElementById('world-user-input').value = 'I wait and listen.';
             void executeWorldTurn();
         });
-        await page.waitForFunction(() => window.__atomicTurnDiagnosticCount > 0
-            && window.__atomicTurnProviderPending && worldTurnInProgress, { timeout: 15000 });
+        try {
+            await page.waitForFunction(() => window.__atomicTurnDiagnosticCount > 0
+                && window.__atomicTurnProviderPending && worldTurnInProgress,
+            null, { timeout: 15000 });
+        } catch (error) {
+            const diagnostic = await page.evaluate(() => ({ count: window.__atomicTurnDiagnosticCount,
+                providerPending: window.__atomicTurnProviderPending, inProgress: worldTurnInProgress,
+                input: document.getElementById('world-user-input')?.value,
+                lastAudit: getCurrentWorldSession()?.lastTurnAudit?.source }));
+            throw new Error(`Pending turn gate did not engage: ${JSON.stringify(diagnostic)}; ${error.message}`);
+        }
         const during = await page.evaluate(async () => {
             // A settings/full-state save during the pending turn must also see
             // the last committed World definition, not story-born edits.

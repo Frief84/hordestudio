@@ -35,7 +35,8 @@ const root = path.resolve(__dirname, '..');
                     { id: 'hall', name: 'Hall', exits: ['to Office'] }],
                 entities: [{ id: 'denton', name: 'Denton', type: 'npc', startLocation: 'office', persona: 'Manager' },
                     { id: 'examiner', name: 'Examiner', type: 'npc', startLocation: 'office', persona: 'Auditor' }],
-                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true },
+                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                    sceneDraftProtocol: 'scene_draft_v2' },
                 hudConfig: { startTimeHours: 8, startTimeMinutes: 57, timeStep: 5 } };
             state.worlds = [world];
             state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };

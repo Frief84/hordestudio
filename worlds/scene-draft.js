@@ -6,6 +6,11 @@ const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
 const copy = v => JSON.parse(JSON.stringify(v));
 const kinds = ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'];
 const statuses = ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'];
+const confirmedOutcomes = ['succeeded', 'failed', 'blocked'];
+const actionIdPattern = /^[a-z][a-z0-9_]{0,79}$/;
+const linkedEffectNames = ['actor_move', 'interactable_transition', 'item_transfer',
+    'item_introduce', 'entity_introduce', 'location_introduce', 'condition_change',
+    'relation_set', 'event_emit', 'time_advance', 'outfit_set'];
 const text = (description, maxLength = 2000) => ({ type: 'string', description, maxLength });
 const list = items => ({ type: 'array', items, maxItems: 32 });
 const shape = (properties, required = Object.keys(properties)) =>
@@ -16,6 +21,11 @@ function closeDeclaredObjectFields(node) {
         && Object.keys(node.properties).length && node.additionalProperties === undefined)
         node.additionalProperties = false;
     Object.values(node).forEach(closeDeclaredObjectFields);
+}
+function stripDescriptions(node) {
+    if (!node || typeof node !== 'object') return;
+    delete node.description;
+    Object.values(node).forEach(stripDescriptions);
 }
 function rejectUnknownFields(value, spec, path, fail) {
     if (!spec || typeof spec !== 'object') return;
@@ -33,6 +43,45 @@ function rejectUnknownFields(value, spec, path, fail) {
         else if (object(spec.additionalProperties))
             rejectUnknownFields(entry, spec.additionalProperties, childPath, fail);
     });
+}
+function validateDeclaredShape(value, spec, path, fail) {
+    if (!spec || typeof spec !== 'object') return;
+    const type = spec.type;
+    const validType = type === 'object' ? object(value)
+        : type === 'array' ? Array.isArray(value)
+            : type === 'integer' ? Number.isInteger(value)
+                : type === 'number' ? typeof value === 'number' && Number.isFinite(value)
+                    : type === 'string' ? typeof value === 'string'
+                        : type === 'boolean' ? typeof value === 'boolean' : true;
+    if (!validType) { fail(path, 'invalid_declared_type'); return; }
+    if (Array.isArray(spec.enum) && !spec.enum.includes(value))
+        fail(path, 'invalid_declared_enum');
+    if (typeof value === 'string') {
+        if (Number.isInteger(spec.maxLength) && value.length > spec.maxLength
+            || Number.isInteger(spec.minLength) && value.length < spec.minLength)
+            fail(path, 'invalid_declared_length');
+    }
+    if (typeof value === 'number') {
+        if (Number.isFinite(spec.minimum) && value < spec.minimum
+            || Number.isFinite(spec.maximum) && value > spec.maximum)
+            fail(path, 'invalid_declared_range');
+    }
+    if (Array.isArray(value)) {
+        if (Number.isInteger(spec.maxItems) && value.length > spec.maxItems
+            || Number.isInteger(spec.minItems) && value.length < spec.minItems)
+            fail(path, 'invalid_declared_items');
+        value.forEach((item, index) => validateDeclaredShape(item, spec.items,
+            `${path}.${index}`, fail));
+    }
+    if (object(value)) {
+        (spec.required || []).forEach(key => {
+            if (!Object.prototype.hasOwnProperty.call(value, key))
+                fail(`${path}.${key}`, 'missing_declared_field');
+        });
+        Object.entries(value).forEach(([key, item]) => validateDeclaredShape(item,
+            spec.properties?.[key] || (object(spec.additionalProperties)
+                ? spec.additionalProperties : null), path ? `${path}.${key}` : key, fail));
+    }
 }
 
 // Models often omit punctuation, articles or the repeated subject when they
@@ -161,9 +210,71 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         contract.properties.protocol.enum = [protocol];
         contract.required = ['protocol', 'narrative', 'actions'];
         contract.properties.actions.items.required = ['kind', 'status', 'response_id'];
+        if (options.linkedRequired) contract.properties.actions.items.required.push('action_id');
+        const action = contract.properties.actions.items.properties;
+        action.action_id = text('Stable unique action ID. Required for compound or linked actions.', 80);
+        action.depends_on = list(shape({
+            action_id: text('Exact ID of an earlier action.', 80),
+            outcome: { type: 'string', enum: confirmedOutcomes }
+        }));
+        action.state_conditions = list(shape({
+            fact: text('Registered read-only fact.', 80),
+            subject_id: text('Exact entity or location ID.', 120),
+            target_id: text('Exact second actor or faction ID for a relation fact.', 120),
+            operator: { type: 'string', enum: ['equals', 'not_equals', 'exists'] },
+            value: text('Expected value; omit for exists.', 200)
+        }, ['fact', 'subject_id', 'operator']));
+        const linkedEffects = {
+            actor_move: list(shape({ actor_id: text('Exact actor ID.', 120),
+                to_location_id: text('One adjacent mapped destination ID.', 120),
+                companion_ids: list(text('Exact accompanying actor ID.', 120)) },
+            ['actor_id', 'to_location_id'])),
+            interactable_transition: list(shape({ target_id: text('Exact object or door ID.', 120),
+                to_state: text('Authored target state.', 80) })),
+            item_transfer: list(shape({ item_id: text('Exact item ID or owned item name.', 120),
+                from_id: text('Exact actor or location ID.', 120), to_id: text('Exact actor or location ID.', 120),
+                quantity: { type: 'integer', minimum: 1, maximum: 100 } }, ['item_id', 'from_id', 'to_id'])),
+            item_introduce: list(shape({ id: text('New stable item ID.', 120),
+                name: text('Item name.', 160), location_id: text('Exact present location ID.', 120),
+                description: text('Short description.', 500) }, ['id', 'name', 'location_id'])),
+            entity_introduce: list(shape({ id: text('New stable NPC ID.', 120),
+                name: text('NPC name.', 160), location_id: text('Exact present location ID.', 120),
+                persona: text('NPC persona.', 500) })),
+            location_introduce: list(shape({ id: text('New stable location ID.', 120),
+                name: text('Location name.', 160), connects_to: text('Exact existing location ID.', 120),
+                description: text('Location description.', 500) }, ['id', 'name', 'connects_to'])),
+            condition_change: list(shape({ target_id: text('Exact actor ID.', 120),
+                condition: text('Named lasting condition.', 160),
+                action: { type: 'string', enum: ['add', 'remove'] } })),
+            relation_set: list(shape({ subject_id: text('Exact actor or faction ID.', 120),
+                target_id: text('Exact actor or faction ID.', 120),
+                value: { type: 'integer', minimum: -100, maximum: 100 } })),
+            event_emit: list(shape({ id: text('Stable event ID.', 120),
+                type: text('Registered event type.', 80),
+                description: text('Observed event.', 500) })),
+            time_advance: list(shape({ minutes: { type: 'integer', minimum: 1, maximum: 10080 } })),
+            outfit_set: list(shape({ actor_id: text('Exact actor ID.', 120),
+                outfit: text('Complete resulting outfit.', 500) }))
+        };
+        action.action_effects = shape({ ...effects, ...linkedEffects }, []);
+        if (options.linkedRequired) {
+            // The linked executor forbids top-level effects. Repeating the
+            // legacy effect contract there can consume an existing save's
+            // entire context window without adding an executable field.
+            contract.properties.effects = shape({}, []);
+            // Keep every type, enum and bound. The common turn instruction
+            // carries prose guidance once instead of repeating it per field.
+            stripDescriptions(action.action_effects);
+        }
+        contract.properties.narrative.items.properties.action_id = action.action_id;
+        if (contract.properties.events?.items?.properties)
+            contract.properties.events.items.properties.action_id = action.action_id;
+        for (const key of ['speech', 'commitments', 'resolutions'])
+            contract.properties[key].items.properties.action_id = action.action_id;
         contract.properties.actions.items.properties.request.description =
             'Omit only for one simple action. For compound input, copy contiguous excerpts covering the full request in order.';
-        if (String(options.input || '').trim() && !simpleRequest(options.input)) {
+        if (!options.linkedRequired && String(options.input || '').trim()
+            && !simpleRequest(options.input)) {
             contract.properties.actions.items.required.push('request');
             contract.properties.actions.items.properties.request.description =
                 'Required for this compound input. Copy contiguous excerpts covering every step in order, including negations; do not omit any step.';
@@ -185,11 +296,104 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
                 };
             } else delete contract.properties.resolutions;
         }
+        closeDeclaredObjectFields(contract);
     }
     return contract;
 }
 
 function isDraft(value) { return object(value) && ['scene_draft_v2', 'scene_draft_v3'].includes(value.protocol); }
+function validateActionLinks(draft, context, fail) {
+    if (draft.protocol !== 'scene_draft_v3' || !Array.isArray(draft.actions)) return null;
+    const linked = draft.actions.some(action => action?.action_id !== undefined
+        || action?.depends_on !== undefined || action?.state_conditions !== undefined
+        || action?.action_effects !== undefined)
+        || (draft.events || []).some(event => event?.action_id !== undefined)
+        || (draft.narrative || []).some(passage => passage?.action_id !== undefined);
+    if (!linked) return null; // Old V3 drafts remain on the audited replay path.
+    const ids = new Map();
+    draft.actions.forEach((action, index) => {
+        const id = action?.action_id;
+        if (typeof id !== 'string' || !actionIdPattern.test(id))
+            fail(`actions.${index}.action_id`, id === undefined ? 'missing_action_id' : 'invalid_action_id');
+        else if (ids.has(id)) fail(`actions.${index}.action_id`, 'duplicate_action_id');
+        else ids.set(id, index);
+        if (action?.action_effects !== undefined && !object(action.action_effects))
+            fail(`actions.${index}.action_effects`, 'invalid_action_effects');
+        else for (const key of Object.keys(action?.action_effects || {}))
+            if (!(context.effectKeys || []).includes(key) && !linkedEffectNames.includes(key)
+                || ['npc_observations', 'world_events'].includes(key))
+                fail(`actions.${index}.action_effects.${key}`, 'unsupported_draft_effect');
+    });
+    if (object(draft.effects) && Object.keys(draft.effects).length)
+        fail('effects', 'unlinked_effects_in_linked_draft');
+    const edges = new Map();
+    draft.actions.forEach((action, index) => {
+        const dependencies = action?.depends_on || [];
+        if (!Array.isArray(dependencies)) {
+            fail(`actions.${index}.depends_on`, 'invalid_action_dependencies'); return;
+        }
+        const seen = new Set();
+        edges.set(action?.action_id, []);
+        dependencies.forEach((guard, guardIndex) => {
+            const path = `actions.${index}.depends_on.${guardIndex}`;
+            if (!object(guard) || typeof guard.action_id !== 'string' || !ids.has(guard.action_id)) {
+                fail(path, 'unknown_action_reference'); return;
+            }
+            if (!confirmedOutcomes.includes(guard.outcome)) fail(path, 'unconfirmed_dependency_outcome');
+            if (seen.has(guard.action_id)) fail(path, 'duplicate_action_dependency');
+            seen.add(guard.action_id);
+            edges.get(action.action_id).push(guard.action_id);
+        });
+        for (const [conditionIndex, condition] of (Array.isArray(action?.state_conditions)
+            ? action.state_conditions : []).entries()) {
+            if (!object(condition) || typeof condition.fact !== 'string' || !condition.fact
+                || typeof condition.subject_id !== 'string' || !condition.subject_id
+                || !['equals', 'not_equals', 'exists'].includes(condition.operator)
+                || (condition.fact === 'relation' && (typeof condition.target_id !== 'string'
+                    || !condition.target_id))
+                || (condition.operator !== 'exists' && typeof condition.value !== 'string'))
+                fail(`actions.${index}.state_conditions.${conditionIndex}`, 'invalid_state_condition');
+        }
+    });
+    const colors = new Map();
+    const visit = id => {
+        if (colors.get(id) === 1) { fail(`actions.${ids.get(id)}.depends_on`, 'cyclic_action_dependency'); return; }
+        if (colors.get(id) === 2) return;
+        colors.set(id, 1);
+        for (const predecessor of edges.get(id) || []) visit(predecessor);
+        colors.set(id, 2);
+    };
+    for (const id of ids.keys()) visit(id);
+    for (const [id, predecessors] of edges)
+        for (const predecessor of predecessors)
+            if (ids.get(predecessor) >= ids.get(id))
+                fail(`actions.${ids.get(id)}.depends_on`, 'forward_action_dependency');
+    const reference = (item, path, required = false) => {
+        if (item?.action_id === undefined && !required) return;
+        if (typeof item?.action_id !== 'string' || !ids.has(item.action_id))
+            fail(path, 'unknown_action_reference');
+    };
+    (draft.events || []).forEach((event, index) => reference(event, `events.${index}.action_id`, true));
+    (draft.narrative || []).forEach((passage, index) => reference(passage, `narrative.${index}.action_id`));
+    for (const key of ['speech', 'commitments', 'resolutions'])
+        (draft[key] || []).forEach((item, index) => reference(item, `${key}.${index}.action_id`));
+    const passages = new Map((draft.narrative || []).map(item => [item?.id, item]));
+    draft.actions.forEach((action, index) => {
+        const passage = passages.get(action?.response_id);
+        if (passage && passage.action_id !== action.action_id)
+            fail(`actions.${index}.response_id`, 'unlinked_action_passage');
+    });
+    for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+        (draft[key] || []).forEach((item, index) => {
+            if (!item?.action_id || !item.passage_id) return;
+            const passage = passages.get(item.passage_id);
+            if (passage && passage.action_id !== item.action_id)
+                fail(`${key}.${index}.passage_id`, 'unlinked_action_passage');
+        });
+    return { actions: copy(draft.actions), events: copy(draft.events || []),
+        narrative: copy(draft.narrative || []), speech: copy(draft.speech || []),
+        commitments: copy(draft.commitments || []), resolutions: copy(draft.resolutions || []) };
+}
 function simpleRequest(input) {
     // Deliberately conservative: uncertain or multilingual compound requests
     // keep explicit coverage rather than silently assigning their first step.
@@ -273,6 +477,11 @@ function compile(draft, context) {
         detail: explanation ? `${path}: ${explanation}` : path });
     if (!isDraft(draft)) return { ok: false, errors: [{ reason: 'invalid_scene_protocol' }] };
     draft = copy(draft);
+    const linkedPlan = validateActionLinks(draft, context, fail);
+    if (context.linkedRequired && draft.protocol === 'scene_draft_v3'
+        && draft.actions?.length && !linkedPlan)
+        fail('actions', 'linked_actions_required');
+    if (errors.length) return { ok: false, errors };
     if (draft.protocol === 'scene_draft_v3') {
         for (const key of ['events', 'speech', 'commitments'])
             if (draft[key] === undefined) draft[key] = [];
@@ -290,7 +499,8 @@ function compile(draft, context) {
         if (draft.effects === undefined) draft.effects = {};
         if (Array.isArray(draft.actions)) draft.actions.forEach((action, index) => {
             if (!object(action) || action.request !== undefined) return;
-            if (draft.actions.length === 1 && simpleRequest(context.input)) action.request = context.input;
+            if (draft.actions.length === 1 && (linkedPlan || simpleRequest(context.input)))
+                action.request = context.input;
             else fail(`actions.${index}.request`, 'explicit_request_coverage_required');
         });
     }
@@ -365,6 +575,7 @@ function compile(draft, context) {
     }
     if (context.contract) {
         rejectUnknownFields(draft, context.contract, '', fail);
+        if (linkedPlan) validateDeclaredShape(draft, context.contract, '', fail);
         if (errors.length) return { ok: false, errors };
     }
     // Some compatible providers flatten explicitly named effect fields at the
@@ -407,8 +618,9 @@ function compile(draft, context) {
                 // the rest of a valid one-passage draft. In that case there is
                 // exactly one possible target, so bind locally instead of
                 // spending another model call or rejecting the complete turn.
-                const resolvedId = passageAliases.get(reference.toLowerCase())
-                    || (passages.size === 1 ? passages.keys().next().value : null);
+                const resolvedId = linkedPlan ? (passages.has(reference) ? reference : null)
+                    : passageAliases.get(reference.toLowerCase())
+                        || (passages.size === 1 ? passages.keys().next().value : null);
                 if (!resolvedId) { fail(`${path}.${i}`, 'unknown_passage_id'); return; }
                 item[target] = passages.get(resolvedId);
                 delete item[source];
@@ -486,12 +698,23 @@ function compile(draft, context) {
         check.outcome_contract = 'state_delta_v1';
     }
     const pendingActions = actions.filter(action => action?.status === 'pending_check');
-    if (checks.length && (checks.length !== 1 || !pendingActions.length
-        || new Set(pendingActions.map(action => action.response)).size !== 1))
-        fail('actions', 'check_requires_one_pending_action',
-            'One check may cover multiple clauses only when they reference the same pending-attempt passage. Independent attempts require separate turns.');
-    if (pendingActions.length && checks.length !== 1)
-        fail('effects.checks', 'pending_action_requires_check');
+    if (linkedPlan) {
+        actions.forEach((action, index) => {
+            const localChecks = action.action_effects?.checks;
+            if (action.status === 'pending_check' && (!Array.isArray(localChecks)
+                || localChecks.length !== 1))
+                fail(`actions.${index}.action_effects.checks`, 'pending_action_requires_check');
+            if (action.status !== 'pending_check' && localChecks?.length)
+                fail(`actions.${index}.action_effects.checks`, 'check_requires_pending_action');
+        });
+    } else {
+        if (checks.length && (checks.length !== 1 || !pendingActions.length
+            || new Set(pendingActions.map(action => action.response)).size !== 1))
+            fail('actions', 'check_requires_one_pending_action',
+                'One check may cover multiple clauses only when they reference the same pending-attempt passage. Independent attempts require separate turns.');
+        if (pendingActions.length && checks.length !== 1)
+            fail('effects.checks', 'pending_action_requires_check');
+    }
     const locations = new Set(context.locations || []);
     const introductions = effects.location_introduced || [];
     if (Array.isArray(introductions)) introductions.forEach((location, index) => {
@@ -630,6 +853,7 @@ function compile(draft, context) {
     if (errors.length) return { ok: false, errors };
     const first = actions[0];
     return { ok: true, narrative, actions: copy(actions), speech: copy(draft.speech), commitments, resolutions,
+        linkedPlan,
         unaddressedRequest: coverage.ok ? '' : coverage.excerpt,
         receipt: {
             summary: actions.map(action => action.response).join(' ').slice(0, 300),

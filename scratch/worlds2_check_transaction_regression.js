@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { asyncFunctionSource } = require('./app_source.js');
 
-const world = { id: 'check_world' };
+const world = { id: 'check_world', kernel: { sceneDrafts: false } };
 const sess = {
     id: 'check_session', turnCount: 3, playerLocation: 'gate', history: [], checkHistory: [],
     pendingChecks: [{ id: 'check_3_1', label: 'Pick the gate', difficulty: 8,
@@ -30,6 +30,7 @@ const context = {
     worldManualCheckExitUnlock: () => null,
     worldCheckLooksLikeExitUnlock: () => true,
     getCurrentWorldSession: () => sess,
+    normalizeWorldKernelConfig: () => ({ sceneDrafts: false }),
     normalizeWorldDiceConfig: () => ({ sides: 20, defaultDifficulty: 10 }),
     rollSecureDie: () => { rolls++; return 9; },
     performAuthoritativeChecks: (_world, session, checks, options) => {
