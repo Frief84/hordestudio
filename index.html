@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261014-map-markers">
+    <link rel="stylesheet" href="style.css?v=20261015-linked-actions-fix2">
     <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
 <link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
 </head>
@@ -623,6 +623,10 @@
                         <span style="font-size:0.8rem; color:var(--text-3); font-style:italic;" id="world-dm-typing-label">DM is writing...</span>
                     </div>
                     <div class="input-wrap">
+                        <div id="world-turn-error" class="world-turn-error hidden" role="alert" aria-live="assertive">
+                            <span id="world-turn-error-text"></span>
+                            <button id="world-turn-error-dismiss" type="button" aria-label="Dismiss World turn error">✕</button>
+                        </div>
                         <div class="input-row">
                             <textarea id="world-user-input" class="msg-input" placeholder="What do you do?..." rows="1"></textarea>
                             <button id="world-send-btn" class="send-btn" type="button" aria-label="Send message">
@@ -5373,13 +5377,13 @@
     <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
     <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
     <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
-    <script src="worlds/working-state.js?v=20261015-linked-actions"></script>
-    <script src="worlds/effect-registry.js?v=20261015-linked-actions"></script>
-    <script src="worlds/linked-world-actions.js?v=20261015-linked-actions"></script>
-    <script src="worlds/scene-draft.js?v=20261015-linked-actions"></script>
+    <script src="worlds/working-state.js?v=20261015-linked-actions-fix2"></script>
+    <script src="worlds/effect-registry.js?v=20261015-linked-actions-fix2"></script>
+    <script src="worlds/linked-world-actions.js?v=20261015-linked-actions-fix2"></script>
+    <script src="worlds/scene-draft.js?v=20261015-linked-actions-fix2"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261015-linked-actions"></script>
+    <script src="app.js?v=20261015-linked-actions-fix3"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

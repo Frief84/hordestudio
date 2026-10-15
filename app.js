@@ -15080,6 +15080,20 @@ function showToast(msg, type = 'info') {
     setTimeout(() => toast.remove(), 3000);
 }
 
+function clearWorldTurnError() {
+    document.getElementById('world-turn-error')?.classList.add('hidden');
+}
+
+function showWorldTurnError(message) {
+    const alert = document.getElementById('world-turn-error');
+    const text = document.getElementById('world-turn-error-text');
+    if (!alert || !text) return showToast(message, 'error');
+    text.textContent = message;
+    alert.classList.remove('hidden');
+    const dismiss = document.getElementById('world-turn-error-dismiss');
+    if (dismiss) dismiss.onclick = clearWorldTurnError;
+}
+
 function numericVersionParts(value) {
     const match = String(value || '').match(/\d+(?:\.\d+){0,3}/);
     return match ? match[0].split('.').map(part => Number(part) || 0) : [];
@@ -29889,6 +29903,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         showToast('The DM is still responding — please wait.', 'info');
         return;
     }
+    clearWorldTurnError();
     // Submitting an action opts back into the live end of the transcript.
     // A reader can still scroll away during generation without being pulled
     // back by streaming tokens or a later background World update.
@@ -30069,6 +30084,9 @@ async function executeWorldTurn(commandOrReroll = null) {
             && world.kernel?.sceneDraftProtocol !== 'scene_draft_v2'
             && !['init', 'look', 'continue'].includes(command);
         if (linkedWorldTurn) {
+            if (!globalThis.HordeWorkingState || !globalThis.HordeEffectRegistry
+                || !globalThis.HordeLinkedWorldActions)
+                throw new Error('Required World modules were not loaded. Restart the local HordeStudio server and reload this page before retrying.');
             world = safeJsonClone(world);
             sess = safeJsonClone(sess);
         }
@@ -32432,6 +32450,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         };
         for (const call of toolCalls) {
             let responsePayload = { success: true, status: 'Action processed.' };
+            let candidateStarted = false;
             try {
                 const args = sceneDrafts && call.function.name === 'commit_world_turn'
                     ? HordeWorldSceneDraft.decode(call.function.arguments) : parseWorldToolArguments(call.function.arguments || '{}');
@@ -32460,6 +32479,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         || (isPlainObject(receipt.scene)
                         && Array.isArray(receipt.events) && Array.isArray(receipt.entity_updates));
                     if (!validEnvelope) throw new Error('Turn receipt must include scene, events, and entity_updates.');
+                    candidateStarted = true;
                     let candidate = await commitReceiptCandidate(receipt, 'tool_call');
                     if (!candidate.accepted && !HordeWorldSceneDraft.isDraft(receipt)) {
                         const checkOnly = buildSafeCheckOnlyWorldReceipt(world, sess, receipt, receiptContext);
@@ -32526,6 +32546,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 }
             } catch (error) {
                 if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
+                if (linkedWorldTurn && candidateStarted) throw error;
                 console.error('Horde Engine: Failed to parse tool call', error);
                 if (sceneDrafts && call.function.name === 'commit_world_turn' && !successfulStateCall
                     && !receiptValidationFeedback.length) {
@@ -32576,7 +32597,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     if (!candidate.accepted) {
                         const reasons = (candidate.committed?.audit?.rejected || [])
                             .map(item => item.reason).filter(Boolean).slice(0, 6);
-                        throw new Error(`Inline turn receipt was rejected: ${reasons.join(', ') || 'invalid state candidate'}.`);
+                        const rejection = new Error(`Inline turn receipt was rejected: ${reasons.join(', ') || 'invalid state candidate'}.`);
+                        rejection.code = 'WORLD_RECEIPT_REJECTED';
+                        throw rejection;
                     }
                     if (candidate.actionResult?.ledgerEntry) structuredChronicle = candidate.actionResult.ledgerEntry;
                     resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -32586,6 +32609,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     console.warn(`Horde Engine: model emitted its turn receipt as text — recovered and validated it.`);
                 } catch (error) {
                     if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
+                    if (linkedWorldTurn && error?.code !== 'WORLD_RECEIPT_REJECTED') throw error;
                     console.error('Horde Engine: inline turn receipt failed validation', error);
                 }
             }
@@ -32674,7 +32698,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         `[WORLD SCENE DRAFT CORRECTION]\nReturn one compact JSON object only with protocol:"${sceneProtocol}" with narrative, actions and proposed changes. Empty optional collections may be omitted in v3. No reasoning, Markdown, repeated prose, ending checksum or legacy receipt. The proposal is uncommitted. Correct only the listed failures; preserve valid actions and fiction. Keep narrative to at most three short passages unless the player requested more. Use IDs to refer to passages rather than repeating their text. Empty arrays and effects:{} are valid when nothing changed. The engine checks every proposed action before it becomes canon.\nFailures: ${JSON.stringify(receiptValidationFeedback)}${movementCorrection}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown local locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nPlayer action: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}` }];
                 }
                 repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_FIDELITY;
-                if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts.';
+                if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts. Every action.response_id must name a narrative.id with the same action_id; every event.passage_id must name a passage with the event\'s action_id. Correct these exact references without guessing from prose.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'explicit_request_coverage_required')) {
                     repairBody.messages[0].content += '\nREQUEST COVERAGE CORRECTION: This input is compound. Every action MUST include request, even if there is only one action entry. Copy contiguous excerpts that together cover the complete input below in order, including negations. Account for each step in the linked narrative and its disposition; blocked or unresolved steps must not be claimed as completed. Complete input: '
                         + JSON.stringify(String(submittedInput || userInput));
@@ -32841,6 +32865,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 }
             } catch (repairError) {
                 if (repairError?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw repairError;
+                if (linkedWorldTurn) throw repairError;
                 // A user Stop still cancels the turn. An idle timeout during
                 // receipt repair must instead reach the canonical no-op
                 // fallback below, discarding the unverified prose and
@@ -33702,10 +33727,15 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 const input = document.getElementById('world-user-input');
                 if (input) input.value = submittedInput;
             }
-            const message = err?.name === 'AbortError' ? 'Generation stopped.'
-                : `World turn was not saved: ${humanizeApiError(err) || err.message}`;
-            showToast(message, err?.name === 'AbortError' ? 'info' : 'error');
+            const reason = humanizeApiError(err) || err.message || 'Unknown error';
+            const linkFailure = /unlinked_action_passage|ambiguous_action_passage/.test(reason);
+            const message = err?.name === 'AbortError' ? 'Generation stopped. Your action is still in the input box.'
+                : linkFailure
+                    ? `The model linked its action to the wrong story passage (${reason}). No World changes were saved. Your action is still in the input box; retry it.`
+                    : `World turn was not saved: ${reason}. Your action is still in the input box.`;
+            if (err?.name !== 'AbortError') console.error('Horde Engine: linked World turn failed', err);
             renderWorldPlayState();
+            showWorldTurnError(message);
             return;
         }
         const rollbackSnapshot = isReroll ? failureRestoreSnapshot : turnSnapshot;

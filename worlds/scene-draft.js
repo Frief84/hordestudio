@@ -378,17 +378,40 @@ function validateActionLinks(draft, context, fail) {
     for (const key of ['speech', 'commitments', 'resolutions'])
         (draft[key] || []).forEach((item, index) => reference(item, `${key}.${index}.action_id`));
     const passages = new Map((draft.narrative || []).map(item => [item?.id, item]));
+    // A response_id/passage_id is already an exact structural reference. When
+    // its passage omitted action_id, fill that one missing side only if every
+    // reference names the same action. Never infer a link from prose or replace
+    // an explicit, conflicting action_id.
+    const passageClaims = new Map();
+    const claimPassage = (passageId, actionId) => {
+        if (!passageId || !actionId || !passages.has(passageId)) return;
+        if (!passageClaims.has(passageId)) passageClaims.set(passageId, new Set());
+        passageClaims.get(passageId).add(actionId);
+    };
+    draft.actions.forEach(action => claimPassage(action?.response_id, action?.action_id));
+    for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+        (draft[key] || []).forEach(item => claimPassage(item?.passage_id, item?.action_id));
+    for (const [passageId, claims] of passageClaims) {
+        const passage = passages.get(passageId);
+        if (claims.size > 1) {
+            fail(`narrative.${passageId}.action_id`, 'ambiguous_action_passage');
+        } else if (passage.action_id === undefined) {
+            passage.action_id = claims.values().next().value;
+        }
+    }
     draft.actions.forEach((action, index) => {
         const passage = passages.get(action?.response_id);
         if (passage && passage.action_id !== action.action_id)
-            fail(`actions.${index}.response_id`, 'unlinked_action_passage');
+            fail(`actions.${index}.response_id`, 'unlinked_action_passage',
+                `${action.response_id} belongs to ${passage.action_id || 'no action'}, not ${action.action_id}`);
     });
     for (const key of ['events', 'speech', 'commitments', 'resolutions'])
         (draft[key] || []).forEach((item, index) => {
             if (!item?.action_id || !item.passage_id) return;
             const passage = passages.get(item.passage_id);
             if (passage && passage.action_id !== item.action_id)
-                fail(`${key}.${index}.passage_id`, 'unlinked_action_passage');
+                fail(`${key}.${index}.passage_id`, 'unlinked_action_passage',
+                    `${item.passage_id} belongs to ${passage.action_id || 'no action'}, not ${item.action_id}`);
         });
     return { actions: copy(draft.actions), events: copy(draft.events || []),
         narrative: copy(draft.narrative || []), speech: copy(draft.speech || []),

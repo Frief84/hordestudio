@@ -476,10 +476,15 @@ class McpBridgeAudit(unittest.TestCase):
             self.assertEqual(content_type, "text/javascript")
             self.assertTrue((bridge.APP_DIR / filename).is_file())
 
-    def test_world_model_transport_is_served_by_local_bridge(self):
-        filename, content_type = bridge.STATIC_FILES["/worlds/model-client.js"]
-        self.assertEqual(content_type, "text/javascript")
-        self.assertTrue((bridge.APP_DIR / filename).is_file())
+    def test_world_modules_are_served_by_local_bridge(self):
+        for name in (
+            "model-client", "working-state", "effect-registry",
+            "linked-world-actions", "scene-draft", "turn-context",
+        ):
+            with self.subTest(module=name):
+                filename, content_type = bridge.STATIC_FILES[f"/worlds/{name}.js"]
+                self.assertEqual(content_type, "text/javascript")
+                self.assertTrue((bridge.APP_DIR / filename).is_file())
 
     @mock.patch.object(bridge, "http_request")
     @mock.patch.object(bridge, "ThreadingHTTPServer")
