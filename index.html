@@ -5233,7 +5233,7 @@
 <details class="room-bgm-panel" open><summary>Ambience / BGM</summary>
 <div id="bgmDropzone" style="border:2px dashed #555;padding:12px;text-align:center;cursor:pointer;border-radius:6px;margin:6px 0;">Datei hierher ziehen oder klicken<br><small>.ogg.mp3.wav.flac -> assets/bgm/</small></div>
 <input id="bgmFileInput" type="file" accept=".ogg,.mp3,.wav,.flac,audio/*" hidden>
-<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><label style="flex:1 1 180px">Quelle: <input id="roomBgmSrc" type="text" style="width:100%"></label><label style="display:flex;align-items:center;gap:5px">Vol: <input id="roomBgmVol" type="range" min="0" max="1" step="0.05" value="0.4" style="width:100px"></label><label><input id="roomBgmLoop" type="checkbox" checked> Loop</label></div>
+<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><label style="flex:1 1 180px">Quelle: <input id="roomBgmSrc" type="text" style="width:100%"></label><label style="display:flex;align-items:center;gap:5px">Vol: <input id="roomBgmVol" type="range" min="0" max="1" step="0.05" value="0.4" style="width:100px"><output id="roomBgmVolValue" for="roomBgmVol">40%</output></label><label><input id="roomBgmLoop" type="checkbox" checked> Loop</label></div>
 <div id="bgmCurrent" style="margin-top:6px;font-size:11px;opacity:.8"></div>
 <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button id="roomBgmPreview" type="button">Preview</button><button id="roomBgmStop" type="button">Stop</button><button id="roomBgmClearAssign" type="button">Zuordnung löschen</button><button id="roomBgmDeleteFile" type="button" style="color:#f55">Datei löschen</button></div>
 </details>

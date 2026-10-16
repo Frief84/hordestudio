@@ -18596,6 +18596,7 @@ function createWorldBgmPanel(record) {
     bgmPanel.dataset.inspectorSection = 'overview';
     const srcEl = bgmPanel.querySelector('#roomBgmSrc');
     const volEl = bgmPanel.querySelector('#roomBgmVol');
+    const volValueEl = bgmPanel.querySelector('#roomBgmVolValue');
     const loopEl = bgmPanel.querySelector('#roomBgmLoop');
     const dropEl = bgmPanel.querySelector('#bgmDropzone');
     const fileEl = bgmPanel.querySelector('#bgmFileInput');
@@ -18605,6 +18606,8 @@ function createWorldBgmPanel(record) {
     };
     srcEl.value = record.bgm?.src || '';
     volEl.value = record.bgm?.volume ?? 0.4;
+    const renderBgmVolume = () => { volValueEl.textContent = `${Math.round(Number(volEl.value) * 100)}%`; };
+    renderBgmVolume();
     loopEl.checked = record.bgm?.loop !== false;
     renderBgmInfo();
     const revokeLocalBgm = bgm => {
@@ -18676,7 +18679,14 @@ function createWorldBgmPanel(record) {
     };
     fileEl.onchange = () => { void handleBgmFile(fileEl.files?.[0]); };
     srcEl.onchange = saveBgm;
-    volEl.oninput = saveBgm;
+    volEl.oninput = () => {
+        renderBgmVolume();
+        saveBgm();
+        const activeSrc = document.getElementById('worldBgm')?.getAttribute('src');
+        if (record.bgm?.src && activeSrc === (record.bgm._blobUrl || record.bgm.src)) {
+            import('./worlds/bgm-player.js').then(module => module.playBgm(record.bgm));
+        }
+    };
     loopEl.onchange = saveBgm;
     bgmPanel.querySelector('#roomBgmPreview').onclick = () =>
         import('./worlds/bgm-player.js').then(module => module.playBgm(record.bgm));
