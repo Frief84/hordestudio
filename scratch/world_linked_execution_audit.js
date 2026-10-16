@@ -75,4 +75,17 @@ const given = executeLinkedActions({ actions: [action('give', 'resolved', {
 assert(given.ok, JSON.stringify(given.errors));
 assert.equal(given.working.getSession('inventory')[0].quantity, 1);
 assert.deepEqual(given.working.getEntity('guide_1').state.inventory, ['Saffron lens']);
+const relationshipChange = [{ source_npc_id: 'guide_1', target_npc_id: 'player', change: 2,
+    reason: 'A respectful gesture earns a little trust.' }];
+let forwardedRelationshipChange = null;
+const relationship = executeLinkedActions({ actions: [action('react', 'resolved', {
+    npc_relationship_updates: relationshipChange
+})], events: [], narrative: [] }, world, session, {
+    legacyEffectKeys: ['npc_relationship_updates'],
+    applyLegacyEffect: (type, payload) => { forwardedRelationshipChange = { type, payload }; }
+});
+assert(relationship.ok, JSON.stringify(relationship.errors));
+assert.deepEqual(forwardedRelationshipChange,
+    { type: 'npc_relationship_updates', payload: relationshipChange },
+    'legacy relationship effects exposed under linked action_effects reach the existing reducer');
 console.log('PASS linked action chain, confirmed guards, safe unknown effects and working state');

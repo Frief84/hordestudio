@@ -32135,8 +32135,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         }
                         return { ok: true };
                     };
-                    const legacyEffectKeys = Object.keys(
-                        worldStateTool.function.parameters.properties.effects.properties);
+                    const legacyEffectKeys = Object.keys(linkedWorldTurn
+                        ? worldStateTool.function.parameters.properties.actions.items.properties
+                            .action_effects.properties
+                        : worldStateTool.function.parameters.properties.effects.properties);
                     const applyLegacyEffect = (type, payload, targetWorking) => {
                         targetWorking.applyDetached((candidateWorld, candidateSession) => {
                             const result = processStructuredActions({ [type]: payload },
