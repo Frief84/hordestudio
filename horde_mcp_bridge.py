@@ -160,6 +160,7 @@ STATIC_FILES = {
     "/worlds/linked-world-actions.js": ("worlds/linked-world-actions.js", "text/javascript"),
     "/worlds/scene-draft.js": ("worlds/scene-draft.js", "text/javascript"),
     "/worlds/turn-context.js": ("worlds/turn-context.js", "text/javascript"),
+    "/worlds/bgm-player.js": ("worlds/bgm-player.js", "text/javascript"),
     "/large-archive.js": ("large-archive.js", "text/javascript"),
     "/bundled-humans.js": ("bundled-humans.js", "text/javascript"),
     "/human-package.js": ("human-package.js", "text/javascript"),
@@ -300,7 +301,17 @@ STATIC_MEDIA_ROOTS = (
     ("/assets/manual/", APP_DIR / "assets" / "manual"),
     ("/assets/bundled/", APP_DIR / "assets" / "bundled"),
     ("/assets/worlds/", APP_DIR / "assets" / "worlds"),
+    ("/assets/bgm/", APP_DIR / "assets" / "bgm"),
 )
+
+BGM_ASSET_DIR = APP_DIR / "assets" / "bgm"
+
+
+def bgm_asset_name(path: str, prefix: str) -> str:
+    name = urllib.parse.unquote(path.removeprefix(prefix))
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,180}\.(?:ogg|mp3|wav|flac)", name, re.I):
+        raise ValueError("Choose an .ogg, .mp3, .wav or .flac file with a safe filename.")
+    return name
 
 if os.environ.get("HORDE_CONFIG_DIR"):
     CONFIG_DIR = Path(os.environ["HORDE_CONFIG_DIR"]).resolve()
@@ -4221,6 +4232,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
             parsed_path = urllib.parse.urlparse(self.path).path
             if not self.remote_surface_allowed(parsed_path):
                 return
+            if parsed_path.startswith("/world-bgm/assets/") or parsed_path.startswith("/world-bgm/delete/"):
+                if not self.client_is_loopback():
+                    return self.respond(403, {"error": "BGM files can be changed only on this device."})
+                origin = self.headers.get("Origin", "")
+                if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host", ""):
+                    return self.respond(403, {"error": "BGM changes require the local app origin."})
+                saving = parsed_path.startswith("/world-bgm/assets/")
+                prefix = "/world-bgm/assets/" if saving else "/world-bgm/delete/"
+                name = bgm_asset_name(parsed_path, prefix)
+                target = BGM_ASSET_DIR / name
+                if saving:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 100 * 1024 * 1024:
+                        raise ValueError("Choose an audio file smaller than 100 MB.")
+                    audio = self.rfile.read(length)
+                    if len(audio) != length:
+                        raise ValueError("The audio upload was incomplete.")
+                    BGM_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+                    try:
+                        with target.open("xb") as output:
+                            output.write(audio)
+                    except FileExistsError:
+                        return self.respond(409, {"error": "A BGM file with this name already exists."})
+                    except Exception:
+                        target.unlink(missing_ok=True)
+                        raise
+                    return self.respond(201, {"src": f"assets/bgm/{name}"})
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    return self.respond(404, {"error": "BGM file not found."})
+                return self.respond(200, {"deleted": f"assets/bgm/{name}"})
             if parsed_path == "/vh2/mirror":
                 if REMOTE_VH2_MODE or not self.client_is_loopback():
                     return self.respond(403,{"error":"Local mirrors can be updated only on this device."})

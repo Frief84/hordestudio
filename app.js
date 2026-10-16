@@ -5869,6 +5869,11 @@ function switchView(viewName) {
     if (viewName !== 'manual' && location.hash.startsWith('#manual/')) history.replaceState(null, '', location.pathname + location.search);
     if(viewName!=='companionChat'&&typeof closeCompanionSocialDrawer==='function'&&!document.getElementById('companion-social-panel')?.classList.contains('hidden'))closeCompanionSocialDrawer();
     state.view = viewName;
+    if (previousView === 'worldPlay' && viewName !== 'worldPlay') {
+        import('./worlds/bgm-player.js').then(module => {
+            if (state.view !== 'worldPlay') module.stopBgm();
+        });
+    }
     
     // Update Nav Buttons
     const navParent = {
@@ -19302,6 +19307,125 @@ function renderWorldLocations() {
                 };
             });
 
+            const bgmPanel = document.getElementById('room-bgm-template').content.firstElementChild.cloneNode(true);
+            bgmPanel.dataset.inspectorSection = 'overview';
+            div.querySelector('.loc-desc').closest('.world-inspector-section').after(bgmPanel);
+            const srcEl = bgmPanel.querySelector('#roomBgmSrc');
+            const volEl = bgmPanel.querySelector('#roomBgmVol');
+            const loopEl = bgmPanel.querySelector('#roomBgmLoop');
+            const dropEl = bgmPanel.querySelector('#bgmDropzone');
+            const fileEl = bgmPanel.querySelector('#bgmFileInput');
+            const curEl = bgmPanel.querySelector('#bgmCurrent');
+            const renderBgmInfo = () => {
+                curEl.textContent = loc.bgm?.src ? `Aktuell: ${loc.bgm.src}` : 'Keine BGM';
+            };
+            srcEl.value = loc.bgm?.src || '';
+            volEl.value = loc.bgm?.volume ?? 0.4;
+            loopEl.checked = loc.bgm?.loop !== false;
+            renderBgmInfo();
+            const revokeLocalBgm = bgm => {
+                if (bgm?._blobUrl) setTimeout(() => URL.revokeObjectURL(bgm._blobUrl), 1000);
+            };
+            const saveBgm = () => {
+                const src = srcEl.value.trim();
+                if (!src) {
+                    revokeLocalBgm(loc.bgm);
+                    delete loc.bgm;
+                } else {
+                    const previous = loc.bgm || {};
+                    if (previous.src !== src) revokeLocalBgm(previous);
+                    loc.bgm = { ...(previous.src === src ? previous : {}), src,
+                        volume: parseFloat(volEl.value), loop: loopEl.checked, crossfade: 600 };
+                }
+                if (typeof markWorldDirty === 'function') markWorldDirty();
+                renderBgmInfo();
+            };
+            const handleBgmFile = async file => {
+                if (!file) return;
+                const safe = file.name.replace(/[^a-z0-9._-]/gi, '_').replace(/^[._-]+/, '');
+                if (!/^[a-z0-9][a-z0-9._-]*\.(ogg|mp3|wav|flac)$/i.test(safe)
+                    || file.size > 100 * 1024 * 1024) {
+                    showToast('Choose an .ogg, .mp3, .wav or .flac file smaller than 100 MB.', 'error');
+                    return;
+                }
+                const target = `assets/bgm/${safe}`;
+                try {
+                    let copied = false;
+                    if (window.hordeBridge?.saveAsset) {
+                        await window.hordeBridge.saveAsset(target, await file.arrayBuffer());
+                        copied = true;
+                    } else {
+                        const response = await fetch(`/world-bgm/assets/${encodeURIComponent(safe)}`,
+                            { method: 'POST', body: await file.arrayBuffer() }).catch(() => null);
+                        if (response?.ok) copied = true;
+                        else if (response && ![404, 405, 501].includes(response.status)) {
+                            throw new Error((await response.json().catch(() => ({}))).error
+                                || `Upload failed (${response.status})`);
+                        }
+                    }
+                    revokeLocalBgm(loc.bgm);
+                    if (copied) {
+                        loc.bgm = { src: target, volume: parseFloat(volEl.value),
+                            loop: loopEl.checked, crossfade: 600 };
+                    } else {
+                        loc.bgm = { src: target, _blobUrl: URL.createObjectURL(file),
+                            _isLocal: true, volume: parseFloat(volEl.value),
+                            loop: loopEl.checked, crossfade: 600 };
+                        showToast('Preview only: the local server is needed to copy BGM into assets/bgm/.', 'info');
+                    }
+                    srcEl.value = target;
+                    saveBgm();
+                    await import('./worlds/bgm-player.js').then(module => module.playBgm(loc.bgm));
+                } catch (error) {
+                    showToast(`BGM upload failed: ${error.message || error}`, 'error');
+                } finally {
+                    fileEl.value = '';
+                }
+            };
+            dropEl.onclick = () => fileEl.click();
+            dropEl.ondragover = event => { event.preventDefault(); dropEl.style.borderColor = '#0af'; };
+            dropEl.ondragleave = () => { dropEl.style.borderColor = '#555'; };
+            dropEl.ondrop = event => {
+                event.preventDefault();
+                dropEl.style.borderColor = '#555';
+                void handleBgmFile(event.dataTransfer?.files?.[0]);
+            };
+            fileEl.onchange = () => { void handleBgmFile(fileEl.files?.[0]); };
+            srcEl.onchange = saveBgm;
+            volEl.oninput = saveBgm;
+            loopEl.onchange = saveBgm;
+            bgmPanel.querySelector('#roomBgmPreview').onclick = () =>
+                import('./worlds/bgm-player.js').then(module => module.playBgm(loc.bgm));
+            bgmPanel.querySelector('#roomBgmStop').onclick = () =>
+                import('./worlds/bgm-player.js').then(module => module.stopBgm());
+            bgmPanel.querySelector('#roomBgmClearAssign').onclick = () => {
+                srcEl.value = '';
+                saveBgm();
+                import('./worlds/bgm-player.js').then(module => module.stopBgm());
+            };
+            bgmPanel.querySelector('#roomBgmDeleteFile').onclick = async () => {
+                const bgm = loc.bgm;
+                if (!bgm?.src || !confirm(`Löschen?\n${bgm.src}`)) return;
+                try {
+                    if (window.hordeBridge?.deleteAsset) {
+                        await window.hordeBridge.deleteAsset(bgm.src);
+                    } else if (!bgm._blobUrl) {
+                        const filename = bgm.src.startsWith('assets/bgm/')
+                            ? bgm.src.slice('assets/bgm/'.length) : '';
+                        if (!filename) throw new Error('Only local assets/bgm/ files can be deleted.');
+                        const response = await fetch(`/world-bgm/delete/${encodeURIComponent(filename)}`,
+                            { method: 'POST' });
+                        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error
+                            || `Delete failed (${response.status})`);
+                    }
+                    srcEl.value = '';
+                    saveBgm();
+                    (await import('./worlds/bgm-player.js')).stopBgm();
+                } catch (error) {
+                    showToast(`BGM deletion failed: ${error.message || error}`, 'error');
+                }
+            };
+
             const locationIdInput = div.querySelector('.loc-id');
             div.querySelector('.edit-loc-id').onclick = () => {
                 locationIdInput.readOnly = false;
@@ -27277,6 +27401,7 @@ function enterWorld(worldId) {
     }
     renderWorldPlayState();
     switchView('worldPlay');
+    playWorldLocationBgm(worldForSession(world, sess), sess);
     
     // If history is empty, run New Session Setup then trigger the DM intro.
     if (sess.history.length === 0) {
@@ -27346,6 +27471,7 @@ async function travelThroughWorldExit(world, sess, exit) {
             showToast('Travel was not saved. Your previous location is restored; retry after checking storage.', 'error');
             return { ok: false, reason: 'save_failed', error };
         }
+        playWorldLocationBgm(worldForSession(world, sess), sess);
         if (attempt.result.travelMinutes > 0) {
             showToast(`🕒 Travel time: +${attempt.result.travelMinutes}m`, 'info');
         }
@@ -27478,6 +27604,24 @@ function worldPlayReadProjection(world, sess) {
     };
 }
 
+function playWorldLocationBgm(world, sess) {
+    if (state.view !== 'worldPlay' || state.activeWorldId !== world?.id
+        || getCurrentWorldSession()?.id !== sess?.id) return;
+    const locationId = sess.playerLocation;
+    const location = (world.locations || []).find(item => item.id === locationId);
+    const room = location?.mapType === 'room' ? location : null;
+    const place = room
+        ? (world.locations || []).find(item => item.id === room.parentLocationId)
+        : location;
+    import('./worlds/bgm-player.js').then(module => {
+        if (state.view === 'worldPlay' && state.activeWorldId === world.id
+            && getCurrentWorldSession()?.id === sess.id
+            && getCurrentWorldSession()?.playerLocation === locationId) {
+            module.playForLocation(room, place, world);
+        }
+    }).catch(error => console.warn('World BGM could not load:', error));
+}
+
 function renderWorldPlayState() {
     const sourceWorld = state.worlds.find(w => w.id === state.activeWorldId);
     const inst = state.worldInstances[state.activeWorldId];
@@ -27525,6 +27669,9 @@ function renderWorldPlayState() {
     const requestedPresentation = ['classic', 'cinematic'].includes(sess.presentationMode)
         ? sess.presentationMode : (presentation.enabled ? presentation.mode : 'classic');
     const visualLocation = world.locations.find(location => location.id === sess.playerLocation);
+    if (state.view === 'worldPlay' && !worldTurnInProgress && !worldMutationInProgress) {
+        playWorldLocationBgm(world, sess);
+    }
     const locationBackground = worldMediaSource(world, visualLocation?.visuals?.backgroundAssetId);
     const background = requestedPresentation === 'classic' ? world.banner : (locationBackground || world.banner);
     const activePresentation = requestedPresentation !== 'classic';
@@ -29994,6 +30141,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             worldTurnPersistenceFence.committing = true;
         }
         const saved = await saveWorldsState(options);
+        if (world && sess) playWorldLocationBgm(worldForSession(world, sess), sess);
         if (pendingWorldActionFeedback) {
             const committedFeedback = pendingWorldActionFeedback;
             pendingWorldActionFeedback = null;
@@ -32226,6 +32374,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     } catch (persistError) {
                         persistError.code = 'WORLD_TURN_PERSISTENCE_FAILED';
                         throw persistError;
+                    }
+                    if (prepared.session.playerLocation !== receiptPlayerStart) {
+                        playWorldLocationBgm(worldForSession(canonicalWorld, canonicalSess), canonicalSess);
                     }
                     linkedTurnFinalized = true;
                     acceptedSceneDraft = compiled;

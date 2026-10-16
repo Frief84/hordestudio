@@ -1,0 +1,8 @@
+let audio=null,currentSrc=null,fadeTimer=null;
+function ensureAudio(){if(audio)return audio;audio=document.getElementById('worldBgm');if(!audio){audio=document.createElement('audio');audio.id='worldBgm';audio.preload='auto';audio.loop=true;audio.style.display='none';document.body.appendChild(audio);}return audio;}
+function clearFade(){if(fadeTimer){clearInterval(fadeTimer);fadeTimer=null;}}
+function fadeTo(tv,dur,done){const a=ensureAudio();clearFade();const sv=a.volume;const st=performance.now();fadeTimer=setInterval(()=>{const t=Math.min(1,(performance.now()-st)/dur);a.volume=sv+(tv-sv)*t;if(t>=1){clearFade();if(done)done();}},40);}
+export function getEffectiveBgm(room,place,world){if(room?.bgm?.src)return room.bgm;if(place?.bgm?.src)return place.bgm;if(world?.default_bgm?.src)return world.default_bgm;return null;}
+export function stopBgm(ms=400){const a=ensureAudio();if(!a.src)return;fadeTo(0,ms,()=>{a.pause();a.removeAttribute('src');currentSrc=null;});}
+export function playBgm(bgm){const a=ensureAudio();if(!bgm?.src){stopBgm();return;}const nSrc=bgm.src.trim();const vol=typeof bgm.volume==='number'?bgm.volume:0.4;const loop=bgm.loop!==false;const cf=bgm.crossfade||600;if(currentSrc===nSrc){a.loop=loop;fadeTo(vol,200);return;}const start=()=>{a.src=bgm._blobUrl||bgm.src;a.loop=loop;a.volume=0;a.play().catch(()=>{});currentSrc=nSrc;fadeTo(vol,cf);};if(a.src){fadeTo(0,cf,start);}else{start();}}
+export function playForLocation(room,place,world){const bgm=getEffectiveBgm(room,place,world);if(bgm)playBgm(bgm);else stopBgm();}
