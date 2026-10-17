@@ -3617,6 +3617,20 @@ input[type=number].form-input::-webkit-inner-spin-button {
   color: var(--text-3);
   cursor: pointer;
 }
+.world-advisory-blue {
+  border-left: 3px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.10);
+  color: var(--text);
+}
+.world-advisory-blue .msg-bubble::before {
+  content: 'Not recorded · advisory';
+  display: block;
+  margin-bottom: 4px;
+  color: #93c5fd;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
 .toast-container {
   position: fixed;
   bottom: 32px;

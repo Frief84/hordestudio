@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import re
 import sys
 import threading
 
@@ -24,20 +25,32 @@ VOICE_CATALOG = [
     "bf_isabella", "am_adam", "am_michael", "bm_george", "bm_lewis",
 ]
 TAG_MAP = {
-    "weiblich": ["af_heart", "af_sarah", "af_sky", "bf_emma"],
-    "männlich": ["am_adam", "am_michael", "bm_george", "bm_lewis"],
-    "jung": ["af_sky", "bf_emma", "bm_lewis"],
-    "erwachsen": ["af_sarah", "am_adam", "af_heart"],
-    "reif": ["bm_george", "am_michael", "af_heart"],
-    "warm": ["af_heart", "af_sarah", "bf_emma"],
-    "kalt": ["af_nicole", "bf_isabella"],
-    "klar": ["af_nicole", "bf_isabella"],
-    "rau": ["bm_george", "am_michael"],
-    "sanft": ["af_sarah", "bf_isabella", "af_heart"],
-    "weich": ["af_sarah", "bf_isabella"],
-    "hauchig": ["bf_isabella", "af_sarah"],
-    "britisch": ["bf_emma", "bf_isabella", "bm_george", "bm_lewis"],
-    "amerikanisch": ["af_heart", "af_sarah", "am_adam"],
+    "female": ["af_heart", "af_sarah", "af_sky", "bf_emma"],
+    "male": ["am_adam", "am_michael", "bm_george", "bm_lewis"],
+    "young": ["af_sky", "bf_emma", "bm_lewis"],
+    "adult": ["af_sarah", "am_adam", "af_heart"],
+    "mature": ["bm_george", "am_michael", "af_heart"],
+    "warm": ["af_heart", "af_sarah", "bf_emma", "am_adam", "bm_lewis"],
+    "cold": ["af_nicole", "bf_isabella"],
+    "clear": ["af_nicole", "bf_isabella"],
+    "raspy": ["bm_george", "am_michael"],
+    "gentle": ["af_sarah", "bf_isabella", "af_heart"],
+    "soft": ["af_sarah", "bf_isabella", "am_adam", "bm_lewis"],
+    "breathy": ["bf_isabella", "af_sarah"],
+    "flattering": ["af_heart", "bf_emma", "am_adam", "bm_lewis"],
+    "powerful": ["af_nicole", "am_michael", "bm_george"],
+    "happy": ["af_sky", "bf_emma", "am_adam", "bm_lewis"],
+    "british": ["bf_emma", "bf_isabella", "bm_george", "bm_lewis"],
+    "american": ["af_heart", "af_sarah", "am_adam"],
+}
+TAG_ALIASES = {
+    "weiblich": "female", "männlich": "male", "jung": "young", "erwachsen": "adult", "reif": "mature",
+    "kalt": "cold", "klar": "clear", "rau": "raspy", "sanft": "gentle", "weich": "soft",
+    "hauchig": "breathy", "britisch": "british", "amerikanisch": "american",
+    "tief": "deep", "dunkel": "dark", "hoch": "high", "hell": "bright",
+    "schnell": "fast", "langsam": "slow", "energisch": "energetic", "ruhig": "calm", "geflüstert": "whispered",
+    "powerfull": "powerful", "softly": "soft", "masculine": "male", "feminine": "female",
+    "old": "mature", "elderly": "mature",
 }
 
 _sessions: dict[str, object] = {}
@@ -100,29 +113,40 @@ def get_kokoro(gpu: bool = False):
 def tags_to_formula(tags: list[str]) -> dict:
     if not isinstance(tags, list):
         raise ValueError("tags must be an array")
-    cleaned = list(dict.fromkeys(str(tag).strip().lower() for tag in tags if str(tag).strip()))[:20]
+    cleaned = list(dict.fromkeys(TAG_ALIASES.get(value, value)
+        for tag in tags for value in re.findall(r"[\w-]+", str(tag).lower())))[:20]
+    known = set(TAG_MAP) | {"deep", "dark", "high", "bright", "fast", "slow", "energetic", "calm", "whispered"}
+    unmapped = [tag for tag in cleaned if tag not in known]
+    gender = next((tag for tag in reversed(cleaned) if tag in ("male", "female")), None)
+    allowed_voices = [voice for voice in VOICE_CATALOG
+                      if not gender or voice[1] == ("m" if gender == "male" else "f")]
     scores = {voice: 0 for voice in VOICE_CATALOG}
     for tag in cleaned:
         for voice in TAG_MAP.get(tag, []):
-            scores[voice] += 1
+            if voice in allowed_voices:
+                scores[voice] += 1
     if not any(scores.values()):
         scores["af_heart"], scores["bf_emma"] = 2, 1
-    ranked = sorted(scores.items(), key=lambda item: (-item[1], VOICE_CATALOG.index(item[0])))
+    ranked = sorted(((voice, scores[voice]) for voice in allowed_voices),
+                    key=lambda item: (-item[1], VOICE_CATALOG.index(item[0])))
     top = [(voice, score) for voice, score in ranked if score > 0][:3]
     if len(top) == 1:
-        fallback = "bf_emma" if top[0][0] != "bf_emma" else "af_heart"
+        fallbacks = (["am_adam", "bm_george"] if gender == "male" else
+                     ["af_heart", "bf_emma"] if gender == "female" else ["bf_emma", "af_heart"])
+        fallback = next(voice for voice in fallbacks if voice != top[0][0])
         top.append((fallback, 0.5))
     total = sum(score for _, score in top)
     reserve = 10 * len(top)
     weights = [10 + int(np.floor(score / total * (100 - reserve) + 0.5)) for _, score in top]
     weights[-1] = 100 - sum(weights[:-1])
     parts = [[voice, weight] for (voice, _), weight in zip(top, weights)]
-    pitch = (-3 if any(tag in cleaned for tag in ("tief", "dunkel")) else 0) + (3 if any(tag in cleaned for tag in ("hoch", "hell")) else 0)
-    speed = 1.15 if any(tag in cleaned for tag in ("schnell", "energisch")) else 1.0
-    if any(tag in cleaned for tag in ("langsam", "ruhig", "geflüstert")):
+    pitch = (-3 if any(tag in cleaned for tag in ("deep", "dark")) else 0) + (3 if any(tag in cleaned for tag in ("high", "bright")) else 0)
+    speed = 1.15 if any(tag in cleaned for tag in ("fast", "energetic")) else 1.0
+    if any(tag in cleaned for tag in ("slow", "calm", "whispered")):
         speed = 0.88
     return {"formula": ",".join(f"{voice}:{weight}" for voice, weight in parts),
-            "parts": parts, "tags": cleaned, "speed": speed, "pitch": pitch}
+            "parts": parts, "tags": cleaned, "speed": speed, "pitch": pitch,
+            "unmapped": unmapped}
 
 
 def _parse_formula(formula: str) -> list[tuple[str, float]]:

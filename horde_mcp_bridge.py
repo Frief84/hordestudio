@@ -233,6 +233,8 @@ STATIC_FILES = {
     "/index.html": ("index.html", "text/html"),
     "/style.css": ("style.css", "text/css"),
     "/app.js": ("app.js", "text/javascript"),
+    "/docs/version.json": ("docs/version.json", "application/json"),
+    "/docs/web.zip": ("docs/web.zip", "application/zip"),
     "/worlds/model-client.js": ("worlds/model-client.js", "text/javascript"),
     "/worlds/working-state.js": ("worlds/working-state.js", "text/javascript"),
     "/worlds/effect-registry.js": ("worlds/effect-registry.js", "text/javascript"),
@@ -3787,7 +3789,8 @@ class MultiplayerHandler(BaseHTTPRequestHandler):
             self.respond(404, {"error": "Application asset not found."})
             return True
         self.send_response(200)
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Type", content_type if content_type == "application/zip"
+                         else f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -4022,7 +4025,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not_modified:
             self.end_headers()
             return
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Type", content_type if content_type == "application/zip"
+                         else f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(metadata.st_size))
         self.end_headers()
         try:

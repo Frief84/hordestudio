@@ -560,6 +560,12 @@
                                             <button class="tool-btn" id="world-new-session-btn" type="button" title="New World Session">＋ New timeline</button>
                                             <button class="tool-btn" id="world-rename-session-btn" type="button" title="Rename Current Session">Rename timeline</button>
                                             <button class="tool-btn" id="world-correct-state-btn" type="button">Correct world state…</button>
+                                            <label class="tool-btn" style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="Session override for deterministic background time">
+                                                Away time
+                                                <select id="world-background-time-override" class="tool-select" aria-label="Background time session override">
+                                                    <option value="inherit">World default</option><option value="off">Off</option><option value="on">On</option>
+                                                </select>
+                                            </label>
                                             <button class="tool-btn tool-btn-danger" id="world-del-session-btn" type="button" title="Delete Current Session" aria-label="Delete current timeline">Delete timeline</button>
                                         </div>
                                     </div>
@@ -910,9 +916,9 @@
                                 <textarea id="w-studio-intro" class="form-textarea" rows="6" placeholder="e.g. Rain hammers the tin roof of the way-station as you shake the road dust from your coat. Dusty Hollow has no sheriff tonight — and everyone inside knows it..."></textarea>
                             </div>
                             <div class="form-section">
-                                <h3>Welt-Stimme (Kokoro)</h3>
-                                <p class="form-hint">Optionale Standardstimme für Erzählung und NPCs ohne eigene Stimme.</p>
-                                <label><input type="checkbox" id="world-kokoro-enable"> Kokoro als Welt-Stimme nutzen</label>
+                                <h3>World voice (Kokoro)</h3>
+                                <p class="form-hint">Optional default voice for narration and NPCs without their own voice.</p>
+                                <label><input type="checkbox" id="world-kokoro-enable"> Use Kokoro as the world voice</label>
                                 <div id="world-voice-designer"></div>
                             </div>
                         </div>
@@ -992,6 +998,7 @@
                                         <option value="openrouter">OpenRouter</option>
                                         <option value="gptproto">GPTProto</option>
                                         <option value="nanogpt">NanoGPT</option>
+                                        <option value="horde">AI Horde</option>
                                         <option value="fal">Fal</option>
                                     </select>
                                 </div>
@@ -1385,6 +1392,9 @@
                                     </label>
                                     <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:var(--red); font-weight:700;">
                                         <input type="checkbox" id="w-hud-enable-schedules"> Enable NPC Schedules
+                                    </label>
+                                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="w-time-advances-away"> Zeit läuft weiter wenn nicht im Spiel
                                     </label>
                                 </div>
                             </div>
@@ -1965,6 +1975,7 @@
                                             <option value="openrouter">OpenRouter</option>
                                             <option value="gptproto">GPTProto</option>
                                             <option value="nanogpt">NanoGPT</option>
+                                            <option value="horde">AI Horde</option>
                                             <option value="fal">Fal</option>
                                             <option value="local">Local / self-hosted</option>
                                         </select>
@@ -3240,6 +3251,7 @@
                                     <option value="nanogpt">NanoGPT</option>
                                     <option value="nvidia">NVIDIA NIM</option>
                                     <option value="bedrock">AWS Bedrock</option>
+                                    <option value="horde">AI Horde</option>
                                     <option value="custom">Custom API</option>
                                     <option value="local">Local / self-hosted</option>
                                 </select>
@@ -3522,6 +3534,7 @@
                                             <option value="openrouter">OpenRouter</option>
                                             <option value="gptproto">GPTProto</option>
                                             <option value="nanogpt">NanoGPT</option>
+                                            <option value="horde">AI Horde</option>
                                             <option value="fal">Fal</option>
                                             <option value="local">Local / self-hosted</option>
                                             <option value="local_image">Local image server (OpenAI-compatible)</option>
@@ -3882,6 +3895,7 @@
                 <option value="nanogpt">☁️ NanoGPT (cloud · text, images &amp; speech)</option>
                 <option value="nvidia">☁️ NVIDIA NIM (cloud · text)</option>
                 <option value="bedrock">☁️ AWS Bedrock (cloud · text)</option>
+                <option value="horde">🛰️ AI Horde (queued · text)</option>
                 <option value="custom">🔧 Custom OpenAI-compatible API</option>
                 <option value="local">💻 Local / Self-hosted (offline, OpenAI-compatible)</option>
             </select>
@@ -3909,6 +3923,11 @@
                 </div>
                 <p class="form-hint" style="margin-top:8px;">Still failing? Hard-refresh (Cmd/Ctrl+Shift+R) — browsers cache the app aggressively.</p>
             </div>
+            <div id="horde-provider-fields" style="display:none; margin-top:12px; padding:12px; background:var(--surface2); border-radius:8px; border:1px solid var(--border);">
+                <label class="form-label">Optional AI Horde API key</label>
+                <input type="password" id="global-horde-key" class="form-input" placeholder="Anonymous key is used when blank">
+                <p class="form-hint">Queued text generation at <code>aihorde.net</code>. The browser checks offline state before submission, waits up to 90 seconds and never falls back to another provider.</p>
+            </div>
                 </div>
             <section class="mcp-settings-card" aria-labelledby="local-tts-settings-title">
                 <div class="mcp-settings-head"><div><span class="vh-eyebrow">OpenAI-compatible speech</span><h3 id="local-tts-settings-title">Local Neural TTS</h3></div></div>
@@ -3922,11 +3941,11 @@
             </section>
             <section class="mcp-settings-card" aria-labelledby="kokoro-settings-title">
                 <div class="mcp-settings-head"><div><span class="vh-eyebrow">Local ONNX speech</span><h3 id="kokoro-settings-title">Kokoro TTS</h3></div></div>
-                <label class="form-label" for="kokoro-device">Rechengerät</label>
+                <label class="form-label" for="kokoro-device">Processing device</label>
                 <select id="kokoro-device" class="form-select"><option value="cpu">CPU</option><option value="gpu">GPU (CUDA)</option></select>
-                <p class="form-hint">Die GPU-Auswahl benötigt einen funktionierenden CUDAExecutionProvider. Es gibt keinen stillen CPU-Fallback.</p>
-                <button id="test-kokoro-btn" class="btn btn-ghost" type="button">Kokoro-Status prüfen</button>
-                <div id="kokoro-status" class="form-hint" role="status">Noch nicht geprüft.</div>
+                <p class="form-hint">GPU mode requires a working CUDAExecutionProvider. There is no silent CPU fallback.</p>
+                <button id="test-kokoro-btn" class="btn btn-ghost" type="button">Check Kokoro status</button>
+                <div id="kokoro-status" class="form-hint" role="status">Not checked yet.</div>
             </section>
             </section>
 
@@ -5392,9 +5411,9 @@
     <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
     <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
     <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
-    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017"></script>
-    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-kokoro"></script>
+    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017-persona-voice"></script>
+    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017-persona-voice"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-kokoro-en"></script>
     <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
     <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
     <script src="virtual_humans/frontend/vh-page-builder.js?v=20260925-v182"></script>
@@ -5409,8 +5428,10 @@
     <script src="worlds/linked-world-actions.js?v=20261015-linked-actions-fix2"></script>
     <script src="worlds/scene-draft.js?v=20261015-linked-actions-fix2"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
+    <script src="worlds/horde-client.js?v=20261017-queue"></script>
+    <script src="worlds/background-sim.js?v=20261017-background-time"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261015-linked-actions-fix3"></script>
+    <script src="app.js?v=20261017-persona-voice"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

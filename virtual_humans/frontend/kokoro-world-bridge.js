@@ -1,11 +1,24 @@
 /* Adapted from the supplied kokoro-world-bridge.js for Horde Studio's renderers. */
 (function () {
     'use strict';
-    const valid = profile => profile?.engine === 'kokoro' && typeof profile.formula === 'string';
+    const valid = profile => profile?.engine === 'kokoro' && typeof profile.formula === 'string' && !!profile.formula.trim();
+    function genderSafeProfile(profile) {
+        if (!valid(profile) || !Array.isArray(profile.tags)) return profile;
+        const designer = window.KokoroTagDesigner;
+        const tags = profile.tags.map(tag => designer?.normalizeTag?.(tag) || tag);
+        if (!designer?.profileGenderMismatch?.(profile,tags)) return profile;
+        const corrected = designer.tags_to_formula(tags);
+        return {...profile,formula:corrected.formula,parts:corrected.parts};
+    }
     function getProfileFor(npc,world,companion) {
-        if (valid(npc?.voice_profile)) return npc.voice_profile;
-        if (valid(world?.voice_settings?.default_profile)) return world.voice_settings.default_profile;
-        if (valid(companion?.voice_profile)) return companion.voice_profile;
+        if (valid(npc?.voice_profile)) return genderSafeProfile(npc.voice_profile);
+        if (npc?.voice_source === 'custom') return null;
+        if (npc && npc.voice_source !== 'world') {
+            const inferred = window.KokoroTagDesigner?.profileFromPersona?.(npc.persona);
+            if (valid(inferred)) return inferred;
+        }
+        if (valid(world?.voice_settings?.default_profile)) return genderSafeProfile(world.voice_settings.default_profile);
+        if (valid(companion?.voice_profile)) return genderSafeProfile(companion.voice_profile);
         return null;
     }
     function gpuSelected() {
@@ -13,7 +26,8 @@
         catch { return false; }
     }
     async function synthesize(text,profile) {
-        if (!valid(profile)) throw new Error('Keine Kokoro-Stimme gewählt.');
+        if (!valid(profile)) throw new Error('No Kokoro voice selected.');
+        profile = genderSafeProfile(profile);
         const response = await fetch('/api/tts/kokoro/synthesize',{
             method:'POST',headers:{'Content-Type':'application/json'},
             body:JSON.stringify({text:String(text || '').slice(0,1000),formula:profile.formula,
@@ -44,8 +58,9 @@
         if (!text) return;
         const button = existing || document.createElement('button');
         button.type = 'button'; button.className = 'kokoro-tts-btn btn btn-ghost';
-        button.textContent = '🔊'; button.title = `Mit Kokoro sprechen: ${(profile.tags || []).join(', ') || profile.formula}`;
-        button.setAttribute('aria-label','Nachricht mit Kokoro vorlesen');
+        const displayTags = (profile.tags || []).map(tag => window.KokoroTagDesigner?.normalizeTag?.(tag) || tag);
+        button.textContent = '🔊'; button.title = `Speak with Kokoro: ${displayTags.join(', ') || profile.formula}`;
+        button.setAttribute('aria-label','Read message aloud with Kokoro');
         button.onclick = async event => {
             event.stopPropagation(); button.disabled = true; button.textContent = '⏳';
             try { await play(text,profile); button.textContent = '🔊'; }
