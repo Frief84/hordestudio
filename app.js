@@ -606,6 +606,7 @@ let chatTurnInProgress = false;
 let worldTurnInProgress = false; // re-entry guard for executeWorldTurn
 let worldPendingTurnUI = null; // Presentation only; never saved as world state.
 const WORLD_PLAYER_INPUT_FIDELITY = '[PLAYER WORDING AND INTENT]\nRespond to the player\'s words; do not rewrite their dialogue as a new speech. If quoting them, preserve the original wording. An established delivery style or tone may continue when consistent with the current input; it must not change what the player says or intends. Do not invent motives, threats, promises, permissions, refusals or actions for the player. Minor typo interpretation must preserve meaning, negation, actor, target and scope. If unclear wording would change an action or its consequences, ask a brief in-character clarification and leave that part unresolved; never replace it with a plausible new meaning.';
+const WORLD_PLAYER_INPUT_NOTATION = '[OPTIONAL PLAYER NOTATION]\nText the player puts in quotation marks ("..." or “...”) is spoken aloud by the player. Text the player puts between asterisks (*...*) describes an action the player attempts. The player may mix both in one message. Plain unmarked text remains fully valid: classify its meaning from context. A spoken request for an NPC to act does not mean the player performed that physical action. Keep the player’s exact words and intent.';
 const WORLD_HOSTED_TURN_DEADLINE_MS = 150000;
 let worldMutationInProgress = false; // short, persisted non-generation commands
 let worldTurnPersistenceFence = null;
@@ -8746,6 +8747,11 @@ function appendMessageUI(role, content, index = null, charId = null, isStreaming
         };
     }
     
+    if (role === 'ai' && index !== null && window.HordeKokoro) {
+        const character = state.characters.find(item => item.id === (charId || state.activeCharId));
+        window.HordeKokoro.attachButton(div.querySelector('.message-actions') || div,
+            {text:content}, character, null, null);
+    }
     msgContainer.appendChild(div);
     msgContainer.scrollTop = msgContainer.scrollHeight;
     updateContextMeter();
@@ -14432,6 +14438,34 @@ function setupGlobalSettings() {
             testLocalTTS.disabled = false;
         }
     };
+    const kokoroDevice = document.getElementById('kokoro-device');
+    const testKokoro = document.getElementById('test-kokoro-btn');
+    const kokoroStatus = document.getElementById('kokoro-status');
+    if (kokoroDevice) {
+        try { kokoroDevice.value = localStorage.getItem('horde_kokoro_device') === 'gpu' ? 'gpu' : 'cpu'; }
+        catch { kokoroDevice.value = 'cpu'; }
+        kokoroDevice.onchange = () => {
+            localStorage.setItem('horde_kokoro_device', kokoroDevice.value);
+            if (kokoroStatus) kokoroStatus.style.color = '';
+            if (kokoroStatus) kokoroStatus.textContent = kokoroDevice.value === 'gpu'
+                ? 'GPU gewählt. Bitte Status und Sprachvorschau prüfen.' : 'CPU gewählt.';
+        };
+    }
+    if (testKokoro) testKokoro.onclick = async () => {
+        testKokoro.disabled = true;
+        if (kokoroStatus) kokoroStatus.textContent = 'Prüfe Kokoro-Modell und ONNX-Provider…';
+        try {
+            const response = await fetch('/api/tts/kokoro/voices');
+            const info = await response.json();
+            if (!response.ok || !info.available) throw new Error(info.error || 'Modell nicht gefunden');
+            const cuda = info.gpu_available === true;
+            if (kokoroStatus) kokoroStatus.style.color = kokoroDevice?.value === 'gpu' && !cuda ? '#dc3545' : '#28a745';
+            if (kokoroStatus) kokoroStatus.textContent = `Kokoro bereit · ${info.voices.length} Stimmen · CPU${cuda ? ' + CUDA' : ''}${kokoroDevice?.value === 'gpu' && !cuda ? ` · GPU nicht verfügbar: ${info.gpu_error || 'CUDA konnte nicht starten'}` : ''}`;
+        } catch (error) {
+            if (kokoroStatus) kokoroStatus.style.color = '#dc3545';
+            if (kokoroStatus) kokoroStatus.textContent = `Kokoro nicht bereit: ${error.message}`;
+        } finally { testKokoro.disabled = false; }
+    };
     const testLocalImages = document.getElementById('test-local-image-engines-btn');
     if (testLocalImages) testLocalImages.onclick = async () => {
         const result = document.getElementById('local-image-engines-result');
@@ -16484,6 +16518,28 @@ async function fetchWorldModelSettings() {
     await fetchModelData(modelInput, 'w-', state.editingWorld);
 }
 
+function renderWorldVoiceSettings(world) {
+    const enabled = document.getElementById('world-kokoro-enable');
+    const container = document.getElementById('world-voice-designer');
+    if (!enabled || !container || !window.KokoroTagDesigner) return;
+    const existing = world.voice_settings?.default_profile;
+    enabled.checked = existing?.engine === 'kokoro';
+    container.hidden = !enabled.checked;
+    const designer = window.KokoroTagDesigner.render(container, profile => {
+        if (!enabled.checked) return;
+        world.voice_settings ||= {};
+        world.voice_settings.default_profile = profile;
+        void saveWorld();
+    }, existing);
+    enabled.onchange = () => {
+        container.hidden = !enabled.checked;
+        world.voice_settings ||= {};
+        if (enabled.checked) world.voice_settings.default_profile = designer.getProfile();
+        else delete world.voice_settings.default_profile;
+        void saveWorld();
+    };
+}
+
 function openWorldStudio(worldId = null) {
     const mapBody = document.querySelector('#tab-w-visual-map > .form-body');
     if (mapBody) { mapBody.style.width = ''; mapBody.style.height = ''; }
@@ -16501,6 +16557,7 @@ function openWorldStudio(worldId = null) {
     document.getElementById('w-studio-desc').value = w.description || '';
     document.getElementById('w-studio-dm-prompt').value = w.dmPrompt || '';
     document.getElementById('w-studio-intro').value = w.intro || '';
+    renderWorldVoiceSettings(w);
     document.getElementById('w-studio-note').value = w.authorNote || '';
     
     const bannerPreview = document.getElementById('w-banner-preview');
@@ -16615,7 +16672,8 @@ async function saveWorld() {
         sceneLocationLimit: document.getElementById('w-kernel-location-limit').value,
         memoryMode: document.getElementById('w-kernel-memory-mode').value,
         repairMode: document.getElementById('w-kernel-repair-mode').value,
-        compactTools: document.getElementById('w-kernel-compact-tools').checked
+        compactTools: document.getElementById('w-kernel-compact-tools').checked,
+        effectMode: w.kernel?.effectMode
     } });
     const requestedTemperature = parseFloat(document.getElementById('w-studio-temp').value);
     w.temp = Number.isFinite(requestedTemperature) ? requestedTemperature : 0.9;
@@ -21404,6 +21462,27 @@ function renderWorldEntities(mode = 'people') {
                 updateWorldTokenCount();
             };
             div.querySelector('.ent-persona').oninput = (e) => { ent.persona = e.target.value; updateWorldTokenCount(); };
+            const voiceSection = div.querySelector('[data-inspector-section="persona"]');
+            if (voiceSection && window.KokoroTagDesigner) {
+                const voiceLabel = document.createElement('label');
+                const inherit = document.createElement('input');
+                inherit.type = 'checkbox';
+                inherit.checked = ent.voice_profile?.engine !== 'kokoro';
+                voiceLabel.append(inherit, document.createTextNode(' Welt-Stimme nutzen'));
+                const voiceEditor = document.createElement('div');
+                voiceEditor.hidden = inherit.checked;
+                voiceSection.append(voiceLabel, voiceEditor);
+                const designer = window.KokoroTagDesigner.render(voiceEditor, profile => {
+                    if (inherit.checked) return;
+                    ent.voice_profile = profile;
+                    void saveWorld();
+                }, ent.voice_profile);
+                inherit.onchange = () => {
+                    voiceEditor.hidden = inherit.checked;
+                    ent.voice_profile = inherit.checked ? null : designer.getProfile();
+                    void saveWorld();
+                };
+            }
             div.querySelector('.ent-goal').oninput = (e) => { ent.goal = e.target.value; updateWorldTokenCount(); };
             div.querySelector('.ent-goal-autonomy').onchange = (e) => { ent.goalAutonomy = e.target.value; };
 
@@ -25390,7 +25469,8 @@ function normalizeWorldKernelConfig(world) {
         // transport fixtures while providers transition to the new contract.
         resolveFirst: raw.resolveFirst !== false,
         sceneDrafts: raw.sceneDrafts !== false,
-        sceneDraftProtocol: raw.sceneDraftProtocol === "scene_draft_v2" ? "scene_draft_v2" : "scene_draft_v3"
+        sceneDraftProtocol: raw.sceneDraftProtocol === "scene_draft_v2" ? "scene_draft_v2" : "scene_draft_v3",
+        effectMode: raw.effectMode === 'effect_free' ? 'effect_free' : 'standard'
     };
     if (world) world.kernel = config;
     return config;
@@ -28898,6 +28978,15 @@ function appendWorldMessageUI(msg, index = null) {
         };
     }
 
+    if (msg.role === 'dm' && world && window.HordeKokoro) {
+        const actions = div.querySelector('.msg-actions') || div;
+        window.HordeKokoro.attachButton(actions,{text:displayText},null,world,null);
+        div.querySelectorAll('.world-npc-dialogue[data-speaker-id]').forEach(card => {
+            const speaker = world.entities?.find(entity => entity.id === card.dataset.speakerId);
+            const spoken = card.querySelector('.world-npc-dialogue-copy > span')?.textContent || '';
+            window.HordeKokoro.attachButton(card,{text:spoken},speaker,world,null);
+        });
+    }
     container.appendChild(div);
     return div;
 }
@@ -31746,19 +31835,23 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         // Keep an input-only compatibility adapter for older provider output.
         // The new public contract has no model-authored ending checksum.
         const legacyWorldTool = JSON.parse(JSON.stringify(worldStateTool));
+        const worldEffectCapability = sceneDrafts ? HordeEffectRegistry.capabilities({
+            protocol: sceneProtocol,
+            executionMode: sceneProtocol === 'scene_draft_v3' ? 'linked' : 'legacy',
+            legacySchemas: worldStateProperties,
+            intentionallyEffectFree: normalizeWorldKernelConfig(world).effectMode === 'effect_free'
+        }) : null;
         if (sceneDrafts) {
             worldStateTool.function.parameters = HordeWorldSceneDraft.schema(worldStateProperties, sceneProtocol,
                 { input: latestActionText || userInput, commitments: sess.scheduledEvents || [],
                     location: sess.playerLocation, now: currentTotalMinutes, plannedWait: draftPlannedWait,
-                    linkedRequired: sceneProtocol === 'scene_draft_v3' });
+                    linkedRequired: sceneProtocol === 'scene_draft_v3', capability: worldEffectCapability });
             worldStateTool.function.description = 'Submit one provisional scene draft with narrative and proposed changes. The engine builds the final receipt and ending scene.';
         }
         let sceneDraftFieldGuide = sceneDrafts
             ? `\n[SCENE DRAFT FIELD GUIDE — authoritative for this world]\nTop level: ${Object.keys(worldStateTool.function.parameters.properties).join(', ')}.\neffects may contain only these enabled fields: ${Object.keys(worldStateTool.function.parameters.properties.effects.properties).join(', ') || '(none)'}. Use effects:{} if there is no lasting change.\nAn event uses only these fields: ${Object.keys(worldStateTool.function.parameters.properties.events.items.properties).join(', ')}. Always give its type, actor_id, status and passage_id; include action/item for a transfer, from_location_id/to_location_id for a mapped move, outfit for a clothing change. Use exact IDs from WORLD LORE. Never create a new field to describe an action; use narrative for appearance and non-durable detail.`
             : '';
-        if (linkedWorldTurn) sceneDraftFieldGuide = `\nLinked action_effects keys: ${Object.keys(
-            worldStateTool.function.parameters.properties.actions.items.properties.action_effects.properties
-        ).join(', ')}. Each value is a typed list. Keep top-level effects:{}; attach each technical change to exactly one action_id. Events and action-result passages copy that action_id exactly.`;
+        if (linkedWorldTurn) sceneDraftFieldGuide = `\nLinked action_effects keys: ${worldEffectCapability.names.join(', ') || '(none)'}. Each value is a typed list. Keep top-level effects:{}; attach each technical change to exactly one action_id. Events and action-result passages copy that action_id exactly.`;
 
         // Tool calling across OpenAI-compatible providers is not uniform. Give
         // every action turn an explicit textual emergency channel from turn
@@ -31785,7 +31878,11 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (sceneDrafts) messages.push({ role: 'system', content:
             'CONDITION EVENT RULE: Use type:"condition" only for a named lasting condition, with condition:"exact name". To remove one, copy the actor’s currently recorded condition label. Loosening a tether while cuffs remain is a completed physical interaction and possibly a changed activity, not proof that the restrained condition or cuffs ended. Do not invent a condition name or silently free the person.' });
         if (sceneDrafts) messages.push({ role: 'system', content:
-            'PLAYER SPEECH VS ACTION: An unquoted line addressed to an NPC can be spoken dialogue or an instruction to that NPC. For example, “It is time to proceed, girl” is speech/request, not proof that the player physically moved or escorted her. Classify it as speech/question and narrate only the NPC response. Claim a completed physical action only when the player explicitly says they performed that action.' });
+            'PLAYER SPEECH VS ACTION: An unquoted line addressed to an NPC can be spoken dialogue or an instruction to that NPC. For example, “It is time to proceed, girl” is speech/request, not proof that the player physically moved or escorted her. Classify it as speech/question and narrate only the NPC response. Claim a completed physical action only when the player explicitly says they performed that action.\n' + WORLD_PLAYER_INPUT_NOTATION });
+        if (linkedWorldTurn) messages.push({ role: 'system', content:
+            'LINKED ACTION COVERAGE: For compound input, every action must include request copied from its own contiguous part of the player text. Split independently executable steps into separate actions in the player’s order; never omit or merge a step to avoid the request field. A completed nonpersistent physical interaction without a lasting world change needs one completed player interaction event with the same action_id and passage_id as its response. Lasting changes still require supported action_effects. A spoken line needs only its linked response passage when nothing changes.' });
+        if (linkedWorldTurn) messages.push({ role: 'system', content:
+            'SPEECH EVENT CONSISTENCY: A player message enclosed entirely in quotation marks is spoken dialogue. Classify its action as speech or question. A linked response passage suffices when the exchange changes no lasting world state; events may be empty. Never label a pause, expression, tone, spoken assertion or request as a completed movement, inventory, outfit, condition, relationship, time or NPC lifecycle event. Declare one of those events only with a matching executable action_effects operation and a real change allowed by world rules.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -31800,6 +31897,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             draftInstruction = draftInstruction.replace('\nCurrent day:', compactRules + '\nCurrent day:');
         }
         if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
+        if (sceneDrafts) draftInstruction = draftInstruction.replace('\nCurrent day:',
+            '\nSchedule a commitment only for an explicit future promise or agreed deadline with a supported time. A rhetorical question about having somewhere to be is not a commitment. A newly scheduled due time must be strictly later than the current World day and minute; never guess a future date to make an unsupported commitment valid. A pause, glance, expression or momentary reaction belongs in narrative, not a completed status, time, condition or relationship event. Claim a completed mechanical event only when its matching typed action_effects change is present and valid.\nCurrent day:');
         if (sceneDrafts) {
             const dynamicStart = draftInstruction.indexOf('\nCurrent day:');
             messages.unshift({ role: 'system', content: draftInstruction.slice(0, dynamicStart) + compactSceneRules });
@@ -32238,10 +32337,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 present: buildWorldSceneFrame(world, sess).present_character_ids,
                 locations: (receiptView.locations || []).map(location => location.id),
                 commitments: sess.scheduledEvents || [], now: getWorldTimeData(world, sess).currentTotalMinutes,
-                effectKeys: Object.keys(linkedWorldTurn
-                    ? worldStateTool.function.parameters.properties.actions.items.properties
-                        .action_effects.properties
-                    : worldStateTool.function.parameters.properties.effects.properties),
+                capability: worldEffectCapability,
                 contract: worldStateTool.function.parameters,
                 linkedRequired: sceneProtocol === 'scene_draft_v3'
             }) : null;
@@ -32278,6 +32374,11 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             const requirement = worldExitRequirement(candidateSession, exit, fromId);
                             if (!requirement.ok && !options.accompanyingPlayer)
                                 return { ok: false, reason: requirement.reason };
+                            if (options.accompanyingPlayer) {
+                                const access = worldNpcAccess(view, actorId, toId, candidateSession);
+                                if (!access.ok) return { ok: false,
+                                    reason: access.reason || 'companion_access_denied' };
+                            }
                         } else {
                             const access = worldNpcAccess(view, actorId, toId, candidateSession);
                             if (!access.ok) return { ok: false, reason: access.reason || 'npc_access_denied' };
@@ -32301,10 +32402,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         }
                         return { ok: true };
                     };
-                    const legacyEffectKeys = Object.keys(linkedWorldTurn
-                        ? worldStateTool.function.parameters.properties.actions.items.properties
-                            .action_effects.properties
-                        : worldStateTool.function.parameters.properties.effects.properties);
+                    const legacyEffectKeys = worldEffectCapability.legacyNames;
                     const applyLegacyEffect = (type, payload, targetWorking) => {
                         targetWorking.applyDetached((candidateWorld, candidateSession) => {
                             const result = processStructuredActions({ [type]: payload },
@@ -32331,10 +32429,11 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     };
                     const linked = HordeLinkedWorldActions.executeLinkedActions(compiled.linkedPlan,
                         canonicalWorld, canonicalSess, { workingState: working, canMove, canTransition,
-                            legacyEffectKeys, applyLegacyEffect, requestPendingCheck });
+                            capability: worldEffectCapability, legacyEffectKeys,
+                            applyLegacyEffect, requestPendingCheck });
                     if (!linked.ok) {
                         receiptValidationFeedback = linked.errors.map(error => ({
-                            type: 'linked_action', reason: error.reason, action_id: error.action_id
+                            ...error, type: 'linked_action'
                         }));
                         rejectedReceiptProposal = args;
                         return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } },
@@ -32346,6 +32445,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             player_location_changed: prepared.session.playerLocation !== receiptPlayerStart,
                             present_character_ids: buildWorldSceneFrame(prepared.world, prepared.session)
                                 .present_character_ids }, events: linked.events };
+                    HordeWorkingState.assertReceiptMatchesCandidate(receipt, prepared);
                     const conflicts = worldFinalNarrativeConflicts(prepared.world, turnSnapshot?.session,
                         prepared.session, linked.narrative, submittedInput || userInput, receipt, null);
                     if (conflicts.length) {
@@ -32361,7 +32461,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         protocol: draft.protocol, actions: [...linked.outcomes].map(([action_id, outcome]) =>
                             ({ action_id, outcome })), accepted: linked.events.length,
                         informational: 0, rejected: [], world_state_version: nextVersion,
-                        cast_checksum_match: true, dirtyKeys: [...working.dirtySet] };
+                        cast_checksum_match: true, dirtyKeys: [...working.dirtySet],
+                        compilerRepairs: compiled.repairs, repairCount: compiled.repairCount };
                     working.writeSession('worldStateVersion', field => { field.value = nextVersion; });
                     working.writeTime('turnCount', field => {
                         field.value = Math.max(1, Number(field.value) || 1) + 1;
@@ -32869,6 +32970,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         `[WORLD SCENE DRAFT CORRECTION]\nReturn one compact JSON object only with protocol:"${sceneProtocol}" with narrative, actions and proposed changes. Empty optional collections may be omitted in v3. No reasoning, Markdown, repeated prose, ending checksum or legacy receipt. The proposal is uncommitted. Correct only the listed failures; preserve valid actions and fiction. Keep narrative to at most three short passages unless the player requested more. Use IDs to refer to passages rather than repeating their text. Empty arrays and effects:{} are valid when nothing changed. The engine checks every proposed action before it becomes canon.\nFailures: ${JSON.stringify(receiptValidationFeedback)}${movementCorrection}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown local locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nPlayer action: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}` }];
                 }
                 repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_FIDELITY;
+                if (repairingScene) repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_NOTATION;
                 if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts. Every action.response_id must name a narrative.id with the same action_id; every event.passage_id must name a passage with the event\'s action_id. Correct these exact references without guessing from prose.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'explicit_request_coverage_required')) {
                     repairBody.messages[0].content += '\nREQUEST COVERAGE CORRECTION: This input is compound. Every action MUST include request, even if there is only one action entry. Copy contiguous excerpts that together cover the complete input below in order, including negations. Account for each step in the linked narrative and its disposition; blocked or unresolved steps must not be claimed as completed. Complete input: '
@@ -32881,6 +32983,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 if (repairingScene && receiptValidationFeedback.some(item =>
                     item.reason === 'uncommitted_player_action')) {
                     repairBody.messages[0].content += '\nPLAYER SPEECH VS ACTION CORRECTION: If the exact player text is a spoken line or instruction to an NPC (for example, “It is time to proceed, girl”), classify that part as speech/question. Do not convert the NPC’s requested next step into a completed physical action by the player; narrate only the NPC’s response or ask for clarification.';
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unverified_action_success')) {
+                    repairBody.messages[0].content += '\nACTION KIND CORRECTION: Re-read the exact player input and its optional quotation/asterisk notation. Spoken words, questions and requests to an NPC are speech/question and need a linked response passage, but no technical effect or completed event when nothing in the world changes. A nonpersistent physical interaction needs one completed player interaction event linked to its response passage; a lasting physical change, travel or wait needs its supported validated effect. Do not invent a world change to justify a conversational line. Keep plain unmarked text valid and classify it from context.';
+                }
+                if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
+                    item.reason === 'uncommitted_completed_event')) {
+                    repairBody.messages[0].content += `\nUNCOMMITTED EVENT CORRECTION: Event index ${Number.isInteger(failure.event_index) ? failure.event_index : '?'} for action_id ${JSON.stringify(failure.action_id || '')} claims a completed ${JSON.stringify(failure.effect || '')} change without one of ${JSON.stringify(failure.requiredEffects || [])}. If the player only spoke and no lasting world change occurred, remove this event and keep the linked speech response; do not invent an effect. If a lasting change really occurred, supply its allowed typed effect and ensure the narrative and world rules support it. A pause, expression or spoken assertion is not a mechanical event.`;
                 }
                 if (repairingScene && receiptValidationFeedback.some(item =>
                     ['missing_condition', 'missing_condition_action', 'unknown_condition'].includes(item.reason))) {
@@ -32921,6 +33031,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 }
                 if (repairingScene) repairBody.messages[0].content += '\nUse only exact passage IDs present in narrative[].id for every response_id and passage_id; never invent or alter IDs. When present, actions[].request must copy the full player input in order, split into contiguous excerpts with no gaps. Allowed action kind values: physical, speech, question, observation, travel, wait, other. Allowed status values: resolved, answered, attempted, pending_check, blocked, needs_clarification. Do not put present_character_ids or activities inside effects; the engine computes the ending cast and does not accept these as effects. Add speech entries only for dialogue present in the draft, with exact known actor IDs (or player) for speaker and listeners. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard, servant or other role NPC. Background crowds may be scenery only, never actors or speakers. A request for an NPC to perform an action is the player speaking, not the player completing that physical action.';
                 if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. A simple, non-durable interaction with a known present person can omit an event only when the engine can verify it from the player input and current state; otherwise give a completed interaction event. Durable event types must use the allowed event vocabulary only.';
+                const repairingActionLink = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unknown_action_reference' || item.reason === 'unlinked_action_passage');
+                if (repairingActionLink) repairBody.messages[0].content += '\nACTION LINK CORRECTION: Use only action_id values declared in actions[].action_id. Every event must name its owning action_id and an existing passage_id. Every action.response_id must name a passage belonging to that same action. Do not invent a new action, rename a valid ID, or assign a physical event to a speech action just to satisfy the schema. Speech with no lasting effect needs a linked response passage but no completed mechanical event.';
+                const repairingPastCommitment = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'new_commitment_in_past');
+                const repairingUncommittedEvent = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'uncommitted_completed_event');
+                if (repairingPastCommitment) repairBody.messages[0].content += `\nPAST COMMITMENT CORRECTION: Current world time is day ${Math.floor(currentTotalMinutes / 1440) + 1}, minute_of_day ${currentTotalMinutes % 1440}. A newly scheduled or rescheduled commitment must be strictly later. A rhetorical question such as "did you have somewhere to be?" is not a promise or deadline: remove its commitments[] entry and leave the conversation intact. If a future meeting was actually agreed in the narrative, use only its expressly supported future day and time; revise the narrative if needed for consistency. Never shift a past timestamp forward by guessing, invent an agreement, or change the current world clock.`;
                 repairBody.messages[0].content += '\nSTATUS EVENT CONTRACT: events[].status is the event progress (intended, attempted, in_progress, completed, cancelled or failed). events[].type="status" is only for a lasting NPC lifecycle change and requires next_status exactly alive, dead or gone. Never put an activity, pose, mood or temporary condition in next_status or value. Walking up to a person within the same place and showing a held item need no location or lifecycle change. If a rejected status event describes an ongoing activity, express only an actually completed lasting change with type="activity" and activity text; otherwise omit that status event. Keep the established narrative and all other valid changes.';
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'unsupported_draft_effect')) {
                     const allowedEffects = Object.keys(worldStateTool.function.parameters.properties.effects.properties);
@@ -32971,9 +33089,15 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 repairBody.max_tokens = worldReceiptRepairOutputLimit(repairBudgetBase,
                     repairModelInfo?.top_provider?.max_completion_tokens, CONTEXT_LIMIT, repairPromptCharacters);
                 const initialRepairInstruction = repairBody.messages[0].content;
-                for (let repairAttempt = 0; repairAttempt < (sceneDrafts ? 1 : 2) && !repairedReceiptApplied; repairAttempt++) {
+                const repairSupplementalMessages = repairBody.messages.slice(1);
+                for (let repairAttempt = 0; repairAttempt < (sceneDrafts ? (repairingActionLink || repairingPastCommitment || repairingUncommittedEvent ? 2 : 1) : 2) && !repairedReceiptApplied; repairAttempt++) {
                     if (repairAttempt) repairBody.messages = [{ role: 'system', content:
-                        `${initialRepairInstruction}\nThe first repair was rejected. Its exact validation failures: ${JSON.stringify(receiptValidationFeedback)}. Return a corrected receipt using only supported fields and event types; preserve the established action outcome and scene. No prose or code fence.` }];
+                        `${initialRepairInstruction}\nThe first repair was rejected. Its exact validation failures: ${JSON.stringify(receiptValidationFeedback)}. Rejected repair proposal: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}. Return a corrected receipt using only supported fields and event types; preserve the established action outcome and scene. No prose or code fence.` },
+                        ...repairSupplementalMessages];
+                    if (repairAttempt) repairBody.max_tokens = worldReceiptRepairOutputLimit(repairBudgetBase,
+                        repairModelInfo?.top_provider?.max_completion_tokens, CONTEXT_LIMIT,
+                        JSON.stringify({ messages: repairBody.messages, tools: repairBody.tools || [],
+                            response_format: repairBody.response_format }).length);
                     turnCallAudit.receiptRepair++;
                     const { response: repairResponse, data: repairData } = await fetchWorldTurnJSON('receiptRepair', repairBody, {
                         method: 'POST',
@@ -33054,6 +33178,16 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             return;
         }
         if (linkedWorldTurn) {
+            if (receiptValidationFeedback[0]?.reason === 'unknown_action_reference') {
+                const path = String(receiptValidationFeedback[0].detail || '').split(':')[0].slice(0, 120);
+                throw new Error(`World turn could not safely link the model's actions after automatic repair (${path}). No turn was saved.`);
+            }
+            if (receiptValidationFeedback[0]?.reason === 'new_commitment_in_past') {
+                throw new Error('The model proposed a new deadline before the current World time, even after automatic repair. No turn or false commitment was saved.');
+            }
+            if (receiptValidationFeedback[0]?.reason === 'uncommitted_completed_event') {
+                throw new Error('The model claimed a completed World change without a matching validated effect, even after automatic repair. No turn was saved; your input remains available.');
+            }
             throw new Error(`Linked World turn was not committed: ${receiptValidationFeedback[0]?.reason || 'invalid_scene_draft'}`);
         }
 
@@ -45641,7 +45775,8 @@ function normalizeCompanion(raw) {
         openingMessage,
         voiceGender: ['female', 'male', 'neutral'].includes(c.voiceGender) ? c.voiceGender : 'neutral',
         ttsVoiceURI: typeof c.ttsVoiceURI === 'string' ? c.ttsVoiceURI : '',
-        ttsMode: ['openrouter', 'local', 'browser'].includes(c.ttsMode) ? c.ttsMode : 'browser',
+        ttsMode: ['openrouter', 'local', 'kokoro', 'browser'].includes(c.ttsMode) ? c.ttsMode : 'browser',
+        voice_profile: isPlainObject(c.voice_profile) ? safeJsonClone(c.voice_profile) : null,
         ttsModel: ttsModelMigrations[storedTtsModel] || storedTtsModel,
         ttsVoice: typeof c.ttsVoice === 'string' ? c.ttsVoice : 'alloy',
         ttsResponseFormat: ['auto', 'mp3', 'pcm', 'wav', 'ogg', 'opus', 'aac', 'flac'].includes(c.ttsResponseFormat)
@@ -52658,6 +52793,23 @@ function requiredTTSFormatFromError(message) {
  * Generate audio speech via OpenRouter TTS / Audio endpoints.
  */
 async function generateOpenRouterSpeech(companion, text, options = {}) {
+    if (companion.ttsMode === 'kokoro') {
+        if (companion.voice_profile?.engine !== 'kokoro') {
+            throw new Error('Bitte zuerst unter Stimme ein Kokoro-Stimmprofil wählen.');
+        }
+        const blob = await window.HordeKokoro.synthesize(text, companion.voice_profile);
+        let persistentDataUrl = '';
+        if (options.persist === true && blob.size <= 6 * 1024 * 1024) {
+            persistentDataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(reader.error || new Error('Kokoro-Audio konnte nicht gespeichert werden.'));
+                reader.readAsDataURL(blob);
+            });
+        }
+        return {url:persistentDataUrl || URL.createObjectURL(blob),persistentDataUrl,
+            format:'wav',mime:'audio/wav',converted:false,byteLength:blob.size};
+    }
     const useLocalTTS = companion.ttsMode === 'local';
     if (!useLocalTTS && !hasApiCredentials()) {
         throw new Error(`${cloudProviderName()} API Key is missing. Please enter it in Settings.`);
@@ -52794,10 +52946,10 @@ function speakCompanionLine(companion, text, onEnd) {
         ttsVoice: effectiveVoice
     };
 
-    if (effectiveMode === 'openrouter' || effectiveMode === 'local') {
+    if (effectiveMode === 'openrouter' || effectiveMode === 'local' || effectiveMode === 'kokoro') {
         const useLocalTTS = effectiveMode === 'local';
-        const speechProvider = useLocalTTS ? 'Local TTS' : cloudProviderName();
-        if (!useLocalTTS && !hasApiCredentials()) {
+        const speechProvider = effectiveMode === 'kokoro' ? 'Kokoro' : useLocalTTS ? 'Local TTS' : cloudProviderName();
+        if (effectiveMode === 'openrouter' && !hasApiCredentials()) {
             showToast(`API Key missing in Settings. ${cloudProviderName()} neural speech requires an API Key.`, 'error');
             const status = document.getElementById('cs-voice-preview-status');
             if (studioVisible && status) status.textContent = `${cloudProviderName()} API key missing. Add it in Settings.`;
@@ -52879,12 +53031,12 @@ async function playCompanionVoiceMessage(companion, message) {
         });
         return;
     }
-    if (!['openrouter', 'local'].includes(companion.ttsMode)) {
+    if (!['openrouter', 'local', 'kokoro'].includes(companion.ttsMode)) {
         speakCompanionLine(companion, message.text);
         return;
     }
     try {
-        const speechProvider = companion.ttsMode === 'local' ? 'Local TTS' : cloudProviderName();
+        const speechProvider = companion.ttsMode === 'kokoro' ? 'Kokoro' : companion.ttsMode === 'local' ? 'Local TTS' : cloudProviderName();
         showToast(`Generating ${speechProvider} voice note once…`, 'info');
         const result = await generateOpenRouterSpeech(companion, message.text, { persist: true });
         if (result.persistentDataUrl) {
@@ -52900,7 +53052,7 @@ async function playCompanionVoiceMessage(companion, message) {
         };
         await audio.play();
     } catch (error) {
-        showToast(`${companion.ttsMode === 'local' ? 'Local TTS' : cloudProviderName()} Error: ${error.message}`, 'error');
+        showToast(`${companion.ttsMode === 'kokoro' ? 'Kokoro' : companion.ttsMode === 'local' ? 'Local TTS' : cloudProviderName()} Error: ${error.message}`, 'error');
     }
 }
 
@@ -54597,7 +54749,25 @@ function updateTTSControlsVisibility(mode) {
     const genderCol = document.getElementById('cs-browser-gender-col');
     if (ttsCol) ttsCol.style.display = isNeural ? 'block' : 'none';
     if (voiceCol) voiceCol.style.display = isNeural ? 'block' : 'none';
-    if (genderCol) genderCol.style.display = isNeural ? 'none' : 'block';
+    if (genderCol) genderCol.style.display = isNeural || mode === 'kokoro' ? 'none' : 'block';
+    const modeInput = document.getElementById('cs-tts-mode');
+    let kokoroEditor = document.getElementById('cs-kokoro-designer');
+    if (!kokoroEditor && modeInput) {
+        kokoroEditor = document.createElement('div');
+        kokoroEditor.id = 'cs-kokoro-designer';
+        kokoroEditor.style.marginTop = '10px';
+        modeInput.parentElement.append(kokoroEditor);
+    }
+    if (kokoroEditor) {
+        kokoroEditor.hidden = mode !== 'kokoro';
+        const companion = getCompanion(state.editingCompanionId);
+        if (mode === 'kokoro' && companion && window.KokoroTagDesigner) {
+            window.KokoroTagDesigner.render(kokoroEditor, profile => {
+                companion.voice_profile = profile;
+                void saveCompanionTemplatesState();
+            }, companion.voice_profile);
+        }
+    }
 }
 
 function renderCompanionMemoriesList(companion) {
@@ -55632,6 +55802,7 @@ async function renderCompanionImageCapabilities(companion, force = false) {
 }
 
 async function populateCompanionTTSModelPicker(companion, force) {
+    if (companion.ttsMode === 'kokoro') return;
     const select = document.getElementById('cs-tts-model');
     if (!select) return;
     let ranked = [];
@@ -56930,8 +57101,11 @@ function setupCompanionsLogic() {
         const companion = getCompanion(state.editingCompanionId);
         if (companion) {
             companion.ttsMode = e.target.value;
+            if (e.target.value === 'kokoro' && companion.voice_profile?.engine !== 'kokoro') {
+                companion.voice_profile = {engine:'kokoro',...window.KokoroTagDesigner.tags_to_formula([]),lang:'a'};
+            }
             updateTTSControlsVisibility(e.target.value);
-            if (e.target.value !== 'browser') {
+            if (e.target.value === 'openrouter' || e.target.value === 'local') {
                 companion.ttsModel = '';
                 companion.ttsVoice = '';
                 populateCompanionTTSModelPicker(companion, true);
@@ -58850,6 +59024,12 @@ function renderCompanionThread() {
         reconcileCompanionThreadEntries(container, entries,
             `${companion.id}|${activeTimeline?.id || ''}`);
     }
+    if (window.HordeKokoro) container.querySelectorAll('.companion-message-entry').forEach(node => {
+        const message = messages.find(item => String(item.id) === node.dataset.messageId);
+        if (message?.role !== 'assistant' || !message.text || message.type === 'voice') return;
+        window.HordeKokoro.attachButton(node.querySelector('.companion-bubble'),
+            {text:message.text},null,null,companion);
+    });
     container.querySelectorAll('[data-play-voice]').forEach(button => {
         button.onclick = () => {
             const message = messages.find(m => m.id === button.dataset.playVoice);

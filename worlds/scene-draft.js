@@ -8,9 +8,8 @@ const kinds = ['physical', 'speech', 'question', 'observation', 'travel', 'wait'
 const statuses = ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'];
 const confirmedOutcomes = ['succeeded', 'failed', 'blocked'];
 const actionIdPattern = /^[a-z][a-z0-9_]{0,79}$/;
-const linkedEffectNames = ['actor_move', 'interactable_transition', 'item_transfer',
-    'item_introduce', 'entity_introduce', 'location_introduce', 'condition_change',
-    'relation_set', 'event_emit', 'time_advance', 'outfit_set'];
+const registryApi = typeof module !== 'undefined' && module.exports
+    ? require('./effect-registry') : root.HordeEffectRegistry;
 const text = (description, maxLength = 2000) => ({ type: 'string', description, maxLength });
 const list = items => ({ type: 'array', items, maxItems: 32 });
 const shape = (properties, required = Object.keys(properties)) =>
@@ -141,6 +140,18 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         effects.location_introduced.items.additionalProperties = false;
         effects.location_introduced.items.properties.connects_to.description = 'Exact existing location ID to connect to. Do not introduce locations merely mentioned in speech.';
     }
+    const capability = registryApi.capabilities({ protocol,
+        executionMode: protocol === 'scene_draft_v3' ? 'linked' : 'legacy',
+        legacySchemas: effects, intentionallyEffectFree: options.intentionallyEffectFree === true
+            || options.capability?.status === 'intentionally_effect_free' });
+    if (options.capability && (options.capability.protocol !== capability.protocol
+        || options.capability.executionMode !== capability.executionMode
+        || options.capability.names.slice().sort().join('|') !== capability.names.slice().sort().join('|')))
+        throw registryApi.capabilityError('capability_contract_mismatch', {
+            protocol, executionMode: capability.executionMode, available: capability.names,
+            stage: 'scene_draft_schema', cause: 'The provider contract diverges from the registry.' });
+    if (capability.status === 'intentionally_effect_free')
+        Object.keys(effects).forEach(key => delete effects[key]);
     const passage = text('Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.', 80);
     const events = copy(legacy.events);
     if (events?.items?.properties) {
@@ -179,7 +190,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             response_id: { ...passage, description: 'Passage that RESPONDS to this request: the answer, refusal, result or check setup. Not a passage merely repeating the player’s question.' }
         })),
         events,
-        effects: { ...shape(effects, []),
+        effects: { ...shape(capability.schemas, []),
             description: 'Only changed fields listed in this effects schema are supported. Use {} for no lasting change. Put actor movement, inventory and outfit changes in events, not in invented effect keys.' },
         speech: list(shape({
             speaker: text('Exact present NPC ID or player', 120),
@@ -224,39 +235,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             operator: { type: 'string', enum: ['equals', 'not_equals', 'exists'] },
             value: text('Expected value; omit for exists.', 200)
         }, ['fact', 'subject_id', 'operator']));
-        const linkedEffects = {
-            actor_move: list(shape({ actor_id: text('Exact actor ID.', 120),
-                to_location_id: text('One adjacent mapped destination ID.', 120),
-                companion_ids: list(text('Exact accompanying actor ID.', 120)) },
-            ['actor_id', 'to_location_id'])),
-            interactable_transition: list(shape({ target_id: text('Exact object or door ID.', 120),
-                to_state: text('Authored target state.', 80) })),
-            item_transfer: list(shape({ item_id: text('Exact item ID or owned item name.', 120),
-                from_id: text('Exact actor or location ID.', 120), to_id: text('Exact actor or location ID.', 120),
-                quantity: { type: 'integer', minimum: 1, maximum: 100 } }, ['item_id', 'from_id', 'to_id'])),
-            item_introduce: list(shape({ id: text('New stable item ID.', 120),
-                name: text('Item name.', 160), location_id: text('Exact present location ID.', 120),
-                description: text('Short description.', 500) }, ['id', 'name', 'location_id'])),
-            entity_introduce: list(shape({ id: text('New stable NPC ID.', 120),
-                name: text('NPC name.', 160), location_id: text('Exact present location ID.', 120),
-                persona: text('NPC persona.', 500) })),
-            location_introduce: list(shape({ id: text('New stable location ID.', 120),
-                name: text('Location name.', 160), connects_to: text('Exact existing location ID.', 120),
-                description: text('Location description.', 500) }, ['id', 'name', 'connects_to'])),
-            condition_change: list(shape({ target_id: text('Exact actor ID.', 120),
-                condition: text('Named lasting condition.', 160),
-                action: { type: 'string', enum: ['add', 'remove'] } })),
-            relation_set: list(shape({ subject_id: text('Exact actor or faction ID.', 120),
-                target_id: text('Exact actor or faction ID.', 120),
-                value: { type: 'integer', minimum: -100, maximum: 100 } })),
-            event_emit: list(shape({ id: text('Stable event ID.', 120),
-                type: text('Registered event type.', 80),
-                description: text('Observed event.', 500) })),
-            time_advance: list(shape({ minutes: { type: 'integer', minimum: 1, maximum: 10080 } })),
-            outfit_set: list(shape({ actor_id: text('Exact actor ID.', 120),
-                outfit: text('Complete resulting outfit.', 500) }))
-        };
-        action.action_effects = shape({ ...effects, ...linkedEffects }, []);
+        action.action_effects = shape(capability.schemas, []);
         if (options.linkedRequired) {
             // The linked executor forbids top-level effects. Repeating the
             // legacy effect contract there can consume an existing save's
@@ -273,11 +252,10 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             contract.properties[key].items.properties.action_id = action.action_id;
         contract.properties.actions.items.properties.request.description =
             'Omit only for one simple action. For compound input, copy contiguous excerpts covering the full request in order.';
-        if (!options.linkedRequired && String(options.input || '').trim()
-            && !simpleRequest(options.input)) {
+        if (String(options.input || '').trim() && !simpleRequest(options.input)) {
             contract.properties.actions.items.required.push('request');
             contract.properties.actions.items.properties.request.description =
-                'Required for this compound input. Copy contiguous excerpts covering every step in order, including negations; do not omit any step.';
+                'Required for this compound input. Copy contiguous excerpts covering every step in order, including negations. Use separate actions for independently executable steps; do not omit or merge one.';
         }
         // Keep semantic guidance for domain fields; the shared instructions
         // carry the repetitive transport and paragraph rules just once.
@@ -320,17 +298,53 @@ function validateActionLinks(draft, context, fail) {
         if (action?.action_effects !== undefined && !object(action.action_effects))
             fail(`actions.${index}.action_effects`, 'invalid_action_effects');
         else for (const key of Object.keys(action?.action_effects || {}))
-            if (!(context.effectKeys || []).includes(key) && !linkedEffectNames.includes(key)
+            if (!context.capability.names.includes(key)
                 || ['npc_observations', 'world_events'].includes(key))
-                fail(`actions.${index}.action_effects.${key}`, 'unsupported_draft_effect');
+                fail(`actions.${index}.action_effects.${key}`, 'unsupported_capability',
+                    `requested=${key}; available=${context.capability.names.join(',')}; source=worlds/effect-registry.js; stage=scene_draft_compiler; action_id=${id || ''}`);
     });
     // In a single simple request there is only one possible owner for an
-    // event whose action reference was omitted. Fill that mechanical link
-    // locally; compound requests still require explicit model-authored links.
+    // event whose action reference was omitted. A dialogue event can also be
+    // linked through its exact passage when both the passage and its speech
+    // action have one unambiguous owner, even for multi-sentence dialogue.
+    // Never infer a physical event or replace an explicit, wrong reference.
+    const repairs = [];
     const soleSimpleActionId = draft.actions.length === 1 && simpleRequest(context.input)
         ? ids.keys().next().value : null;
-    if (soleSimpleActionId) for (const event of draft.events || [])
-        if (object(event) && event.action_id === undefined) event.action_id = soleSimpleActionId;
+    const passageCounts = new Map();
+    const passageOwners = new Map();
+    for (const passage of draft.narrative || []) if (typeof passage?.id === 'string') {
+        passageCounts.set(passage.id, (passageCounts.get(passage.id) || 0) + 1);
+        if (ids.has(passage.action_id)) {
+            if (!passageOwners.has(passage.id)) passageOwners.set(passage.id, new Set());
+            passageOwners.get(passage.id).add(passage.action_id);
+        }
+    }
+    for (const action of draft.actions) if (ids.has(action?.action_id)
+        && typeof action.response_id === 'string') {
+        if (!passageOwners.has(action.response_id)) passageOwners.set(action.response_id, new Set());
+        passageOwners.get(action.response_id).add(action.action_id);
+    }
+    for (const [index, event] of (draft.events || []).entries())
+        if (object(event) && event.action_id === undefined) {
+            const owners = passageOwners.get(event.passage_id);
+            const passageOwner = event.type === 'dialogue'
+                && passageCounts.get(event.passage_id) === 1 && owners?.size === 1
+                ? owners.values().next().value : null;
+            const ownerAction = passageOwner == null ? null : draft.actions[ids.get(passageOwner)];
+            const dialogueOwner = ['speech', 'question'].includes(ownerAction?.kind)
+                ? passageOwner : null;
+            const inferred = dialogueOwner || soleSimpleActionId;
+            if (!inferred) continue;
+            const original = { event_index: index, passage_id: event.passage_id,
+                action_id: null };
+            event.action_id = inferred;
+            repairs.push({ type: 'event_action_id', action_id: inferred,
+                original, corrected: { ...original, action_id: inferred },
+                reason: dialogueOwner
+                    ? 'Unique dialogue passage and speech action own this event.'
+                    : 'Exactly one valid action and one simple player request.' });
+        }
     if (object(draft.effects) && Object.keys(draft.effects).length)
         fail('effects', 'unlinked_effects_in_linked_draft');
     const edges = new Map();
@@ -344,7 +358,9 @@ function validateActionLinks(draft, context, fail) {
         dependencies.forEach((guard, guardIndex) => {
             const path = `actions.${index}.depends_on.${guardIndex}`;
             if (!object(guard) || typeof guard.action_id !== 'string' || !ids.has(guard.action_id)) {
-                fail(path, 'unknown_action_reference'); return;
+                fail(path, 'unknown_action_reference',
+                    `provided=${JSON.stringify(guard?.action_id ?? null)}; valid=${JSON.stringify([...ids.keys()])}`);
+                return;
             }
             if (!confirmedOutcomes.includes(guard.outcome)) fail(path, 'unconfirmed_dependency_outcome');
             if (seen.has(guard.action_id)) fail(path, 'duplicate_action_dependency');
@@ -378,7 +394,8 @@ function validateActionLinks(draft, context, fail) {
     const reference = (item, path, required = false) => {
         if (item?.action_id === undefined && !required) return;
         if (typeof item?.action_id !== 'string' || !ids.has(item.action_id))
-            fail(path, 'unknown_action_reference');
+            fail(path, 'unknown_action_reference',
+                `provided=${JSON.stringify(item?.action_id ?? null)}; valid=${JSON.stringify([...ids.keys()])}`);
     };
     (draft.events || []).forEach((event, index) => reference(event, `events.${index}.action_id`, true));
     (draft.narrative || []).forEach((passage, index) => reference(passage, `narrative.${index}.action_id`));
@@ -420,14 +437,17 @@ function validateActionLinks(draft, context, fail) {
                 fail(`${key}.${index}.passage_id`, 'unlinked_action_passage',
                     `${item.passage_id} belongs to ${passage.action_id || 'no action'}, not ${item.action_id}`);
         });
-    return { actions: copy(draft.actions), events: copy(draft.events || []),
+    return { actions: copy(draft.actions), events: copy(draft.events || []), repairs,
         narrative: copy(draft.narrative || []), speech: copy(draft.speech || []),
         commitments: copy(draft.commitments || []), resolutions: copy(draft.resolutions || []) };
 }
 function simpleRequest(input) {
     // Deliberately conservative: uncertain or multilingual compound requests
     // keep explicit coverage rather than silently assigning their first step.
-    return !!String(input || '').trim() && !/[\n;,&]|[.!?]\s+\S|\b(?:and|then|after|before|while|also|und|dann|danach|bevor|nachdem|sowie)\b/i.test(input);
+    const value = String(input || '').trim();
+    const subjects = value.match(/\b(?:I|ich|wir|we)\b/gi) || [];
+    return !!value && subjects.length <= 1
+        && !/[\n;,&]|[.!?]\s+\S|\b(?:and|then|after|before|while|also|und|dann|danach|bevor|nachdem|sowie)\b/i.test(value);
 }
 
 function localInteraction(request, context) {
@@ -503,11 +523,94 @@ function alignInstructions(value) {
 
 function compile(draft, context) {
     const errors = [];
-    const fail = (path, reason, explanation = '') => errors.push({ type: 'scene_draft', reason,
-        detail: explanation ? `${path}: ${explanation}` : path });
+    const fail = (path, reason, explanation = '') => {
+        const error = { type: 'scene_draft', reason,
+            detail: explanation ? `${path}: ${explanation}` : path };
+        if (['unsupported_capability', 'unsupported_draft_effect'].includes(reason)) {
+            const match = /^actions\.(\d+)\.action_effects\.([^\.]+)$/.exec(path);
+            error.code = 'unsupported_capability';
+            error.effect = match?.[2] || path.split('.').at(-1);
+            error.action_id = match ? draft?.actions?.[Number(match[1])]?.action_id || '' : '';
+            error.protocol = draft?.protocol || '';
+            error.executionMode = context.capability?.executionMode || '';
+            error.available = context.capability?.names || [];
+            error.source = 'worlds/effect-registry.js';
+            error.stage = 'scene_draft_compiler';
+            error.cause = 'The requested effect is not available in this mode.';
+        }
+        errors.push(error);
+    };
     if (!isDraft(draft)) return { ok: false, errors: [{ reason: 'invalid_scene_protocol' }] };
+    let capability = context.capability;
+    if (!capability) {
+        try {
+            capability = registryApi.capabilities({ protocol: draft.protocol,
+                executionMode: draft.protocol === 'scene_draft_v3' ? 'linked' : 'legacy',
+                legacySchemas: Object.fromEntries((context.effectKeys || []).map(key =>
+                    [key, { type: 'array' }])),
+                intentionallyEffectFree: context.intentionallyEffectFree === true });
+        } catch (error) {
+            return { ok: false, errors: [{ type: 'scene_draft', reason: error.code || error.message,
+                source: error.source, stage: error.stage, available: error.available,
+                protocol: error.protocol, executionMode: error.executionMode }] };
+        }
+    }
+    context = { ...context, capability };
     draft = copy(draft);
+    const spokenInput = String(context.input || '').trim();
+    const whollyQuotedSpeech = /^"[^]*"$|^“[^]*”$|^„[^]*“$/.test(spokenInput);
+    const speechOnlyAction = context.linkedRequired
+        && draft.actions?.length === 1
+        && ['speech', 'question'].includes(draft.actions[0]?.kind)
+        && ['resolved', 'answered'].includes(draft.actions[0]?.status)
+        && (draft.actions[0]?.action_effects == null
+            || object(draft.actions[0].action_effects)
+                && !Object.keys(draft.actions[0].action_effects).length)
+        && (draft.effects == null || object(draft.effects)
+            && !Object.keys(draft.effects).length);
+    const discardedSpeechEvents = [];
+    if (speechOnlyAction && Array.isArray(draft.events)) {
+        const speechAction = draft.actions[0];
+        const responsePassages = (Array.isArray(draft.narrative) ? draft.narrative : [])
+            .filter(passage => passage?.id === speechAction.response_id);
+        const mechanicalPayload = {
+            movement: ['from_location_id', 'to_location_id'],
+            inventory: ['item'], outfit: ['outfit', 'current_outfit', 'value'],
+            condition: ['condition', 'value'], relationship: ['change', 'value', 'score'],
+            time: ['minutes_elapsed', 'minutes'], status: ['next_status']
+        };
+        draft.events = draft.events.filter((event, index) => {
+            const payloadFields = mechanicalPayload[event?.type];
+            if (event?.status !== 'completed' || !payloadFields
+                || (!whollyQuotedSpeech && (!event.actor_id || event.actor_id === 'player'
+                    || Object.keys(event).some(field => !['type', 'status', 'actor_id',
+                        'action_id', 'passage_id'].includes(field))))
+                || (!whollyQuotedSpeech && !['status', 'time', 'condition', 'relationship'].includes(event.type))
+                || event.passage_id !== speechAction.response_id
+                || responsePassages.length !== 1
+                || responsePassages[0].action_id !== undefined
+                    && responsePassages[0].action_id !== speechAction.action_id
+                || event.action_id !== undefined && event.action_id !== speechAction.action_id
+                || payloadFields.some(field => event[field] !== undefined)) return true;
+            discardedSpeechEvents.push({ type: 'discard_uncommitted_speech_event',
+                action_id: draft.actions[0].action_id || '', event_index: index,
+                original: { type: event.type, status: event.status,
+                    action_id: event.action_id ?? null, passage_id: event.passage_id ?? null },
+                corrected: null,
+                reason: 'The speech response has no mechanical payload or executable effect; a momentary NPC reaction is narrative only.' });
+            return false;
+        });
+    }
+    if (draft.protocol === 'scene_draft_v3' && String(context.input || '').trim()
+        && !simpleRequest(context.input) && Array.isArray(draft.actions)) {
+        draft.actions.forEach((action, index) => {
+            if (object(action) && action.request === undefined)
+                fail(`actions.${index}.request`, 'explicit_request_coverage_required');
+        });
+        if (errors.length) return { ok: false, errors };
+    }
     const linkedPlan = validateActionLinks(draft, context, fail);
+    if (linkedPlan) linkedPlan.repairs.push(...discardedSpeechEvents);
     if (context.linkedRequired && draft.protocol === 'scene_draft_v3'
         && draft.actions?.length && !linkedPlan)
         fail('actions', 'linked_actions_required');
@@ -529,7 +632,7 @@ function compile(draft, context) {
         if (draft.effects === undefined) draft.effects = {};
         if (Array.isArray(draft.actions)) draft.actions.forEach((action, index) => {
             if (!object(action) || action.request !== undefined) return;
-            if (draft.actions.length === 1 && (linkedPlan || simpleRequest(context.input)))
+            if (draft.actions.length === 1 && simpleRequest(context.input))
                 action.request = context.input;
             else fail(`actions.${index}.request`, 'explicit_request_coverage_required');
         });
@@ -676,7 +779,7 @@ function compile(draft, context) {
         fail('resolutions', 'invalid_draft_list');
     if (errors.length) return { ok: false, errors };
     const effects = copy(draft.effects);
-    const effectKeys = new Set(context.effectKeys || []);
+    const effectKeys = new Set(capability.legacyNames);
     Object.keys(effects).forEach(key => {
         if (!effectKeys.has(key) || ['npc_observations', 'world_events'].includes(key))
             fail(`effects.${key}`, 'unsupported_draft_effect');
@@ -689,10 +792,23 @@ function compile(draft, context) {
         if (object(action)) delete action.verifiedLocalInteraction;
         if (object(action) && action.kind === 'physical' && action.status === 'resolved'
             && actions.length === 1 && !Object.keys(effects).length
-            && (draft.events || []).every((_, index) => cosmeticGestureEvents.has(index))
+            && (draft.events || []).every((event, index) => cosmeticGestureEvents.has(index)
+                || event?.actor_id === 'player' && event.status === 'completed'
+                    && ['interaction', 'activity', 'other'].includes(event.type)
+                    && event.action_id === action.action_id)
             && !(draft.commitments || []).length
             && !(draft.resolutions || []).length
             && localInteraction(action.request, context)) action.verifiedLocalInteraction = true;
+    });
+    if (linkedPlan) linkedPlan.actions.forEach((action, index) => {
+        // validateActionLinks copied the model draft before this engine check.
+        // Never pass a model-authored proof flag to the executor.
+        delete action.verifiedLocalInteraction;
+        // The compiler supplied an omitted simple request and checked every
+        // action against the player input and its linked response passage.
+        action.request = actions[index]?.request;
+        if (actions[index]?.verifiedLocalInteraction === true)
+            action.verifiedLocalInteraction = true;
     });
     const coverage = playerRequestCoverage(context.input, actions);
     // An omitted clause is an incomplete response, not permission to invent
@@ -830,7 +946,10 @@ function compile(draft, context) {
             fail(path, 'commitment_time_changed_without_reschedule',
                 `Existing ${item.id} is day ${Math.floor(previous.dueMinute / 1440) + 1}, minute_of_day ${previous.dueMinute % 1440}. Omit unchanged commitments. Do not recalculate or shift the deadline.`);
         if ((!previous || item.reschedule) && item.status === 'scheduled' && dueMinute <= context.now)
-            fail(path, 'new_commitment_in_past');
+            fail(path, 'new_commitment_in_past',
+                `id=${JSON.stringify(item.id)}; proposed day=${item.day}, minute_of_day=${item.minute_of_day}; `
+                + `current day=${Math.floor(context.now / 1440) + 1}, minute_of_day=${context.now % 1440}. `
+                + 'Remove a rhetorical or unsupported deadline; do not silently move it into the future.');
         if (previous && previous.status !== 'scheduled' && item.status === 'scheduled' && !item.reschedule)
             fail(path, 'resolved_commitment_rearmed');
         commitments.push({ ...copy(item), dueMinute });
@@ -883,7 +1002,7 @@ function compile(draft, context) {
     if (errors.length) return { ok: false, errors };
     const first = actions[0];
     return { ok: true, narrative, actions: copy(actions), speech: copy(draft.speech), commitments, resolutions,
-        linkedPlan,
+        linkedPlan, repairs: linkedPlan?.repairs || [], repairCount: linkedPlan?.repairs?.length || 0,
         unaddressedRequest: coverage.ok ? '' : coverage.excerpt,
         receipt: {
             summary: actions.map(action => action.response).join(' ').slice(0, 300),

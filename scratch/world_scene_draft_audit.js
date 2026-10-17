@@ -132,7 +132,7 @@ assert(compile({ ...linked, effects: { checks: [{ label: 'test', invented: true 
 const witnessContract = schema({ events: { type: 'array', items: { type: 'object', properties: {
     type: { type: 'string' }, actor_id: { type: 'string' }, status: { type: 'string' },
     witnessed_by: { type: 'array', items: { type: 'string' } }
-} } } });
+} } } }, 'scene_draft_v2', { intentionallyEffectFree: true });
 const witnessTypo = { ...linked, events: [{ type: 'dialogue', actor_id: 'denton',
     status: 'completed', passage_id: 'p1', witnessed_by__: ['player'] }] };
 const correctedWitness = compile(witnessTypo, { ...context, contract: witnessContract });

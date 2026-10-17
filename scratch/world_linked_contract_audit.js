@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
 const { compile, schema } = require('../worlds/scene-draft');
+const { executeLinkedActions } = require('../worlds/linked-world-actions');
 
 const context = { input: 'I take the key and open the gate.', location: 'hall', playerStart: 'hall',
     present: [], locations: ['hall'], now: 100, commitments: [], effectKeys: ['inventory_add'] };
@@ -50,8 +51,57 @@ const singleActionCompiled = compile(singleAction, { ...context, input: singleAc
 assert(singleActionCompiled.ok, JSON.stringify(singleActionCompiled.errors));
 assert.equal(singleActionCompiled.linkedPlan.events[0].action_id, 'smack',
     'a missing event link in a single simple action is assigned to its only possible action');
-assert(reasons({ ...singleAction, events: [{ ...singleAction.events[0], action_id: 'unknown' }] })
-    .includes('unknown_action_reference'), 'an explicitly wrong reference is still rejected');
+assert(compile({ ...singleAction,
+    events: [{ ...singleAction.events[0], action_id: 'unknown' }] },
+{ ...context, input: singleActionInput, linkedRequired: true }).errors
+    .some(error => error.reason === 'unknown_action_reference'),
+    'an explicitly wrong reference is still rejected');
+const dialogueInput = '*narrows his golden eyes* "Are we engaging in amph\"ibian body shaming now? Rather bold, I must say."';
+assert.equal(require('../worlds/scene-draft').simpleRequest(dialogueInput), false);
+const dialogue = { protocol: 'scene_draft_v3',
+    narrative: [{ id: 'reply', action_id: 'speak', text: 'The dragon answers.' }],
+    actions: [{ action_id: 'speak', request: dialogueInput, kind: 'speech',
+        status: 'resolved', response_id: 'reply', action_effects: {} }],
+    events: [{ type: 'dialogue', actor_id: 'player', status: 'completed',
+        passage_id: 'reply' }], effects: {}, speech: [], commitments: [] };
+const dialogueContract = schema({ events: { type: 'array', items: { type: 'object',
+    properties: { type: { type: 'string' }, actor_id: { type: 'string' },
+        status: { type: 'string' } } } } }, 'scene_draft_v3',
+{ input: dialogueInput, linkedRequired: true });
+const dialogueContext = { ...context, input: dialogueInput, linkedRequired: true,
+    contract: dialogueContract };
+const linkedDialogue = compile(dialogue, dialogueContext);
+assert(linkedDialogue.ok, JSON.stringify(linkedDialogue.errors));
+assert.equal(linkedDialogue.linkedPlan.events[0].action_id, 'speak');
+assert.equal(linkedDialogue.repairs[0].type, 'event_action_id');
+assert.equal(dialogue.events[0].action_id, undefined, 'do not mutate model output');
+const dialogueTurn = executeLinkedActions(linkedDialogue.linkedPlan,
+    { id: 'test_world', entities: [], locations: [{ id: 'hall', name: 'Hall', exits: [] }] },
+    { id: 'test_session', playerLocation: 'hall', inventory: [], entityStates: {},
+        locationStates: {}, npcRelationships: {}, engineEvents: [], worldStateVersion: 1 });
+assert(dialogueTurn.ok, JSON.stringify(dialogueTurn.errors));
+assert(compile({ ...dialogue, events: [{ ...dialogue.events[0], action_id: 'unknown' }] },
+    dialogueContext).errors.some(error => error.reason === 'unknown_action_reference'),
+    'explicitly wrong dialogue links remain rejected');
+assert(compile({ ...dialogue, events: [{ ...dialogue.events[0], passage_id: 'missing' }] },
+    dialogueContext).errors.some(error => error.reason === 'unknown_action_reference'),
+    'a passage that does not exist cannot establish ownership');
+const splitInput = 'I narrow my eyes. "Are we engaging in body shaming?"';
+const splitDialogue = { ...dialogue,
+    narrative: [{ id: 'gesture', action_id: 'narrow', text: 'You narrow your eyes.' },
+        { id: 'reply', action_id: 'speak', text: 'The dragon answers.' }],
+    actions: [{ action_id: 'narrow', request: 'I narrow my eyes.', kind: 'physical',
+        status: 'resolved', response_id: 'gesture', action_effects: {} },
+    { ...dialogue.actions[0], request: '"Are we engaging in body shaming?"' }] };
+const splitCompiled = compile(splitDialogue, { ...context, input: splitInput, linkedRequired: true });
+assert(splitCompiled.ok, JSON.stringify(splitCompiled.errors));
+assert.equal(splitCompiled.linkedPlan.events[0].action_id, 'speak',
+    'the dialogue passage selects speech, not the earlier physical action');
+const ambiguousDialogue = { ...dialogue,
+    actions: [dialogue.actions[0], { ...dialogue.actions[0], action_id: 'other', response_id: 'reply' }] };
+assert(compile(ambiguousDialogue, dialogueContext).errors.some(error =>
+    error.reason === 'unknown_action_reference'),
+    'two actions claiming one passage cannot silently own a dialogue event');
 assert(reasons({ ...draft, effects: { inventory_add: ['key'] } })
     .includes('unlinked_effects_in_linked_draft'));
 const legacy = structuredClone(draft);

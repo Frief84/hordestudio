@@ -1,0 +1,37 @@
+{
+  "positions": {
+    "guide_1": "archive",
+    "key_1": "",
+    "player": "archive"
+  },
+  "playerLocation": "archive",
+  "inventory": ["Bronze key"],
+  "relationships": {
+    "guide_1|player": {
+      "score": 25,
+      "lastChangedTurn": 1
+    }
+  },
+  "objectStates": {},
+  "doors": { "gate_1": true },
+  "events": {
+    "emitted": [{
+      "id": "archive_seen",
+      "type": "discovery",
+      "description": "The archive is reached."
+    }],
+    "receipt": [{
+      "type": "movement",
+      "status": "completed",
+      "action_id": "enter",
+      "actor_id": "player",
+      "to_location_id": "archive"
+    }]
+  },
+  "actionResults": {
+    "take": "succeeded",
+    "open": "succeeded",
+    "enter": "succeeded",
+    "trust": "succeeded"
+  }
+}

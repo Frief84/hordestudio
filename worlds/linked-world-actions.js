@@ -75,8 +75,13 @@ function createFactRegistry() {
     };
     return { register, test, names: () => [...facts.keys()] };
 }
-function createWorldEffectRegistry(legacyEffectKeys = []) {
+function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     const registry = registryApi.createEffectRegistry();
+    const registerNative = (name, validate, reduce) => {
+        if (!registryApi.technicalEffects.has(name)) return;
+        registryApi.bindTechnicalOperation(name, validate, reduce);
+        registry.register(name, validate, reduce);
+    };
     const ids = (...values) => values.every(safeId);
     const actorLocation = (working, actor) => actor === 'player'
         ? working.getSession('playerLocation') : working.getEntity(actor).state?.location;
@@ -87,7 +92,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
         });
         if (actor === 'player') working.writeSession('playerLocation', field => { field.value = to; });
     };
-    registry.register('actor_move', value => ids(value?.actor_id, value?.to_location_id)
+    registerNative('actor_move', value => ids(value?.actor_id, value?.to_location_id)
         && (value.companion_ids === undefined || Array.isArray(value.companion_ids)
             && value.companion_ids.every(safeId)), (value, working, context) => {
         const from = actorLocation(working, value.actor_id);
@@ -129,7 +134,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             location.state ||= {}; location.state.lastEnteredTurn = turn;
         });
     });
-    registry.register('interactable_transition', value => ids(value?.target_id)
+    registerNative('interactable_transition', value => ids(value?.target_id)
         && typeof value?.to_state === 'string' && !!value.to_state, (value, working, context) => {
         const entity = working.getEntity(value.target_id);
         if (entity.definition?.interactable) {
@@ -170,12 +175,13 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             else delete field.value[value.target_id];
         });
     });
-    registry.register('item_transfer', value => typeof value?.item_id === 'string'
+    registerNative('item_transfer', value => typeof value?.item_id === 'string'
         && !!value.item_id.trim() && value.item_id.length <= 120
         && ids(value?.from_id, value?.to_id)
         && (value.quantity === undefined || Number.isInteger(value.quantity)
             && value.quantity > 0 && value.quantity <= 100), (value, working) => {
         const quantity = value.quantity || 1;
+        if (value.from_id === value.to_id) throw new BlockedAction('same_transfer_endpoint');
         const sourceInventory = value.from_id === 'player' ? working.getSession('inventory')
             : working.getEntity(value.from_id).state?.inventory;
         const itemEntity = working.getEntity(value.item_id);
@@ -184,6 +190,16 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
         const transferName = itemEntity.definition?.name || itemName(sourceItem) || value.item_id;
         const looseItem = itemEntity.definition?.type === 'item'
             && itemEntity.state?.location === value.from_id;
+        const destinationIsLocation = !!working.getLocation(value.to_id).definition;
+        if (destinationIsLocation && (quantity !== 1 || itemEntity.definition?.type !== 'item'))
+            throw new BlockedAction('unrepresentable_loose_item_transfer');
+        if (!looseItem && itemEntity.definition?.type === 'item'
+            && itemEntity.state?.location) throw new BlockedAction('item_already_placed');
+        const sourceBefore = looseItem ? 1 : inventoryUnits(sourceInventory, value.item_id);
+        const destinationInventory = destinationIsLocation ? null : value.to_id === 'player'
+            ? working.getSession('inventory') : working.getEntity(value.to_id).state?.inventory;
+        const destinationBefore = destinationIsLocation ? 0
+            : inventoryUnits(destinationInventory, transferName);
         if (looseItem && quantity !== 1) throw new BlockedAction('loose_item_quantity');
         if (!looseItem && inventoryUnits(sourceInventory, value.item_id) < quantity)
             throw new BlockedAction('item_not_held_or_present');
@@ -195,7 +211,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
         else if (!looseItem) working.writeEntity(value.from_id, entity => {
             removeInventoryUnits(entity.state.inventory, value.item_id, quantity);
         });
-        if (working.getLocation(value.to_id).definition) {
+        if (destinationIsLocation) {
             if (itemEntity.definition) working.writeEntity(value.item_id, entity => {
                 entity.state ||= {}; entity.state.location = value.to_id;
             });
@@ -212,10 +228,20 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
         });
         else throw new Error('unknown_transfer_destination');
         if (looseItem && value.to_id !== value.from_id) working.writeEntity(value.item_id, entity => {
-            entity.state.location = working.getLocation(value.to_id).definition ? value.to_id : '';
+            entity.state.location = destinationIsLocation ? value.to_id : '';
         });
+        const sourceAfter = looseItem ? (working.getEntity(value.item_id).state?.location === value.from_id ? 1 : 0)
+            : inventoryUnits(value.from_id === 'player' ? working.getSession('inventory')
+                : working.getEntity(value.from_id).state?.inventory, value.item_id);
+        const destinationAfter = destinationIsLocation
+            ? (working.getEntity(value.item_id).state?.location === value.to_id ? 1 : 0)
+            : inventoryUnits(value.to_id === 'player' ? working.getSession('inventory')
+                : working.getEntity(value.to_id).state?.inventory, transferName);
+        if (sourceAfter !== sourceBefore - quantity
+            || destinationAfter !== destinationBefore + quantity)
+            throw new Error('inventory_conservation_violation');
     });
-    registry.register('item_introduce', value => ids(value?.id, value?.location_id)
+    registerNative('item_introduce', value => ids(value?.id, value?.location_id)
         && typeof value?.name === 'string' && !!value.name, (value, working, context) => {
         if (working.getEntity(value.id).definition || !working.getLocation(value.location_id).definition)
             throw new Error('duplicate_or_unplaced_item');
@@ -225,7 +251,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             entity.state = { location: value.location_id };
         });
     });
-    registry.register('entity_introduce', value => ids(value?.id, value?.location_id)
+    registerNative('entity_introduce', value => ids(value?.id, value?.location_id)
         && typeof value?.name === 'string' && typeof value?.persona === 'string',
     (value, working, context) => {
         if (working.getEntity(value.id).definition || !working.getLocation(value.location_id).definition)
@@ -236,7 +262,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             entity.state = { location: value.location_id, observations: [] };
         });
     });
-    registry.register('location_introduce', value => ids(value?.id, value?.connects_to)
+    registerNative('location_introduce', value => ids(value?.id, value?.connects_to)
         && typeof value?.name === 'string' && !!value.name, (value, working, context) => {
         if (working.getLocation(value.id).definition || !working.getLocation(value.connects_to).definition)
             throw new Error('duplicate_or_unconnected_location');
@@ -252,7 +278,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             location.definition.exits.push({ targetLocationId: value.id });
         });
     });
-    registry.register('condition_change', value => ids(value?.target_id)
+    registerNative('condition_change', value => ids(value?.target_id)
         && typeof value?.condition === 'string' && !!value.condition
         && ['add', 'remove'].includes(value.action), (value, working) => {
         const update = conditions => {
@@ -271,7 +297,7 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
         });
         else throw new Error('unknown_condition_target');
     });
-    registry.register('relation_set', value => ids(value?.subject_id, value?.target_id)
+    registerNative('relation_set', value => ids(value?.subject_id, value?.target_id)
         && Number.isInteger(value?.value) && value.value >= -100 && value.value <= 100,
     (value, working) => {
         const factions = working.getSession('factions') || working.getWorld('factions') || [];
@@ -302,19 +328,19 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             };
         });
     });
-    registry.register('event_emit', value => safeId(value?.id)
+    registerNative('event_emit', value => safeId(value?.id)
         && typeof value?.type === 'string' && typeof value?.description === 'string',
     (value, working, context) => {
         working.writeEvent('engineEvents', field => { field.value ||= []; field.value.push(copy(value)); });
         return typeof context.onEvent === 'function' ? context.onEvent(value, working) : [];
     });
-    registry.register('time_advance', value => Number.isInteger(value?.minutes)
+    registerNative('time_advance', value => Number.isInteger(value?.minutes)
         && value.minutes > 0 && value.minutes <= 10080, (value, working) => {
         working.writeTime('bonusTimeMinutes', field => {
             field.value = (Number(field.value) || 0) + value.minutes;
         });
     });
-    registry.register('outfit_set', value => safeId(value?.actor_id)
+    registerNative('outfit_set', value => safeId(value?.actor_id)
         && typeof value?.outfit === 'string' && !!value.outfit.trim(), (value, working) => {
         if (value.actor_id === 'player') working.writeSession('outfit', field => {
             field.value = value.outfit.trim();
@@ -325,20 +351,33 @@ function createWorldEffectRegistry(legacyEffectKeys = []) {
             });
         else throw new Error('unknown_outfit_actor');
     });
+    // Definitions added to the central registry carry their own validating
+    // and reducing operation. No companion schema or executor list is edited.
+    for (const descriptor of registryApi.technicalEffects.values())
+        if (!registry.has(descriptor.name) && typeof descriptor.validate === 'function'
+            && typeof descriptor.reduce === 'function')
+            registry.register(descriptor.name, descriptor.validate, descriptor.reduce);
     for (const type of legacyEffectKeys) {
-        if (registry.has(type) || type === 'checks') continue;
+        if (registry.has(type) || registryApi.legacyOperation(type) === 'requestPendingCheck') continue;
         registry.register(type, () => true, (payload, working, context) => {
             if (typeof context.applyLegacyEffect !== 'function')
                 throw new Error(`missing_legacy_effect_adapter:${type}`);
             context.applyLegacyEffect(type, payload, working);
         });
     }
-    return registry;
+    return capability ? { ...registry,
+        has: type => capability.names.includes(type) && registry.has(type),
+        types: () => registry.types().filter(type => capability.names.includes(type)) }
+        : registry;
 }
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
     const working = context.workingState || workingApi.createWorkingState(world, session);
-    const effects = createWorldEffectRegistry(context.legacyEffectKeys || []);
+    const capability = context.capability || registryApi.capabilities({
+        protocol: 'scene_draft_v3', executionMode: 'linked',
+        legacySchemas: Object.fromEntries((context.legacyEffectKeys || []).map(key =>
+            [key, { type: 'array' }])) });
+    const effects = createWorldEffectRegistry(context.legacyEffectKeys || [], capability);
     const facts = createFactRegistry();
     const outcomes = new Map();
     const events = [];
@@ -358,6 +397,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 if (Object.keys(operations).length !== 1 || !Array.isArray(operations.checks)
                     || operations.checks.length !== 1 || typeof context.requestPendingCheck !== 'function')
                     throw new Error('invalid_pending_check_action');
+                registryApi.assertSupported(capability, 'checks', action.action_id,
+                    'pending_check_dispatch');
                 if (!context.requestPendingCheck(operations.checks[0], working))
                     throw new Error('check_not_pending');
                 outcomes.set(action.action_id, 'pending');
@@ -380,16 +421,48 @@ function executeLinkedActions(plan, world, session, context = {}) {
             }
             const operations = Object.entries(action.action_effects || {}).flatMap(([type, values]) => {
                 if ((context.legacyEffectKeys || []).includes(type)
-                    && !['actor_move', 'interactable_transition', 'item_transfer', 'item_introduce',
-                        'entity_introduce', 'location_introduce', 'condition_change', 'relation_set',
-                        'event_emit', 'time_advance', 'outfit_set'].includes(type))
+                    && !registryApi.technicalEffects.has(type))
                     return [{ type, payload: values }];
                 if (!Array.isArray(values)) throw new Error(`invalid_effect_list:${type}`);
                 return values.map(payload => ({ type, payload }));
             });
-            effects.run(operations, working, { ...context, sessionId: session.id });
+            const applied = effects.run(operations, working, { ...context, capability,
+                protocol: capability.protocol, executionMode: capability.executionMode,
+                actionId: action.action_id, sessionId: session.id });
+            if (action.status === 'resolved' || action.status === 'answered') {
+                const executed = applied.applied;
+                const stateEffect = executed.some(effect => ![
+                    'event_emit', 'ledger_update', 'memory_write', 'npc_observations',
+                    'world_events'
+                ].includes(effect.type));
+                const physicalEffect = executed.some(effect => ![
+                    'event_emit', 'time_advance', 'time_skip_minutes', 'ledger_update',
+                    'memory_write', 'npc_observations', 'world_events'
+                ].includes(effect.type));
+                const completed = plan.events.filter(event => event.action_id === action.action_id
+                    && event.status === 'completed');
+                const responseLinked = !!String(action.request || '').trim()
+                    && plan.narrative.some(passage => passage.id === action.response_id
+                        && passage.action_id === action.action_id
+                        && !!String(passage.text || '').trim());
+                const witnessedInteraction = responseLinked && completed.some(event =>
+                    event.type === 'interaction' && event.actor_id === 'player'
+                    && event.passage_id === action.response_id);
+                const proved = action.kind === 'travel'
+                    ? executed.some(effect => effect.type === 'actor_move'
+                        && (effect.payload.actor_id === 'player'
+                            || (effect.payload.companion_ids || []).includes('player')))
+                    : action.kind === 'wait'
+                        ? executed.some(effect => ['time_advance', 'time_skip_minutes'].includes(effect.type))
+                        : action.kind === 'physical'
+                            ? physicalEffect || witnessedInteraction
+                            : stateEffect || ['speech', 'question', 'observation', 'other']
+                                .includes(action.kind) && responseLinked;
+                if (!proved) throw new Error('unverified_action_success');
+            }
             outcomes.set(action.action_id, 'succeeded');
-            for (const event of plan.events.filter(item => item.action_id === action.action_id)) {
+            for (const [eventIndex, event] of plan.events.entries()) {
+                if (event.action_id !== action.action_id) continue;
                 if (event.status === 'completed') {
                     const knownActor = event.actor_id === 'player'
                         || working.getEntity(event.actor_id).definition;
@@ -404,8 +477,13 @@ function executeLinkedActions(plan, world, session, context = {}) {
                         status: ['npc_status_changes']
                     }[event.type];
                     if (requiredEffects && !operations.some(operation =>
-                        requiredEffects.includes(operation.type)))
-                        throw new Error('uncommitted_completed_event');
+                        requiredEffects.includes(operation.type))) {
+                        const error = new Error('uncommitted_completed_event');
+                        Object.assign(error, { effect: event.type, event_index: eventIndex,
+                            requiredEffects, stage: 'event_effect_consistency',
+                            cause: `Completed ${event.type} event has no matching executed effect.` });
+                        throw error;
+                    }
                     if (event.type === 'movement' && !operations.some(operation =>
                         operation.type === 'actor_move'
                         && (operation.payload.actor_id === event.actor_id
@@ -422,7 +500,14 @@ function executeLinkedActions(plan, world, session, context = {}) {
         } catch (error) {
             working.restore(point);
             if (error instanceof BlockedAction) outcomes.set(action.action_id, 'blocked');
-            else { errors.push({ action_id: action.action_id, reason: error.message }); break; }
+            else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
+                code: error.code || error.message, effect: error.effect || '',
+                ...(Number.isInteger(error.event_index) ? { event_index: error.event_index } : {}),
+                ...(error.requiredEffects ? { requiredEffects: error.requiredEffects } : {}),
+                protocol: capability.protocol, executionMode: capability.executionMode,
+                available: capability.names, source: error.source || capability.source,
+                stage: error.stage || 'linked_action_execution',
+                cause: error.cause || error.message }); break; }
         }
         const actual = outcomes.get(action.action_id);
         const proposed = action.status === 'resolved' || action.status === 'answered'
@@ -436,6 +521,16 @@ function executeLinkedActions(plan, world, session, context = {}) {
         }
     }
     if (errors.length) { working.rollback(); return { ok: false, errors, outcomes }; }
+    try {
+        workingApi.assertWorldModelInvariants(world, session, working.prepare());
+    } catch (error) {
+        working.rollback();
+        return { ok: false, errors: [{ code: 'world_invariant_violation',
+            reason: error.message, protocol: capability.protocol,
+            executionMode: capability.executionMode, available: capability.names,
+            source: 'worlds/working-state.js', stage: 'post_action_invariants',
+            cause: error.message }], outcomes };
+    }
     const visiblePassages = (plan.narrative || []).filter(passage =>
         !passage.action_id || !['skipped', 'unresolved'].includes(outcomes.get(passage.action_id)));
     return { ok: true, working, outcomes, events,

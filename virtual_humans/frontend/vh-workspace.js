@@ -101,6 +101,7 @@ const VH_WORKSPACE_SECTIONS={
  money:['Money','Balances, purchases and recurring expenses.'],
  references:['Reference Library','Character sheets, portraits, rooms and props—organized automatically.'],
  media:['Media','Author view: captured moments, generation jobs and publishing controls.'],
+ voice:['Stimme','Kokoro-Tags, Stimmprofil und hörbare Vorschau.'],
  connections:['Providers, feeds & events','Ticketmaster events, RSS feeds, images, Maps and world information.'],
  inspector:['Inspector','Author-only decisions, internal state, memory and diagnostics.'],
  recovery:['Always-on server','Move this running life to your private server, switch it back safely, or manage recovery copies.']
@@ -135,7 +136,7 @@ function vhOverviewClockSignature(timeline){
 }
 function vhOpenWorkspace(section='overview',id=state.activeCompanionId){
  const companion=getCompanion(id)||state.companions[0];if(!companion){showToast('Create or select a human first.','info');switchView('companions');return;}
- state.activeCompanionId=companion.id;const live=!!getActiveCompanionTimeline(companion.id)?.vh2;vhWorkspaceSection=live&&VH_WORKSPACE_SECTIONS[section]?section:'overview';
+ state.activeCompanionId=companion.id;const live=!!getActiveCompanionTimeline(companion.id)?.vh2;vhWorkspaceSection=(live||section==='voice')&&VH_WORKSPACE_SECTIONS[section]?section:'overview';
  const search=document.getElementById('vh-workspace-search');if(search)search.value='';switchView('vhWorkspace');
 }
 function vhWorkspaceSelect(section){
@@ -171,7 +172,7 @@ function vhRenderWorkspace(){
      if(!document.getElementById('vh-mobile-section')){const label=document.createElement('label');label.className='vh-mobile-section';label.textContent='Workspace section';const select=document.createElement('select');select.id='vh-mobile-section';for(const [key,[name]] of Object.entries(VH_WORKSPACE_SECTIONS)){const option=document.createElement('option');option.value=key;option.textContent=name;select.append(option);}select.onchange=()=>vhWorkspaceSelect(select.value);label.append(select);nav.before(label);}
      const mobileSelect=document.getElementById('vh-mobile-section');if(mobileSelect){mobileSelect.value=vhWorkspaceSection;mobileSelect.closest('label').hidden=!linked;}
      if(!nav.children.length){
-      const groups=[['This life',['overview','life','people','places']],['Belongings',['closet','possessions','money']],['Images & media',['references','media']],['Settings & cloud',['connections','inspector','recovery']]];
+      const groups=[['This life',['overview','life','people','places']],['Belongings',['closet','possessions','money']],['Images & media',['references','media','voice']],['Settings & cloud',['connections','inspector','recovery']]];
       for(const [index,[title,keys]] of groups.entries()){const group=document.createElement(index?'details':'section');group.className='vh-workspace-nav-group';const heading=document.createElement(index?'summary':'h2');heading.textContent=title;group.append(heading);for(const key of keys){const button=document.createElement('button');button.type='button';button.textContent=VH_WORKSPACE_SECTIONS[key][0];button.dataset.section=key;button.onclick=()=>vhWorkspaceSelect(key);group.append(button);}nav.append(group);}
      }
     const backButton=document.querySelector('[data-vh-back-chat]'),editTemplateButton=document.querySelector('[data-vh-edit-template]');
@@ -232,9 +233,9 @@ function vhArrangeWorkspace(companion,timeline){
 }
 function vhFilterWorkspace(){
  const host=document.getElementById('vh2-chat-controls');if(!host)return;
- const linked=!!getActiveCompanionTimeline(state.activeCompanionId)?.vh2;if(!linked)vhWorkspaceSection='overview';
+ const linked=!!getActiveCompanionTimeline(state.activeCompanionId)?.vh2;if(!linked&&vhWorkspaceSection!=='voice')vhWorkspaceSection='overview';
  const info=VH_WORKSPACE_SECTIONS[vhWorkspaceSection]||VH_WORKSPACE_SECTIONS.overview;
- document.getElementById('vh-workspace-title').textContent=linked?info[0]:'Start a persistent life';document.getElementById('vh-workspace-description').textContent=linked?info[1]:'Edit human defines who they are. Live human is the evolving timeline where routines, relationships, places, possessions, memory and events change over time.';
+ document.getElementById('vh-workspace-title').textContent=linked||vhWorkspaceSection==='voice'?info[0]:'Start a persistent life';document.getElementById('vh-workspace-description').textContent=linked||vhWorkspaceSection==='voice'?info[1]:'Edit human defines who they are. Live human is the evolving timeline where routines, relationships, places, possessions, memory and events change over time.';
  const mobile=document.getElementById('vh-mobile-section');if(mobile)mobile.value=vhWorkspaceSection;
  const query=(document.getElementById('vh-workspace-search')?.value||'').trim().toLowerCase();
  document.querySelectorAll('#vh-workspace-nav button').forEach(b=>{b.classList.toggle('active',b.dataset.section===vhWorkspaceSection);b.setAttribute('aria-current',b.dataset.section===vhWorkspaceSection?'page':'false');if(b.dataset.section===vhWorkspaceSection&&b.parentElement.tagName==='DETAILS')b.parentElement.open=true;});
@@ -602,11 +603,24 @@ function vhOpenPanel(title){vhAdvancedOpen=true;const panel=[...document.querySe
 function vhWorkspaceSpecial(force=false){
   const root=document.getElementById('vh-workspace-special');if(!root||(!force&&root.dataset.life===getActiveCompanionTimeline(state.activeCompanionId)?.id&&root.dataset.section===vhWorkspaceSection&&root.contains(document.activeElement)&&document.activeElement.matches('input,select,textarea')))return;
   root.dataset.section=vhWorkspaceSection;const companion=getCompanion(state.activeCompanionId),timeline=companion&&getActiveCompanionTimeline(companion.id),link=timeline?.vh2;if(root.dataset.life!==timeline?.id){vhReferenceOwner='all';root.dataset.life=timeline?.id||'';}root.replaceChildren();root.classList.toggle('vh-auto-reference-library',vhWorkspaceSection==='references');
+  if(vhWorkspaceSection==='voice'){
+   root.innerHTML='<section class="vh-current-card"><h3>Stimme · Kokoro Local</h3><p>Beschreibe die Stimme mit Tags. Die Vorschau spricht Englisch; bestehende Stimmen bleiben beim Öffnen unverändert.</p><div data-kokoro-voice></div><p role="status"></p></section>';
+   const status=root.querySelector('[role=status]');
+   if(!window.KokoroTagDesigner){status.textContent='Kokoro-Designer konnte nicht geladen werden.';return;}
+   window.KokoroTagDesigner.render(root.querySelector('[data-kokoro-voice]'),async profile=>{
+    const previous=companion.voice_profile;
+    companion.voice_profile=profile;
+    try{await saveCompanionTemplatesState();status.textContent='Stimme gespeichert.';}
+    catch(error){companion.voice_profile=previous;status.textContent='Speichern fehlgeschlagen: '+error.message;}
+   },companion.voice_profile);
+   return;
+  }
   const searchInput=document.getElementById('vh-workspace-search');
   if(!link){
-   root.innerHTML='<section class="vh-current-card vh-life-onboarding"><span class="vh-state-chip">Not started</span><h3>Start '+escapeHTML(companion.name)+'’s persistent life</h3><p>The saved character remains the source of identity, psychology and expression. Starting a life creates the separate, evolving timeline for routines, people, places, possessions, media, memory and outside events.</p><div class="vh-life-onboarding-parts"><span><strong>Edit human</strong>Durable person and starting world</span><span><strong>Live human</strong>Evolving state and history</span></div><p class="vh-cost-note">Starting can use your configured AI provider and Always-on allowance. Nothing is charged until you choose to start.</p><div class="vh-onboarding-actions"><button type="button" data-open-blueprint>Review starting world</button><button type="button" data-start-persistent>Start persistent life</button></div><p role="status"></p></section>';
+   root.innerHTML='<section class="vh-current-card vh-life-onboarding"><span class="vh-state-chip">Not started</span><h3>Start '+escapeHTML(companion.name)+'’s persistent life</h3><p>The saved character remains the source of identity, psychology and expression. Starting a life creates the separate, evolving timeline for routines, people, places, possessions, media, memory and outside events.</p><div class="vh-life-onboarding-parts"><span><strong>Edit human</strong>Durable person and starting world</span><span><strong>Live human</strong>Evolving state and history</span></div><p class="vh-cost-note">Starting can use your configured AI provider and Always-on allowance. Nothing is charged until you choose to start.</p><div class="vh-onboarding-actions"><button type="button" data-open-blueprint>Review starting world</button><button type="button" data-open-voice>Stimme bearbeiten</button><button type="button" data-start-persistent>Start persistent life</button></div><p role="status"></p></section>';
    root.querySelector('[data-start-persistent]').onclick=async e=>{e.target.disabled=true;try{await vh2CreateTimeline(companion);if(state.view==='vhWorkspace'&&state.activeCompanionId===companion.id)vhRenderWorkspace();}catch(error){root.querySelector('[role=status]').textContent=error.message;e.target.disabled=false;}};
    root.querySelector('[data-open-blueprint]').onclick=()=>{openCompanionStudio(companion.id);activateCompanionStudioTab('cs-life');switchView('companionStudio');};
+   root.querySelector('[data-open-voice]').onclick=()=>vhWorkspaceSelect('voice');
    return;
   }
   if(searchInput?.value){const q=searchInput.value.trim().toLowerCase();for(const [section,info] of Object.entries(VH_WORKSPACE_SECTIONS)){if(!info.join(' ').toLowerCase().includes(q))continue;const b=document.createElement('button');b.type='button';b.textContent='Open '+info[0];b.onclick=()=>vhWorkspaceSelect(section);root.append(b);}return;}

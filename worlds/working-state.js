@@ -273,6 +273,115 @@ function assertDirtyCoverage(world, session, candidate) {
     }
     return true;
 }
+function assertWorldModelInvariants(world, session, candidate) {
+    const dirty = candidate.dirtySet;
+    const locations = new Map((candidate.world.locations || []).map(item => [item.id, item]));
+    const entities = new Map((candidate.world.entities || []).map(item => [item.id, item]));
+    const reject = detail => { throw new Error(`world_invariant_violation:${detail}`); };
+    const validInventory = (inventory, owner) => {
+        if (!Array.isArray(inventory)) return reject(`invalid_inventory:${owner}`);
+        for (const item of inventory) {
+            if (typeof item === 'string') {
+                if (!item.trim()) reject(`unnamed_inventory_item:${owner}`);
+            } else if (!item || typeof item !== 'object'
+                || !String(item.id || item.name || '').trim()
+                || !Number.isInteger(Number(item.quantity ?? 1))
+                || Number(item.quantity ?? 1) < 1)
+                reject(`invalid_inventory_item:${owner}`);
+        }
+    };
+    if (dirty.has('session:playerLocation') || dirty.has('entity:player')) {
+        if (!locations.has(candidate.session.playerLocation)) reject('unknown_player_location');
+        const playerState = candidate.session.entityStates?.player;
+        if (playerState?.location && playerState.location !== candidate.session.playerLocation)
+            reject('player_location_mismatch');
+    }
+    if (dirty.has('session:inventory')) validInventory(candidate.session.inventory || [], 'player');
+    const validConditions = (conditions, owner) => {
+        if (!Array.isArray(conditions) || conditions.some(item =>
+            !String(typeof item === 'string' ? item : item?.label || item?.name || '').trim()))
+            reject(`invalid_conditions:${owner}`);
+    };
+    if (dirty.has('session:playerSceneConditions'))
+        validConditions(candidate.session.playerSceneConditions || [], 'player');
+    for (const key of dirty) {
+        if (key.startsWith('entity:')) {
+            const id = key.slice(7);
+            const entity = entities.get(id);
+            const state = candidate.session.entityStates?.[id];
+            if (id !== 'player' && !entity) reject(`unknown_entity:${id}`);
+            if (state?.location && !locations.has(state.location)) reject(`unknown_entity_location:${id}`);
+            if (state?.inventory !== undefined) validInventory(state.inventory, id);
+            if (state?.conditions !== undefined
+                && !same(state.conditions, session.entityStates?.[id]?.conditions))
+                validConditions(state.conditions, id);
+            if (state?.interactableState && entity?.interactable) {
+                const states = new Set([entity.interactable.initialState]);
+                for (const transition of entity.interactable.transitions || []) {
+                    states.add(transition.from); states.add(transition.to);
+                }
+                if (!states.has(state.interactableState)) reject(`invalid_interactable_state:${id}`);
+            }
+        } else if (key.startsWith('location:')) {
+            const id = key.slice(9);
+            const location = locations.get(id);
+            if (!location) reject(`unknown_location:${id}`);
+            const original = (world.locations || []).find(item => item.id === id);
+            const prior = new Set((original?.exits || []).map(exit => JSON.stringify(exit)));
+            for (const exit of location.exits || []) {
+                if (prior.has(JSON.stringify(exit))) continue;
+                const target = typeof exit === 'object' && (exit.targetLocationId || exit.to);
+                if (target && !locations.has(target)) reject(`unknown_route_target:${id}:${target}`);
+            }
+        }
+    }
+    if (dirty.has('session:unlockedExits')) {
+        const doorIds = new Set([...locations.values()].flatMap(location =>
+            (location.exits || []).map(exit => exit?.doorId).filter(Boolean)));
+        for (const [doorId, opened] of Object.entries(candidate.session.unlockedExits || {}))
+            if (opened !== (session.unlockedExits || {})[doorId]
+                && (opened !== true || !doorIds.has(doorId)))
+                reject(`invalid_door_state:${doorId}`);
+    }
+    if (dirty.has('relation')) {
+        for (const [key, relation] of Object.entries(candidate.session.npcRelationships || {}))
+            if (!same(relation, session.npcRelationships?.[key])
+                && relation?.score !== undefined && (!Number.isFinite(relation.score)
+                || relation.score < -100 || relation.score > 100))
+                reject('invalid_relation_score');
+        const factions = candidate.session.factions || candidate.world.factions || [];
+        const previous = new Map((session.factions || world.factions || []).map(item => [item.id, item]));
+        const byId = new Map(factions.map(item => [item.id, item]));
+        for (const faction of factions) for (const relation of faction.relations || []) {
+            if (same(relation, previous.get(faction.id)?.relations?.find(item =>
+                item.factionId === relation.factionId))) continue;
+            const reverse = byId.get(relation.factionId)?.relations?.find(item =>
+                item.factionId === faction.id);
+            if (!byId.has(relation.factionId) || !Number.isFinite(relation.score)
+                || relation.score < -100 || relation.score > 100
+                || reverse?.score !== relation.score)
+                reject(`invalid_faction_relation:${faction.id}:${relation.factionId}`);
+        }
+    }
+    return true;
+}
+function assertReceiptMatchesCandidate(receipt, candidate) {
+    if (receipt?.scene?.player_location_id !== candidate.session.playerLocation)
+        throw new Error('receipt_state_mismatch:player_location');
+    const entities = new Set((candidate.world.entities || []).map(item => item.id));
+    const lastMove = new Map();
+    for (const event of receipt.events || []) {
+        if (event.actor_id && event.actor_id !== 'player' && !entities.has(event.actor_id))
+            throw new Error('receipt_state_mismatch:event_actor');
+        if (event.status === 'completed' && event.type === 'movement'
+            && event.actor_id) lastMove.set(event.actor_id, event.to_location_id);
+    }
+    for (const [actorId, destination] of lastMove)
+        if ((actorId === 'player' ? candidate.session.playerLocation
+            : candidate.session.entityStates?.[actorId]?.location) !== destination)
+            throw new Error('receipt_state_mismatch:movement');
+    return true;
+}
 function guardCanonicalWrites(value, path = 'canonical', memo = new WeakMap()) {
     if (!value || typeof value !== 'object') return value;
     if (memo.has(value)) return memo.get(value);
@@ -307,7 +416,8 @@ function guardCanonicalWrites(value, path = 'canonical', memo = new WeakMap()) {
     memo.set(value, proxy);
     return proxy;
 }
-const api = { createWorkingState, assertDirtyCoverage, guardCanonicalWrites,
+const api = { createWorkingState, assertDirtyCoverage, assertWorldModelInvariants,
+    assertReceiptMatchesCandidate, guardCanonicalWrites,
     MAX_FOLLOW_UP_EFFECTS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 root.HordeWorkingState = api;

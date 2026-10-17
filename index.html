@@ -628,7 +628,7 @@
                             <button id="world-turn-error-dismiss" type="button" aria-label="Dismiss World turn error">✕</button>
                         </div>
                         <div class="input-row">
-                            <textarea id="world-user-input" class="msg-input" placeholder="What do you do?..." rows="1"></textarea>
+                            <textarea id="world-user-input" class="msg-input" placeholder="Say &quot;...&quot;, act *...*, or write normally" rows="1"></textarea>
                             <button id="world-send-btn" class="send-btn" type="button" aria-label="Send message">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                             </button>
@@ -908,6 +908,12 @@
                                 <label class="form-label">Intro Message (optional)</label>
                                 <p class="form-hint" style="margin-bottom:8px;">The exact opening narration shown when a new session begins. Leave empty to let the AI improvise the opening scene.</p>
                                 <textarea id="w-studio-intro" class="form-textarea" rows="6" placeholder="e.g. Rain hammers the tin roof of the way-station as you shake the road dust from your coat. Dusty Hollow has no sheriff tonight — and everyone inside knows it..."></textarea>
+                            </div>
+                            <div class="form-section">
+                                <h3>Welt-Stimme (Kokoro)</h3>
+                                <p class="form-hint">Optionale Standardstimme für Erzählung und NPCs ohne eigene Stimme.</p>
+                                <label><input type="checkbox" id="world-kokoro-enable"> Kokoro als Welt-Stimme nutzen</label>
+                                <div id="world-voice-designer"></div>
                             </div>
                         </div>
                     </div>
@@ -3606,6 +3612,7 @@
                                             <option value="browser">🌐 Browser Web Speech API (Offline)</option>
                                             <option value="openrouter">☁️ Cloud Neural TTS (High Quality)</option>
                                             <option value="local">🖥 Local Neural TTS (OpenAI-compatible)</option>
+                                            <option value="kokoro">🔊 Kokoro Local (ONNX)</option>
                                         </select>
                                     </div>
                                     <div class="form-col" id="cs-openrouter-tts-col" style="display:none;">
@@ -3865,7 +3872,7 @@
             </aside>
             <main class="modal-body settings-content" id="settings-content">
             <div id="settings-search-empty" class="settings-search-empty hidden"><strong>No matching settings</strong><span>Try a provider name, “memory”, “backup” or “ComfyUI”.</span></div>
-            <section class="settings-section active" data-settings-section="models" data-settings-keywords="provider model text chat worlds virtual humans default local self hosted">
+            <section class="settings-section active" data-settings-section="models" data-settings-keywords="provider model text chat worlds virtual humans default local self hosted speech tts audio kokoro vibevoice openedai">
                 <div class="settings-section-head"><span class="settings-section-kicker">Core setup</span><h3>AI &amp; Models</h3><p>Choose the text provider and model inherited across Horde Studio.</p></div>
                 <div class="settings-card">
             <label class="form-label">Default Text Provider</label>
@@ -3903,6 +3910,24 @@
                 <p class="form-hint" style="margin-top:8px;">Still failing? Hard-refresh (Cmd/Ctrl+Shift+R) — browsers cache the app aggressively.</p>
             </div>
                 </div>
+            <section class="mcp-settings-card" aria-labelledby="local-tts-settings-title">
+                <div class="mcp-settings-head"><div><span class="vh-eyebrow">OpenAI-compatible speech</span><h3 id="local-tts-settings-title">Local Neural TTS</h3></div></div>
+                <label class="form-label">Server Base URL</label>
+                <input id="global-local-tts-url" class="form-input" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
+                <label class="form-label" style="margin-top:8px;">API Key (optional)</label>
+                <input id="global-local-tts-key" type="password" class="form-input" placeholder="usually not needed">
+                <p class="form-hint">For VibeVoice, openedai-speech and other servers implementing <code>POST /v1/audio/speech</code>. You choose the local engine per Virtual Human under Photos &amp; Voice.</p>
+                <button id="test-local-tts-btn" class="btn btn-ghost" type="button" style="margin-top:10px;">Test local TTS server</button>
+                <div id="local-tts-result" class="form-hint" aria-live="polite"></div>
+            </section>
+            <section class="mcp-settings-card" aria-labelledby="kokoro-settings-title">
+                <div class="mcp-settings-head"><div><span class="vh-eyebrow">Local ONNX speech</span><h3 id="kokoro-settings-title">Kokoro TTS</h3></div></div>
+                <label class="form-label" for="kokoro-device">Rechengerät</label>
+                <select id="kokoro-device" class="form-select"><option value="cpu">CPU</option><option value="gpu">GPU (CUDA)</option></select>
+                <p class="form-hint">Die GPU-Auswahl benötigt einen funktionierenden CUDAExecutionProvider. Es gibt keinen stillen CPU-Fallback.</p>
+                <button id="test-kokoro-btn" class="btn btn-ghost" type="button">Kokoro-Status prüfen</button>
+                <div id="kokoro-status" class="form-hint" role="status">Noch nicht geprüft.</div>
+            </section>
             </section>
 
             <section class="settings-section" data-settings-section="accounts" data-settings-keywords="connections credentials api keys openrouter gptproto nanogpt nvidia nim aws bedrock custom headers security remember maps google places geography">
@@ -4158,16 +4183,6 @@
                 <p class="form-hint"><b>Default is off.</b> The browser remains canonical and pauses the background worker while open. Credentials live only in the launcher’s memory—not saves, exports or disk—so reopen Horde Studio once after every launcher restart to re-arm it. Photos, voice and video are never generated in the background.</p>
                 <div class="settings-inline-actions"><button id="always-on-refresh-btn" class="btn btn-ghost" type="button">Check runtime</button><button id="always-on-stop-btn" class="btn btn-ghost" type="button">Stop &amp; forget credentials</button></div>
                 <div id="always-on-status-text" class="form-hint" aria-live="polite"></div>
-            </section>
-            <section class="mcp-settings-card" aria-labelledby="local-tts-settings-title">
-                <div class="mcp-settings-head"><div><span class="vh-eyebrow">OpenAI-compatible speech</span><h3 id="local-tts-settings-title">Local Neural TTS</h3></div></div>
-                <label class="form-label">Server Base URL</label>
-                <input id="global-local-tts-url" class="form-input" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
-                <label class="form-label" style="margin-top:8px;">API Key (optional)</label>
-                <input id="global-local-tts-key" type="password" class="form-input" placeholder="usually not needed">
-                <p class="form-hint">For VibeVoice, openedai-speech and other servers implementing <code>POST /v1/audio/speech</code>. You choose the local engine per Virtual Human under Photos &amp; Voice.</p>
-                <button id="test-local-tts-btn" class="btn btn-ghost" type="button" style="margin-top:10px;">Test local TTS server</button>
-                <div id="local-tts-result" class="form-hint" aria-live="polite"></div>
             </section>
             </section>
 
@@ -5377,7 +5392,9 @@
     <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
     <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
     <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261009-chat-diagnostics"></script>
+    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017"></script>
+    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-kokoro"></script>
     <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
     <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
     <script src="virtual_humans/frontend/vh-page-builder.js?v=20260925-v182"></script>

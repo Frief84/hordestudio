@@ -115,6 +115,19 @@ const deadlines = [
     { id: 'triggered_away', status: 'triggered', locationId: 'hall', dueMinute: 450 },
     { id: 'resolved_here', status: 'triggered', locationId: 'office', dueMinute: 450, sceneResolution: 'done' }
 ];
+const rhetoricalDraft = { protocol: 'scene_draft_v3',
+    narrative: [{ id: 'p1', text: 'Aslan asks whether you had somewhere to be.' }],
+    actions: [], events: [], effects: {}, speech: [],
+    commitments: [{ id: 'invented_meeting', title: 'Meeting', day: 1,
+        minute_of_day: 400, location_id: 'office', status: 'scheduled',
+        passage_id: 'p1' }] };
+const pastProposal = scene.compile(rhetoricalDraft, { ...baseContext,
+    input: '', contract: null, commitments: [] });
+assert(pastProposal.errors.some(error => error.reason === 'new_commitment_in_past'
+    && error.detail.includes('current day=1, minute_of_day=500')),
+    'past commitments stay rejected with exact time context, never moved silently');
+assert.equal(rhetoricalDraft.commitments[0].minute_of_day, 400,
+    'compiler may not alter the model proposal');
 const deadlineSchema = scene.schema(legacy, 'scene_draft_v3', { input: baseContext.input,
     commitments: deadlines, location: 'office', now: 500, plannedWait: 15 });
 assert.deepEqual(deadlineSchema.properties.resolutions.items.properties.id.enum,

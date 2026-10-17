@@ -45,6 +45,20 @@ from virtual_humans.backend.vh2_runtime import WorldService, Conflict as VH2Conf
 from virtual_humans.backend.vh2_migration import inspect_archive
 from virtual_humans.backend.vh2_provider import RejectedOutput, UnknownOutcome
 
+try:
+    from virtual_humans.backend.kokoro_service import (
+        list_voices as kokoro_list_voices,
+        synthesize_from_tags as kokoro_synthesize_from_tags,
+        synthesize_wav_bytes as kokoro_synthesize_wav_bytes,
+        tags_to_formula as kokoro_tags_to_formula,
+    )
+    KOKORO_AVAILABLE = True
+except ImportError as error:
+    KOKORO_AVAILABLE = False
+    KOKORO_IMPORT_ERROR = str(error)
+
+KOKORO_SYNTH_LOCK = threading.Lock()
+
 # ── Load .env if present ────────────────────────────────────
 APP_DIR = Path(__file__).resolve().parent
 ENV_FILE = APP_DIR / ".env"
@@ -93,6 +107,7 @@ REMOTE_VH2_ALLOWED_ORIGINS = {
     item.strip().rstrip("/") for item in os.environ.get("HORDE_VH2_ALLOWED_ORIGINS", "").split(",")
     if item.strip()
 }
+KOKORO_TTS_PROCESS: subprocess.Popen[Any] | None = None
 CALLBACK_URL = f"http://{HOST}:{PORT}/oauth/callback"
 CLIENT_NAME = "Horde Studio Local MCP Bridge"
 BRIDGE_BUILD = "20260908-mcp-" + hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
@@ -130,6 +145,70 @@ def select_runtime_port(port: int) -> None:
     PORT = port
     CALLBACK_URL = f"http://{HOST}:{PORT}/oauth/callback"
     ALLOWED_ORIGINS = allowed_origins(PORT)
+
+
+def _find_kokoro_install() -> tuple[Path, Path] | None:
+    """Return Kokoro's home and interpreter when the optional install exists."""
+    configured = os.environ.get("HORDE_KOKORO_HOME", "").strip()
+    candidates = [Path(configured)] if configured else []
+    if os.name == "nt":
+        candidates.append(Path("N:/krokoro"))
+    candidates.append(APP_DIR.parent / "krokoro")
+    for home in candidates:
+        if not home:
+            continue
+        interpreter = home / (".venv/Scripts/python.exe" if os.name == "nt" else ".venv/bin/python")
+        if home.is_dir() and interpreter.is_file():
+            return home, interpreter
+    return None
+
+
+def start_optional_kokoro_tts() -> None:
+    """Start the idle local adapter only when a Kokoro install is present."""
+    global KOKORO_TTS_PROCESS
+    if os.environ.get("HORDE_KOKORO_TTS_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return
+    install = _find_kokoro_install()
+    adapter = APP_DIR / "kokoro_tts_adapter.py"
+    if not install or not adapter.is_file():
+        return
+    home, interpreter = install
+    port = int(os.environ.get("HORDE_KOKORO_TTS_PORT", "8000"))
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.25):
+            print(f"Kokoro TTS adapter already available on 127.0.0.1:{port}")
+            return
+    except OSError:
+        pass
+    environment = os.environ.copy()
+    cache = home / ".cache" / "huggingface"
+    environment.setdefault("HF_HOME", str(cache))
+    environment.setdefault("TRANSFORMERS_CACHE", str(cache / "hub"))
+    environment.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
+    log_path = APP_DIR / "kokoro_tts_adapter.log"
+    log = log_path.open("a", encoding="utf-8")
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        KOKORO_TTS_PROCESS = subprocess.Popen(
+            [str(interpreter), str(adapter)], cwd=str(home), env=environment,
+            stdout=log, stderr=subprocess.STDOUT, creationflags=creationflags,
+        )
+    except OSError:
+        log.close()
+        raise
+    print(f"Kokoro TTS adapter started on 127.0.0.1:{port} (lazy model loading)")
+
+
+def stop_optional_kokoro_tts() -> None:
+    global KOKORO_TTS_PROCESS
+    process, KOKORO_TTS_PROCESS = KOKORO_TTS_PROCESS, None
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
 PROVIDERS = {
     "higgsfield": {
         "label": "Higgsfield",
@@ -166,6 +245,8 @@ STATIC_FILES = {
     "/human-package.js": ("human-package.js", "text/javascript"),
     "/vh-life-schema.js": ("virtual_humans/engine/vh-life-schema.js", "text/javascript"),
     "/vh-workspace.js": ("virtual_humans/frontend/vh-workspace.js", "text/javascript"),
+    "/virtual_humans/frontend/kokoro-voice-designer.js": ("virtual_humans/frontend/kokoro-voice-designer.js", "text/javascript"),
+    "/virtual_humans/frontend/kokoro-world-bridge.js": ("virtual_humans/frontend/kokoro-world-bridge.js", "text/javascript"),
     "/vh-assistant-ui.js": ("virtual_humans/frontend/vh-assistant-ui.js", "text/javascript"),
     "/vh-setup-ui.js": ("virtual_humans/frontend/vh-setup-ui.js", "text/javascript"),
     "/vh-page-builder.js": ("virtual_humans/frontend/vh-page-builder.js", "text/javascript"),
@@ -3790,6 +3871,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except ValueError:
             return False
 
+    def kokoro_local_allowed(self) -> bool:
+        if REMOTE_VH2_MODE or not self.client_is_loopback():
+            return False
+        origin = self.headers.get("Origin", "")
+        return not origin or urllib.parse.urlparse(origin).netloc == self.headers.get("Host", "")
+
     def remote_media_ticket_valid(self) -> bool:
         if urllib.parse.urlparse(self.path).path != "/vh2/photo-asset":
             return False
@@ -4021,6 +4108,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             if not self.remote_surface_allowed(parsed.path):
                 return
+            if parsed.path == "/api/tts/kokoro/voices":
+                if not self.kokoro_local_allowed():
+                    return self.respond(403, {"error": "Kokoro TTS is local-only."})
+                if not KOKORO_AVAILABLE:
+                    return self.respond(200, {"available": False, "providers": [], "error": KOKORO_IMPORT_ERROR})
+                return self.respond(200, kokoro_list_voices())
             if self.serve_app_file(parsed.path):
                 return
             if parsed.path.startswith("/vh2/"):
@@ -4231,6 +4324,46 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             parsed_path = urllib.parse.urlparse(self.path).path
             if not self.remote_surface_allowed(parsed_path):
+                return
+            if parsed_path in {"/api/tts/kokoro/tags_to_formula", "/api/tts/kokoro/synthesize"}:
+                if not self.kokoro_local_allowed():
+                    return self.respond(403, {"error": "Kokoro TTS is local-only."})
+                if not KOKORO_AVAILABLE:
+                    return self.respond(503, {"error": KOKORO_IMPORT_ERROR})
+                if int(self.headers.get("Content-Length", "0") or 0) > 16384:
+                    return self.respond(413, {"error": "Kokoro request is too large."})
+                data = self.read_json()
+                tags = data.get("tags", [])
+                if not isinstance(tags, list) or len(tags) > 20:
+                    raise ValueError("tags must be an array of at most 20 values")
+                if parsed_path.endswith("tags_to_formula"):
+                    return self.respond(200, kokoro_tags_to_formula(tags))
+                text = data.get("text", "")
+                if not isinstance(text, str) or not text.strip() or len(text) > 1000:
+                    raise ValueError("text must be 1–1000 characters")
+                gpu = data.get("gpu", False)
+                if not isinstance(gpu, bool):
+                    raise ValueError("gpu must be a boolean")
+                try:
+                    with KOKORO_SYNTH_LOCK:
+                        if tags:
+                            wav, _ = kokoro_synthesize_from_tags(
+                                text, tags, data.get("speed"), data.get("lang", "a"),
+                                gpu=gpu, pitch=data.get("pitch"))
+                        else:
+                            wav = kokoro_synthesize_wav_bytes(
+                                text, data.get("formula", "af_heart:100"),
+                                data.get("speed", 1.0), data.get("lang", "a"),
+                                gpu=gpu, pitch=data.get("pitch", 0))
+                except RuntimeError as error:
+                    return self.respond(503, {"error": str(error), "gpu_requested": gpu})
+                self.send_response(200)
+                self.cors()
+                self.send_header("Content-Type", "audio/wav")
+                self.send_header("Content-Length", str(len(wav)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(wav)
                 return
             if parsed_path.startswith("/world-bgm/assets/") or parsed_path.startswith("/world-bgm/delete/"):
                 if not self.client_is_loopback():
@@ -4684,6 +4817,7 @@ def main() -> None:
                     ) from retry_error
                 time.sleep(0.1)
     app_url = f"http://{HOST}:{PORT}/"
+    start_optional_kokoro_tts()
     listen_info = f"{LISTEN_HOST}:{PORT}" if LISTEN_HOST != HOST else str(PORT)
     print(f"Horde Studio {'private VH2 self-host' if REMOTE_VH2_MODE else 'bridge'} listening on {listen_info}")
     vh2_warmup_timer = None
@@ -4720,6 +4854,7 @@ def main() -> None:
         if vh2_service is not None:
             vh2_service.close()
         multiplayer_runtime.shutdown()
+        stop_optional_kokoro_tts()
         server.server_close()
 
 
