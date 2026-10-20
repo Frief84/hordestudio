@@ -222,9 +222,8 @@ function bind(proposal, context, canonical) {
         const action = { action_id: actionId, kind, status: world ? 'resolved' : entry.status,
             request: world ? '' : context.input.slice(requestSpans[index].start, requestSpans[index].end),
             response_id: `${actionId}_p0`, action_effects: normalizedEffects(entry.effects) };
-        if (!world && entry.kind === 'gesture' && Object.values(action.action_effects)
-            .some(value => !Array.isArray(value) || value.length))
-            errors.push({ reason: 'gesture_has_world_effects', detail: `actions.${index}.effects` });
+        const hasWorldEffects = Object.values(action.action_effects)
+            .some(value => !Array.isArray(value) || value.length);
         if (world && (action.action_effects.actor_move || []).some(move => move.actor_id === 'player'
             || (move.companion_ids || []).includes('player'))
             && !(entry.events || []).some(event => event.type === 'movement' && event.actor_id === 'player'
@@ -280,7 +279,8 @@ function bind(proposal, context, canonical) {
                 ...clone(resolution), event_index: eventOffset + resolution.event_index,
                 action_id: actionId, passage_id: passageId });
         });
-        if (!world && entry.kind === 'gesture' && ['resolved', 'answered'].includes(entry.status)
+        if (!world && entry.kind === 'gesture' && !hasWorldEffects
+            && ['resolved', 'answered'].includes(entry.status)
             && !draft.events.some(event => event.action_id === actionId && event.actor_id === 'player'
                 && event.status === 'completed')) draft.events.push({ type: 'interaction',
             actor_id: 'player', status: 'completed', action: action.request.slice(0, 180),
@@ -332,14 +332,18 @@ function repairLosses(verified, next, canonical, previous = null) {
     }
     // A repair cannot turn an unresolved executable request into a neutral
     // gesture or line of dialogue merely by changing the model's label.
-    // This is an ambiguity check, not protection for the prior model effect.
+    // An effect-bearing replacement is still executable and must pass the
+    // usual binding, event and reducer checks; verified effects were checked
+    // for loss above.
     if (object(previous) && Array.isArray(previous.actions))
         previous.actions.forEach((action, index) => {
             const replacement = next.actions[index];
             if (!object(action) || !object(replacement)
                 || !['physical', 'travel', 'wait'].includes(action.kind)
                 || !['resolved', 'answered'].includes(action.status)
-                || !['gesture', 'speech', 'question', 'observation', 'other'].includes(replacement.kind)) return;
+                || !['gesture', 'speech', 'question', 'observation', 'other'].includes(replacement.kind)
+                || Object.values(normalizedEffects(replacement.effects))
+                    .some(value => !Array.isArray(value) || value.length)) return;
             result.push({ reason: 'unverified_action_reclassification',
                 detail: `actions.${index}.kind` });
         });

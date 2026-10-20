@@ -114,10 +114,13 @@ He shifts slightly on his sun-warmed stone.
             outcomes.push(await run('Farewell.', [moved]));
             const outfit = say('The cloak settles around your shoulders.', 'physical');
             outfit.actions[0].effects = { outfit_set: [{ actor_id: 'player', outfit: 'red cloak' }] };
+            outfit.actions[0].response[0].events = [{ type: 'outfit', actor_id: 'player',
+                status: 'completed', outfit: 'red cloak' }];
             outcomes.push(await run('I put on the red cloak.', [outfit]));
             const repaired = structuredClone(outfit);
             repaired.actions[0].effects.outfit_set[0].outfit = 'blue coat';
             repaired.actions[0].response[0].text = 'The blue coat settles around your shoulders.';
+            repaired.actions[0].response[0].events[0].outfit = 'blue coat';
             const past = structuredClone(repaired);
             world.gameRules.modules.livingWorld = true;
             past.actions[0].response[0].commitments = [{ title: 'A false appointment', day: 1, minute_of_day: 0,
@@ -129,6 +132,7 @@ He shifts slightly on his sun-warmed stone.
             const failed = structuredClone(repaired);
             failed.actions[0].effects.outfit_set[0].outfit = 'violet coat';
             failed.actions[0].response[0].text = 'The violet coat settles around your shoulders.';
+            failed.actions[0].response[0].events[0].outfit = 'violet coat';
             outcomes.push(await run('I put on the violet coat.', [failed], [], true));
             outcomes.push(await run('Anyone there?', [say('Lorne nods beside you.') ]));
             const wait = say('Ten minutes pass while the breeze moves across the stone.', 'wait');
@@ -141,6 +145,7 @@ He shifts slightly on his sun-warmed stone.
             outcomes.push(await run('I agree to meet tomorrow at 08:30.', [future]));
             const guarded = structuredClone(past);
             guarded.actions[0].effects.outfit_set[0].outfit = 'green coat';
+            guarded.actions[0].response[0].events[0].outfit = 'green coat';
             guarded.actions[0].response[0].commitments[0].source_quote = 'I put on the green coat at 08:30.';
             const droppedAfterLength = structuredClone(guarded);
             droppedAfterLength.actions[0].effects = [];

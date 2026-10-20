@@ -33279,6 +33279,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             capability: worldEffectCapability, legacyEffectKeys,
                             applyLegacyEffect, requestPendingCheck,
                             worldActionIds: serverBinding?.worldActionIds || [],
+                            requireEffectWitnesses: !!serverBinding,
                             includedTurnMinutes: serverBinding && serverBoundTimeAdvanced
                                 ? Math.max(0, Number(world.hudConfig?.timeStep ?? 5)) : 0 });
                     if (!linked.ok) {

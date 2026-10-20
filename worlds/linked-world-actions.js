@@ -567,10 +567,24 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 }
                 events.push(copy(event));
             }
-            if ((context.worldActionIds || []).includes(action.action_id)
-                && operations.some(operation => !witnessed(operation,
-                    plan.events.filter(event => event.action_id === action.action_id), moveTransitions)))
-                throw new Error('unwitnessed_world_effect');
+            const worldReaction = (context.worldActionIds || []).includes(action.action_id);
+            const actionEvents = plan.events.filter(event => event.action_id === action.action_id);
+            const unwitnessed = operations.find(operation => {
+                // Server-bound player proposals need the same structural proof
+                // as NPC reactions. Time advances are checked against the turn
+                // clock; legacy operations keep their existing receipt checks.
+                const eventBound = Object.hasOwn(eventTypes, operation.type)
+                    || !!registryApi.technicalEffects.get(operation.type)?.eventTypes;
+                const needsEvent = worldReaction || context.requireEffectWitnesses === true
+                    && eventBound && !['time_advance', 'time_skip_minutes'].includes(operation.type);
+                return needsEvent && !witnessed(operation, actionEvents, moveTransitions);
+            });
+            if (unwitnessed) {
+                const error = new Error(worldReaction ? 'unwitnessed_world_effect'
+                    : 'unwitnessed_action_effect');
+                error.effect = unwitnessed.type;
+                throw error;
+            }
         } catch (error) {
             working.restore(point);
             turnTimeBudget.remaining = includedTimeAtStart;
