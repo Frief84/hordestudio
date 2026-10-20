@@ -116,6 +116,57 @@ function sceneMemory(draft, receiptId, location, turn) {
     const unique = [...new Map(records.map(r => [`${r.kind}:${r.actor || ''}:${r.text}`, r])).values()].slice(0, 12);
     return { receiptId, location, turn, records: unique };
 }
+
+// Prompt-only projection of the existing lore packet. Keep the full packet for
+// authoring/debugging; references here point to the exact narrator facts and
+// never alter their audience or the canonical World definition.
+function loreForPrompt(packet, currentDescription, authoredDescription) {
+    if (!packet || typeof packet !== 'object')
+        return { packet, currentDescription: String(currentDescription || '') };
+    const projected = { ...packet };
+    delete projected.selection; // Retrieval diagnostics are not story context.
+    delete projected.npcPlaces; // The same IDs are in each NPC PERSPECTIVE.
+    const facts = new Map((packet.narrator || []).filter(fact => fact?.id)
+        .map(fact => [fact.id, JSON.stringify(fact)]));
+    projected.npcKnowledge = Object.fromEntries(Object.entries(packet.npcKnowledge || {})
+        .map(([actor, entries]) => [actor, (Array.isArray(entries) ? entries : []).map(fact =>
+            fact?.id && facts.get(fact.id) === JSON.stringify(fact) ? fact.id : fact)]));
+    const authored = String(authoredDescription || '');
+    const full = String(currentDescription || '');
+    const place = (packet.places || []).find(item => item?.id === packet.locationId);
+    const description = authored && place?.description === authored && full.startsWith(authored)
+        ? full.slice(authored.length).trim() || '(see WORLD LORE current place description)'
+        : full;
+    return { packet: projected, currentDescription: description };
+}
+
+// Exact repeats only. A fuzzy match could erase distinct testimony, a changed
+// deadline, or a later correction; those remain in their original sources.
+function historySources(ledger = '', archive = '', matrix = '') {
+    const key = line => String(line || '').trim().replace(/\r/g, '');
+    const seen = new Set(String(ledger || '').split('\n').map(key).filter(Boolean));
+    const archiveLines = String(archive || '').split('\n').filter(line => {
+        const value = key(line);
+        if (!value || seen.has(value)) return false;
+        seen.add(value);
+        return true;
+    });
+    const archiveText = archiveLines.join('\n');
+    const matrixBlocks = String(matrix || '').split(/(?=\n\n\[MEMORY MATRIX:)/);
+    const matrixText = matrixBlocks.map(block => {
+        const lines = block.split('\n').filter(line => {
+            const match = line.match(/^\[WORLD HISTORY\]:\s*(.*)$/u);
+            return !match || !seen.has(key(match[1]));
+        });
+        const hasRecord = lines.some(line => /^\[(?:WORLD HISTORY|LOCAL MEMORY|RECALLED HISTORY)\]:/u.test(line));
+        return hasRecord || !block.includes('[MEMORY MATRIX:') ? lines.join('\n') : '';
+    }).filter(Boolean).join('');
+    return { archive: archiveText, matrix: matrixText };
+}
+
+function sourceLinkedRecall(recall) {
+    return recall ? `\n\n[SOURCE-LINKED SCENE MEMORY — past scenes, NOT current state]\n${recall}\nTestimony means somebody said it, not that it is true. Narrative excerpts quote an older scene and may contain dialogue, intentions or uncertainty; they are not new verified state. Current engine state overrides old events. Do not grant recalled knowledge to an unwitnessing NPC.` : '';
+}
 // Lightweight retrieval only: these keys select source text, never rewrite it
 // or infer facts. Prefix matching tolerates common English/German inflections.
 const recallStopWords = new Set(('the and that this with from have has had was were what which when where who why how '
@@ -187,6 +238,7 @@ function recall(history, query, location, limit = 4500, excludedIds = [], option
     }
     return selected.sort((a,b) => a.index - b.index).map(item => item.text).join('\n');
 }
-root.HordeWorldTurnContext = { history, sceneMemory, recall };
+root.HordeWorldTurnContext = { history, sceneMemory, recall, loreForPrompt,
+    historySources, sourceLinkedRecall };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldTurnContext;
 })(globalThis);

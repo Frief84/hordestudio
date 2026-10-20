@@ -31328,20 +31328,24 @@ async function executeWorldTurn(commandOrReroll = null) {
         ...(sess.quests || []).filter(quest => quest.status === 'active').map(quest => quest.title)
     ].join(' ');
     const recalledLedger = retrieveWorldLedgerArchive(sess, archiveQuery);
+    const selectedHistorySources = HordeWorldTurnContext.historySources(sess.ledger, recalledLedger);
     // Fill recall after selecting the actual verbatim history window.
     const sceneRecall = '__WORLD_SCENE_RECALL__';
-    const ledgerPrompt = ((sess.ledger || recalledLedger)
-        ? `\n\n[WORLD LEDGER: PERSISTENT HISTORY]\n${sess.ledger || ''}${recalledLedger ? `\n\n[RECALLED OLDER CANON — relevant to this scene]\n${recalledLedger}` : ''}\nUse this as the source of truth for past events. Older canon not recalled here still exists; do not contradict it.`
-        : "") + (sceneRecall ? `\n\n[SOURCE-LINKED SCENE MEMORY — past scenes, NOT current state]\n${sceneRecall}\nTestimony means somebody said it, not that it is true. Narrative excerpts quote an older scene and may contain dialogue, intentions or uncertainty; they are not new verified state. Current engine state overrides old events. Do not grant recalled knowledge to an unwitnessing NPC.` : '');
+    const ledgerPrompt = ((sess.ledger || selectedHistorySources.archive)
+        ? `\n\n[WORLD LEDGER: PERSISTENT HISTORY]\n${sess.ledger || ''}${selectedHistorySources.archive ? `\n\n[RECALLED OLDER CANON — relevant to this scene]\n${selectedHistorySources.archive}` : ''}\nUse this as the source of truth for past events. Older canon not recalled here still exists; do not contradict it.`
+        : '') + sceneRecall;
     // Shared authored knowledge: narrator facts and per-actor knowledge stay distinct.
     let relevantLore = '';
+    let promptLocationDescription = locDesc;
     if (globalThis.HordeWorldLore) {
         const packet = globalThis.HordeWorldLore.context(worldForSession(world, sess), { locationId: sess.playerLocation,
             npcIds: presentNPCs.map(n => n.id), query: userInput, session: sess });
         packet.movementOptions = buildWorldMovementOptions(world, sess,
             presentNPCs.map(n => n.id), userInput, !linkedWorldTurn);
         worldLoreContextSnapshots.set(sess.id, packet);
-        relevantLore = '\n[WORLD LORE — authoritative map and movement rules. The CURRENT WORLD STATE Exits line and places[].connections list every authored exit from the current place; these are the physical exits that exist. movementOptions[].allowed_next lists only routes currently permitted for that actor and may be a subset, especially when the player named a destination. Never infer that other exits do not exist or call one route the only exit merely because allowed_next is narrower. Describe a route as blocked, locked or inaccessible only when its connection data says so. Before proposing a place-to-place move, use only allowed_next route IDs, modes and travel times for that actor. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcPlaces lists place IDs each present NPC knows.]\n' + JSON.stringify(packet);
+        const promptLore = HordeWorldTurnContext.loreForPrompt(packet, locDesc, loc?.description);
+        promptLocationDescription = promptLore.currentDescription;
+        relevantLore = '\n[WORLD LORE — authoritative map and movement rules. The CURRENT WORLD STATE Exits line and places[].connections list every authored exit from the current place; these are the physical exits that exist. movementOptions[].allowed_next lists only routes currently permitted for that actor and may be a subset, especially when the player named a destination. Never infer that other exits do not exist or call one route the only exit merely because allowed_next is narrower. Describe a route as blocked, locked or inaccessible only when its connection data says so. Before proposing a place-to-place move, use only allowed_next route IDs, modes and travel times for that actor. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcKnowledge lists narrator fact IDs known to each NPC; each NPC PERSPECTIVE lists their known local place IDs.]\n' + JSON.stringify(promptLore.packet);
         if (turnCallAudit?.metrics) turnCallAudit.metrics.loreCharacters = relevantLore.length;
     } else {
         relevantLore = (world.lorebook || []).filter(entry => entry.keyword && entry.text
@@ -31581,7 +31585,8 @@ async function executeWorldTurn(commandOrReroll = null) {
         : buildKernelLocationManifest(world, sess, userInput, !linkedWorldTurn);
     
     // --- MEMORY MATRIX INJECTION ---
-    const memoryContext = await getMemoryMatrixContext(world, sess, userInput);
+    const memoryContext = HordeWorldTurnContext.historySources(sess.ledger,
+        selectedHistorySources.archive, await getMemoryMatrixContext(world, sess, userInput)).matrix;
 
     // --- KNOWLEDGE BARRIER ---
     const knowledgeBarrier = `
@@ -31696,7 +31701,7 @@ Canonical Scene Frame (authoritative): ${JSON.stringify(canonicalSceneFrame)}
 Recent Committed/Tracked Events: ${recentCanonicalEvents.length ? JSON.stringify(recentCanonicalEvents) : 'None yet'}
 Time: ${exactTimeStr} (${period}, ${weekdayName}, Day ${days})
 Weather: ${weather} — weave it into descriptions where natural; it may subtly affect NPC moods and outdoor scenes.
-Description: ${locDesc}${locHidden}
+Description: ${promptLocationDescription}${locHidden}
 Exits: ${locExits}
 Place appearance and room contents are included in WORLD LORE. Treat that data as canonical unless this game’s committed state changed it.
 NPCs Present: ${presentNPCs.map(n => n.name).join(', ') || 'None'}
@@ -31910,14 +31915,26 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
 
         const recentRecallContext = historyToSend.filter(message => message.role !== 'system')
             .slice(-3).map(message => message.content).join('\n');
-        systemPrompt = systemPrompt.replace(sceneRecall, HordeWorldTurnContext.recall(
+        const selectedRecall = HordeWorldTurnContext.recall(
             sess.history.slice(0, startIdx + 1), archiveQuery, sess.playerLocation, 4500, selectedHistoryIds, {
                 primaryQuery: latestActionText || userInput,
                 recentContext: recentRecallContext,
                 actorIds: [...new Set([...presentNPCs.map(npc => npc.id),
                     ...findReferencedWorldNpcs(world, sess, `${userInput}\n${recentRecallContext}`).map(npc => npc.id)])],
                 text: message => scrubNarrativeArtifacts(canonicalMsgText(message))
-            }));
+            });
+        systemPrompt = systemPrompt.replace(sceneRecall,
+            HordeWorldTurnContext.sourceLinkedRecall(selectedRecall));
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.contextSources = {
+            lore: relevantLore.length,
+            locationDescription: String(promptLocationDescription || '').length,
+            npcPerspectives: npcContext.length,
+            ledgerAndArchive: ledgerPrompt.length - sceneRecall.length,
+            memoryMatrix: memoryContext.length,
+            sourceLinkedRecall: selectedRecall.length,
+            recentHistory: historyToSend.reduce((sum, message) => sum + message.content.length, 0),
+            schema: 0, sceneGuidance: 0
+        };
         const messages = [
             { role: 'system', content: systemPrompt + finalMandate },
             ...historyToSend
@@ -32778,6 +32795,11 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (turnCallAudit?.metrics) {
             turnCallAudit.metrics.mainPromptCharacters = outgoingScenePayload.length;
             turnCallAudit.metrics.estimatedInputTokens = estimatedInputTokens;
+            if (turnCallAudit.metrics.contextSources) {
+                turnCallAudit.metrics.contextSources.schema = JSON.stringify(
+                    requestBody.tools || requestBody.response_format || {}).length;
+                turnCallAudit.metrics.contextSources.sceneGuidance = draftInstruction.length;
+            }
         }
         if (estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
             const minimum = Math.ceil((estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER + 1024) / 1024) * 1024;

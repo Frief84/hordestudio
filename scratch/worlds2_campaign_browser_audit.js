@@ -7,6 +7,16 @@ const { chromium, launchOptions } = require('./browser_runtime').browserRuntime(
 const root = path.resolve(__dirname, '..');
 globalThis.HordeHumanPackage = require('../human-package.js');
 const Archive = require('../large-archive.js');
+function assertRetains(actual, expected, path = 'legacy World state') {
+    if (Array.isArray(expected)) {
+        assert(Array.isArray(actual) && actual.length === expected.length, `${path}: array changed`);
+        expected.forEach((item, index) => assertRetains(actual[index], item, `${path}[${index}]`));
+    } else if (expected && typeof expected === 'object') {
+        assert(actual && typeof actual === 'object', `${path}: object missing`);
+        for (const [key, value] of Object.entries(expected))
+            assertRetains(actual[key], value, `${path}.${key}`);
+    } else assert.deepEqual(actual, expected, `${path}: value changed`);
+}
 globalThis.FileReader = class {
     readAsDataURL(blob) {
         blob.arrayBuffer().then(bytes => {
@@ -60,8 +70,20 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
             state.worlds = [world];
             state.editingWorld = world;
             state.worldInstances = { campaign_source: { activeSessionId: 'timeline_one', sessions: [
-                { id: 'timeline_one', name: 'Played Timeline', playerLocation: 'room', entityStates: {},
-                    history: [{ id: 'scene_one', role: 'dm', text: 'Ada arrives.', turnSnapshot: { portrait: image } },
+                { id: 'timeline_one', name: 'Played Timeline', playerLocation: 'room',
+                    entityStates: { story_person: { location: 'room', observations: [
+                        { id: 'old_observation', text: 'Ada witnessed the greeting.', sourceType: 'witnessed' }] } },
+                    inventory: ['brass key'], npcRelationships: { 'player|story_person': { score: 64 } },
+                    locationStates: { room: { conditions: [{ label: 'Quiet' }] } },
+                    quests: [{ id: 'old_quest', title: 'Read the map', status: 'active' }],
+                    scheduledEvents: [{ id: 'old_meeting', title: 'Meet Ada', status: 'scheduled', dueMinute: 1800 }],
+                    worldClock: { absoluteMinutes: 600, turnCount: 2, bonusTimeMinutes: 0 },
+                    ledger: 'Ada witnessed the greeting.', ledgerArchive: [{ lines: ['An older promise remains open.'] }],
+                    worldTurnReceipts: [{ audit: { protocol: 'scene_draft_v2' }, receipt: { turn_id: 'old_v2' } },
+                        { audit: { protocol: 'scene_draft_v3' }, receipt: { turn_id: 'old_v3' } }],
+                    history: [{ id: 'scene_one', role: 'dm', text: 'Ada arrives.', turnSnapshot: { portrait: image },
+                        sceneMemory: { receiptId: 'old_v2', location: 'room', records: [
+                            { kind: 'testimony', actor: 'story_person', text: 'Ada saw the old map.' }] } },
                         { id: 'action_one', role: 'user', text: 'I greet Ada.' }] },
                 { id: 'timeline_two', name: 'Forked Timeline', playerLocation: 'room', entityStates: {},
                     history: [{ id: 'scene_two', role: 'dm', text: 'Ada leaves.' }] }
@@ -104,6 +126,17 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
             const saved = await HordeDB.get(`worldInstance:${world.id}`);
             return { id: world.id, image: world.mediaAssets[0]?.data, activeSessionId: instance.activeSessionId,
                 sessions: instance.sessions.map(session => session.history.map(message => message.text)),
+                legacyState: { inventory: instance.sessions[0].inventory,
+                    entityStates: instance.sessions[0].entityStates,
+                    relationships: instance.sessions[0].npcRelationships,
+                    locationStates: instance.sessions[0].locationStates,
+                    quests: instance.sessions[0].quests,
+                    commitments: instance.sessions[0].scheduledEvents,
+                    worldClock: instance.sessions[0].worldClock,
+                    ledger: instance.sessions[0].ledger,
+                    ledgerArchive: instance.sessions[0].ledgerArchive,
+                    receiptProtocols: instance.sessions[0].worldTurnReceipts.map(item => item.audit.protocol),
+                    sceneMemory: instance.sessions[0].history[0].sceneMemory },
                 persisted: saved?.sessions?.length === 2 };
         });
         assert.notEqual(imported.id, 'campaign_source');
@@ -111,11 +144,51 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
         assert.deepEqual(imported.sessions, [['Ada arrives.', 'I greet Ada.'], ['Ada leaves.']]);
         assert.equal(imported.persisted, true);
         assert.equal(imported.image, campaign.world.mediaAssets[0].data);
+        assertRetains(imported.legacyState, {
+            inventory: campaign.instance.sessions[0].inventory,
+            entityStates: campaign.instance.sessions[0].entityStates,
+            relationships: campaign.instance.sessions[0].npcRelationships,
+            locationStates: campaign.instance.sessions[0].locationStates,
+            quests: campaign.instance.sessions[0].quests,
+            commitments: campaign.instance.sessions[0].scheduledEvents,
+            worldClock: campaign.instance.sessions[0].worldClock,
+            ledger: campaign.instance.sessions[0].ledger,
+            ledgerArchive: campaign.instance.sessions[0].ledgerArchive,
+            receiptProtocols: ['scene_draft_v2', 'scene_draft_v3'],
+            sceneMemory: campaign.instance.sessions[0].history[0].sceneMemory
+        });
         await fresh.reload();
         await fresh.waitForFunction(id => !!state.worldInstances?.[id], imported.id, { timeout: 30000 });
+        assert.deepEqual(await fresh.evaluate(id => {
+            const session = state.worldInstances[id].sessions[0];
+            return { ledger: session.ledger, observations: session.entityStates.story_person.observations,
+                receiptProtocols: session.worldTurnReceipts.map(item => item.audit.protocol),
+                sceneMemory: session.history[0].sceneMemory };
+        }, imported.id), {
+            ledger: imported.legacyState.ledger,
+            observations: imported.legacyState.entityStates.story_person.observations,
+            receiptProtocols: imported.legacyState.receiptProtocols,
+            sceneMemory: imported.legacyState.sceneMemory
+        }, 'mixed V2/V3 history and NPC memory survive reload');
         const beforeLegacy = await fresh.evaluate(() => state.worlds.length);
         await importCampaign(fresh, Buffer.from(JSON.stringify({ ...campaign, _version: 1 })), 'legacy.horde_campaign');
         await fresh.waitForFunction(count => state.worlds.length === count + 1, beforeLegacy, { timeout: 30000 });
+        const legacyV1 = await fresh.evaluate(existingId => {
+            const world = state.worlds.find(item => item.name === 'Campaign Round Trip' && item.id !== existingId);
+            const session = state.worldInstances?.[world.id]?.sessions?.[0];
+            return { memory: session?.history?.[0]?.sceneMemory?.records?.[0]?.text,
+                observation: session?.entityStates?.story_person?.observations?.[0]?.text,
+                inventory: session?.inventory, relationship: session?.npcRelationships?.['player|story_person']?.score,
+                quest: session?.quests?.[0]?.id, deadline: session?.scheduledEvents?.[0]?.dueMinute,
+                protocols: session?.worldTurnReceipts?.map(item => item.audit?.protocol) };
+        }, imported.id);
+        assert.equal(legacyV1.memory, 'Ada saw the old map.');
+        assert.equal(legacyV1.observation, 'Ada witnessed the greeting.');
+        assert(legacyV1.inventory?.some(item => String(item?.name || item).includes('brass key')));
+        assert.equal(legacyV1.relationship, 64);
+        assert.equal(legacyV1.quest, 'old_quest');
+        assert.equal(legacyV1.deadline, 1800);
+        assert.deepEqual(legacyV1.protocols, ['scene_draft_v2', 'scene_draft_v3']);
 
         await page.evaluate(async () => {
             state.chats = { fixture_owner: [{ id: 'fixture_chat', messages: [{ role: 'user', content: 'A map attachment',
