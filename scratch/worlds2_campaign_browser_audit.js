@@ -3,8 +3,9 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { chromium, launchOptions } = require('./browser_runtime').browserRuntime();
-const root = path.resolve(__dirname, '..');
+const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, '..'));
 globalThis.HordeHumanPackage = require('../human-package.js');
 const Archive = require('../large-archive.js');
 function assertRetains(actual, expected, path = 'legacy World state') {
@@ -29,6 +30,14 @@ globalThis.FileReader = class {
 function serve(context) {
     return context.route('**/*', route => {
         const url = new URL(route.request().url());
+        if (url.pathname === '/worlds/bind-turn') {
+            const headers = { 'access-control-allow-origin': '*',
+                'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type' };
+            if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers });
+            const result = spawnSync(process.execPath, [path.join(root, 'worlds/turn-binding-worker.js')],
+                { input: route.request().postData(), encoding: 'utf8' });
+            return route.fulfill({ status: 200, contentType: 'application/json', headers, body: result.stdout });
+        }
         if (url.hostname !== 'worlds2-campaign.test') return route.abort();
         const file = path.resolve(root, '.' + (url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname)));
         if (!file.startsWith(root + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) {
@@ -66,7 +75,9 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
             const world = { id: 'campaign_source', name: 'Campaign Round Trip',
                 locations: [{ id: 'room', name: 'Room', description: 'Quiet.', exits: [] }],
                 entities: [{ id: 'story_person', name: 'Ada', type: 'npc', sessionOrigin: 'timeline_one', visuals: { portraitAssetId: 'ada_portrait' } }],
-                mediaAssets: [{ id: 'ada_portrait', kind: 'portrait', label: 'Ada', data: image }], startLocationId: 'room' };
+                mediaAssets: [{ id: 'ada_portrait', kind: 'portrait', label: 'Ada', data: image }], startLocationId: 'room',
+                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true, sceneDraftProtocol: 'scene_draft_v3' },
+                gameRules: { modules: { livingWorld: true, relationships: false } } };
             state.worlds = [world];
             state.editingWorld = world;
             state.worldInstances = { campaign_source: { activeSessionId: 'timeline_one', sessions: [
@@ -189,6 +200,102 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
         assert.equal(legacyV1.quest, 'old_quest');
         assert.equal(legacyV1.deadline, 1800);
         assert.deepEqual(legacyV1.protocols, ['scene_draft_v2', 'scene_draft_v3']);
+
+        const continued = await fresh.evaluate(async existingId => {
+            const world = state.worlds.find(item => item.name === 'Campaign Round Trip' && item.id !== existingId);
+            const digest = async value => Array.from(new Uint8Array(await crypto.subtle.digest(
+                'SHA-256', new TextEncoder().encode(JSON.stringify(value)))))
+                .map(byte => byte.toString(16).padStart(2, '0')).join('');
+            const worldHashBefore = await digest(world);
+            state.activeWorldId = world.id;
+            const session = state.worldInstances[world.id].sessions[0];
+            session.setupComplete = true;
+            state.apiKey = 'offline'; state.globalSettings.apiProvider = 'openrouter';
+            switchView('worldPlay'); renderWorldPlayState();
+            const realFetch = window.fetch;
+            let calls = 0, draftIndex = 0;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                const draft = draftIndex === 0
+                    ? { protocol: 'scene_draft_v3', actions: [{ kind: 'question', status: 'answered',
+                        effects: [], response: [{ text: 'Ada recalls the old map.' }] }] }
+                    : { protocol: 'scene_draft_v3', actions: [{ kind: 'physical', status: 'resolved',
+                        effects: { outfit_set: [{ actor_id: 'player', outfit: 'red cloak' }] },
+                        response: [{ text: 'You put on a red cloak.', events: [{ type: 'outfit',
+                            actor_id: 'player', status: 'completed', outfit: 'red cloak' }] }] }],
+                        reactions: [{ text: 'Ada puts on a blue coat.',
+                            effects: { outfit_set: [{ actor_id: 'story_person', outfit: 'blue coat' }] },
+                            events: [{ type: 'outfit', actor_id: 'story_person', status: 'completed',
+                                outfit: 'blue coat' }] }] };
+                const body = JSON.parse(options.body), raw = JSON.stringify(draft);
+                if (body.stream) return new Response(`data: ${JSON.stringify({ choices: [{
+                    delta: { content: raw }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                { headers: { 'Content-Type': 'text/event-stream' } });
+                return new Response(JSON.stringify({ choices: [{ message: { content: raw } }],
+                    usage: { prompt_tokens: 100, completion_tokens: 40, total_tokens: 140 } }),
+                { headers: { 'Content-Type': 'application/json' } });
+            };
+            for (const input of ['What does the old map show?', 'I put on a red cloak.']) {
+                document.getElementById('world-user-input').value = input;
+                await executeWorldTurn();
+                draftIndex++;
+            }
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.find(item => item.id === session.id);
+            return { worldId: world.id, sessionId: session.id, calls,
+                callAudits: session.history.filter(item => item.callAudit).map(item => item.callAudit),
+                turnError: document.getElementById('world-turn-error-text')?.textContent,
+                definitionUnchanged: (await digest(world)) === worldHashBefore,
+                worldDefinition: { locations: structuredClone(world.locations), entities: structuredClone(world.entities),
+                    startLocationId: world.startLocationId, kernel: structuredClone(world.kernel),
+                    gameRules: structuredClone(world.gameRules), mediaAssets: structuredClone(world.mediaAssets) },
+                accepted: session.history.at(-1)?.role === 'dm' && session.history.at(-1)?.stateSource !== 'frozen_no_receipt',
+                protocols: session.worldTurnReceipts.map(item => item.audit?.protocol),
+                oldMemory: session.history.some(item => item.id === 'scene_one' &&
+                    item.sceneMemory?.records?.[0]?.text === 'Ada saw the old map.'),
+                inventory: session.inventory, observations: session.entityStates.story_person.observations,
+                relationship: session.npcRelationships['player|story_person']?.score,
+                quest: session.quests[0]?.id, playerOutfit: session.outfit,
+                npcOutfit: session.entityStates.story_person.outfit,
+                persisted: !!saved, historyCount: session.history.length };
+        }, imported.id);
+        assert.equal(continued.calls, 2, JSON.stringify({ callAudits: continued.callAudits,
+            turnError: continued.turnError }).slice(0, 3500));
+        assert(continued.accepted && continued.persisted && continued.oldMemory && continued.definitionUnchanged);
+        assert.deepEqual(continued.protocols.slice(0, 2), ['scene_draft_v2', 'scene_draft_v3']);
+        assert.equal(continued.protocols.length, 4);
+        assert.equal(continued.playerOutfit, 'red cloak');
+        assert.equal(continued.npcOutfit, 'blue coat');
+        assert(continued.inventory.some(item => String(item?.name || item).includes('brass key')));
+        assert.equal(continued.observations[0].text, 'Ada witnessed the greeting.');
+        assert.equal(continued.relationship, 64);
+        assert.equal(continued.quest, 'old_quest');
+        await fresh.reload();
+        await fresh.waitForFunction(id => !!state.worldInstances?.[id], continued.worldId, { timeout: 30000 });
+        const continuedReload = await fresh.evaluate(({ worldId, sessionId }) => {
+            const world = state.worlds.find(item => item.id === worldId);
+            const session = state.worldInstances[worldId].sessions.find(item => item.id === sessionId);
+            return { worldDefinition: { locations: world.locations, entities: world.entities,
+                startLocationId: world.startLocationId, kernel: world.kernel,
+                gameRules: world.gameRules, mediaAssets: world.mediaAssets },
+                protocols: session.worldTurnReceipts.map(item => item.audit?.protocol),
+                oldMemory: session.history.some(item => item.id === 'scene_one' &&
+                    item.sceneMemory?.records?.[0]?.text === 'Ada saw the old map.'),
+                inventory: session.inventory, observations: session.entityStates.story_person.observations,
+                relationship: session.npcRelationships['player|story_person']?.score,
+                quest: session.quests[0]?.id, playerOutfit: session.outfit,
+                npcOutfit: session.entityStates.story_person.outfit, historyCount: session.history.length };
+        }, continued);
+        assertRetains(continuedReload.worldDefinition, continued.worldDefinition,
+            'authored World definition after continued legacy reload');
+        delete continuedReload.worldDefinition;
+        assert.deepEqual(continuedReload, {
+            protocols: continued.protocols, oldMemory: true, inventory: continued.inventory,
+            observations: continued.observations, relationship: continued.relationship,
+            quest: continued.quest, playerOutfit: continued.playerOutfit,
+            npcOutfit: continued.npcOutfit, historyCount: continued.historyCount
+        }, 'imported V1 campaign continues through NPC actions and save/reload');
 
         await page.evaluate(async () => {
             state.chats = { fixture_owner: [{ id: 'fixture_chat', messages: [{ role: 'user', content: 'A map attachment',
@@ -437,7 +544,7 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
         assert([...shardFiles.keys()].filter(key => key.startsWith('data/')).length > 1);
         assert.deepEqual(await Archive.unpack(sharded, 'world-campaign'), sample);
         console.log(process.env.HORDE_WORLDS_ONLY
-            ? 'PASS: Worlds campaign/full-install ZIP round trips; legacy JSON imports; media dedup, history sharding, corruption rejection, atomic restore rollback'
+            ? 'PASS: Worlds campaign/full-install ZIP round trips; legacy V1 continuation with NPC effects and reload; media dedup, history sharding, corruption rejection, atomic restore rollback'
             : 'PASS: campaign/full-install ZIP round trips; binary VH2 checkpoint transport; legacy JSON imports; media dedup, history sharding, corruption rejection, atomic restore rollback');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
