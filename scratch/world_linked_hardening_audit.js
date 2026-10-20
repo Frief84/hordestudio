@@ -201,6 +201,37 @@ assert.equal(unquotedReaction.events.length, 1, 'the original model draft must r
 const unquotedResult = linked.executeLinkedActions(unquotedCompiled.linkedPlan, world,
     structuredClone(initial), { capability });
 assert(unquotedResult.ok, JSON.stringify(unquotedResult.errors));
+const aslanReply = `Aslan slowly raises his head, his faintly glowing golden eyes settling on the traveller.\n"How observant. And here I was, hoping to pass for a particularly handsome pebble."\nHe shifts slightly on his sun-warmed stone.\n"Tell me, traveller, do you often stop to insult the local wildlife, or am I receiving special treatment?"`;
+const aslanConversation = { ...spokenDraft,
+    narrative: [{ id: 'reply', action_id: 'spoken_correction', text: aslanReply }],
+    events: [{ type: 'movement', actor_id: 'guide_1', status: 'completed',
+        action: 'shifts slightly on his stone', action_id: 'spoken_correction',
+        passage_id: 'reply' }] };
+const aslanCompiled = scene.compile(aslanConversation,
+    { ...context, input: spokenInput });
+assert(aslanCompiled.ok, JSON.stringify(aslanCompiled.errors));
+assert.deepEqual(aslanCompiled.linkedPlan.events, [],
+    'a local shift in a speech response is narrative, not mapped travel');
+assert(aslanCompiled.repairs.some(repair => repair.type === 'discard_uncommitted_speech_event'));
+const aslanResult = linked.executeLinkedActions(aslanCompiled.linkedPlan, world,
+    structuredClone(initial), { capability });
+assert(aslanResult.ok, JSON.stringify(aslanResult.errors));
+const aslanStatus = scene.compile({ ...aslanConversation, events: [{
+    ...aslanConversation.events[0], type: 'status' }] },
+{ ...context, input: spokenInput });
+assert(aslanStatus.ok, JSON.stringify(aslanStatus.errors));
+assert.deepEqual(aslanStatus.linkedPlan.events, [],
+    'a temporary NPC pose must not become a lifecycle status change');
+const mappedAslanMove = scene.compile({ ...aslanConversation, events: [{
+    ...aslanConversation.events[0], from_location_id: 'foyer',
+    to_location_id: 'archive' }] }, { ...context, input: spokenInput,
+    contract: null });
+assert(mappedAslanMove.ok, JSON.stringify(mappedAslanMove.errors));
+assert.equal(mappedAslanMove.linkedPlan.events.length, 1,
+    'a mapped NPC move must still require a validated effect');
+const mappedAslanResult = linked.executeLinkedActions(mappedAslanMove.linkedPlan,
+    world, structuredClone(initial), { capability });
+assert.equal(mappedAslanResult.errors[0].code, 'uncommitted_completed_event');
 const unquotedSubstantive = scene.compile({ ...unquotedReaction, events: [{
     ...unquotedReaction.events[0], next_status: 'gone' }] },
 { ...context, input: spokenInput, contract: null });

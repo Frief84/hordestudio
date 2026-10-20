@@ -1,6 +1,10 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { compile, schema, decode } = require('../worlds/scene-draft');
+const { compile, schema, decode, completionFailureReason } = require('../worlds/scene-draft');
+assert.equal(completionFailureReason('length', true), 'truncated_receipt');
+assert.equal(completionFailureReason('content_filter', true), 'filtered_receipt');
+assert.equal(completionFailureReason(null, true), 'incomplete_provider_stream');
+assert.equal(completionFailureReason('tool_calls', true), null);
 assert.deepEqual(decode('```json\n{"protocol":"scene_draft_v2"}\n```'), {protocol:'scene_draft_v2'});
 assert.equal(decode('Here is JSON: {"protocol":"scene_draft_v2"}'), null);
 assert.equal(decode('```json\n{"protocol": broken}\n```'), null);
@@ -27,6 +31,30 @@ assert.equal(result.commitments[0].dueMinute, 1020);
 assert.equal(result.receipt.state_updates.world_events[0].due_in_minutes, 483);
 assert.equal(result.receipt.events[0].actor_id, 'denton');
 assert.equal(result.receipt.events[0].source_type, 'told');
+const brief = { ...draft, narrative: 'Ja.', actions: [{ request: 'I ask Denton.',
+    kind: 'question', status: 'answered', response: 'Ja.' }],
+    events: [], speech: [], commitments: [] };
+assert(compile(brief, { ...context, input: 'I ask Denton.' }).ok,
+    'a short but meaningful answer is a complete response');
+assert(reasonsQuote().includes('invalid_scene_narrative'),
+    'an isolated quotation mark is not a completed scene');
+function reasonsQuote() {
+    return compile({ ...brief, narrative: '"', actions: [{ ...brief.actions[0],
+        response: '"' }] }, { ...context, input: 'I ask Denton.' }).errors
+        .map(error => error.reason);
+}
+const frenchEvidence = 'Nous nous retrouvons à midi.';
+const frenchCommitment = { ...brief, narrative: frenchEvidence,
+    actions: [{ ...brief.actions[0], response: frenchEvidence }],
+    commitments: [{ ...draft.commitments[0], evidence: frenchEvidence,
+        minute_of_day: 720 }] };
+const frenchCompiled = compile(frenchCommitment, { ...context, input: 'I ask Denton.' });
+assert(frenchCompiled.ok, JSON.stringify(frenchCompiled.errors));
+assert.equal(frenchCompiled.commitments.length, 1,
+    'the engine must not discard a valid deadline based on a language-specific word list');
+assert(compile({ ...frenchCommitment, commitments: [{ ...frenchCommitment.commitments[0],
+    minute_of_day: 500 }] }, { ...context, input: 'I ask Denton.' }).errors.some(error =>
+    error.reason === 'new_commitment_in_past'), 'past deadlines remain rejected');
 assert.deepEqual(result.receipt.scene.present_character_ids, context.present);
 const reasons = (candidate, ctx = context) => compile(candidate, ctx).errors?.map(e => e.reason) || [];
 assert.match(compile({ ...draft, actions: draft.actions.slice(0, 1) }, context).unaddressedRequest,

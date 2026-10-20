@@ -8,6 +8,8 @@ const kinds = ['physical', 'speech', 'question', 'observation', 'travel', 'wait'
 const statuses = ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'];
 const confirmedOutcomes = ['succeeded', 'failed', 'blocked'];
 const actionIdPattern = /^[a-z][a-z0-9_]{0,79}$/;
+const hasReadableText = value => !!String(value || '').trim()
+    && !/^[\s"'“”„‘’«»]+$/u.test(String(value));
 const registryApi = typeof module !== 'undefined' && module.exports
     ? require('./effect-registry') : root.HordeEffectRegistry;
 const text = (description, maxLength = 2000) => ({ type: 'string', description, maxLength });
@@ -181,10 +183,10 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
     const contract = shape({
         protocol: { type: 'string', enum: ['scene_draft_v2'] },
         narrative: { type: 'array', minItems: 1, maxItems: 16,
-            description: 'The complete player-facing scene in ordered passages. Write each passage once and reference its ID below. For a pending check stop before its outcome.',
-            items: shape({ id: text('Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.', 80), text: text('One paragraph of player-facing narrative or dialogue.', 4000) }) },
+            description: 'The player-facing continuation in ordered passages. Begin immediately with a consequence, NPC response, or new event; never recap or re-voice the player input. Write each passage once and reference its ID below. For a pending check stop before its outcome.',
+            items: shape({ id: text('Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.', 80), text: text('One paragraph of new player-facing narrative or attributed NPC dialogue, never a player-action preamble.', 4000) }) },
         actions: list(shape({
-            request: text('Exact contiguous excerpt of the player input. In order, requests must cover the complete input; split compound actions where useful.'),
+            request: text('Exact contiguous excerpt of the player input. In order, requests must cover the complete input; split compound actions where useful.', 16000),
             kind: { type: 'string', enum: kinds },
             status: { type: 'string', enum: statuses },
             response_id: { ...passage, description: 'Passage that RESPONDS to this request: the answer, refusal, result or check setup. Not a passage merely repeating the player’s question.' }
@@ -197,7 +199,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             listeners: list(text('Exact present listener ID or player', 120)),
             passage_id: passage
         })),
-        commitments: list(shape({
+        commitments: { ...list(shape({
             id: text('Stable event ID; reuse to acknowledge an existing commitment', 80),
             title: text('Player-facing commitment', 120),
             description: text('What is due and why', 500),
@@ -208,6 +210,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             reschedule: { type: 'boolean', description: 'True only for an explicitly agreed change, not when repeating a deadline.' },
             passage_id: passage
         }, ['id','title','day','minute_of_day','location_id','status','passage_id'])),
+            description: 'Only a newly agreed future deadline with a time expressly stated in the current player message or its linked passage. Wishes, offers, open-ended plans, aspirations and attribution requests are not timed commitments; use [] for them. Never manufacture day or minute_of_day from the World clock.' },
         resolutions: list(shape({
             id: text('ID of a reached commitment being resolved', 80),
             passage_id: passage,
@@ -259,18 +262,21 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         }
         // Keep semantic guidance for domain fields; the shared instructions
         // carry the repetitive transport and paragraph rules just once.
-        contract.properties.narrative.description = 'Ordered scene passages; reference their IDs without repeating prose.';
+        contract.properties.narrative.description = 'Ordered scene continuation, starting with a consequence or NPC response; never repeat the player input. Reference passage IDs without repeating prose.';
         if (contract.properties.events?.items?.properties?.type)
             contract.properties.events.items.properties.type.description =
                 'Canonical event type. Movement changes mapped places; gestures and showing held items do not. Escort means an NPC joins/leaves as a continuing follower: actor_id must be that NPC, never player. Taking or dragging a person to a named room is travel, not escort; the engine may already have committed both arrivals. Use inventory for transfers, activity for lasting poses, condition only with a named lasting condition, status only for alive/dead/gone.';
         contract.properties.effects.description = 'Changed enabled fields only. Omit when nothing changes.';
         if (Array.isArray(options.commitments)) {
-            const reachable = reachableResolutions(options.commitments, options.location,
-                options.now, options.plannedWait);
+            const reachable = options.allowFutureResolutions
+                ? options.commitments.filter(item => item && typeof item.id === 'string' && !item.sceneResolution
+                    && (!item.locationId || item.locationId === options.location)
+                    && (item.status === 'triggered' || item.status === 'scheduled' && Number.isFinite(item.dueMinute)))
+                : reachableResolutions(options.commitments, options.location, options.now, options.plannedWait);
             if (reachable.length) {
                 contract.properties.resolutions.items.properties.id = {
                     type: 'string', enum: [...new Set(reachable.map(item => item.id))],
-                    description: 'Exact ID of a reachable, unresolved commitment.'
+                    description: 'Exact local unresolved commitment ID. Resolution requires actually reaching its time and witnessing a completed consequence.'
                 };
             } else delete contract.properties.resolutions;
         }
@@ -280,6 +286,71 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
 }
 
 function isDraft(value) { return object(value) && ['scene_draft_v2', 'scene_draft_v3'].includes(value.protocol); }
+function repairDuplicateActionIds(draft) {
+    if (draft.protocol !== 'scene_draft_v3' || !Array.isArray(draft.actions)
+        || !Array.isArray(draft.narrative)
+        || ['events', 'speech', 'commitments', 'resolutions'].some(key =>
+            draft[key] !== undefined && !Array.isArray(draft[key]))
+        || draft.actions.some(action => action?.depends_on !== undefined
+            && !Array.isArray(action.depends_on))) return [];
+    const groups = new Map();
+    draft.actions.forEach((action, index) => {
+        if (typeof action?.action_id === 'string' && actionIdPattern.test(action.action_id)) {
+            if (!groups.has(action.action_id)) groups.set(action.action_id, []);
+            groups.get(action.action_id).push(index);
+        }
+    });
+    const duplicates = [...groups].filter(([, indices]) => indices.length > 1);
+    if (!duplicates.length) return [];
+    const passages = new Map();
+    for (const passage of draft.narrative || []) {
+        if (typeof passage?.id !== 'string' || passages.has(passage.id)) return [];
+        passages.set(passage.id, passage);
+    }
+    const proposed = [];
+    const reserved = new Set(groups.keys());
+    for (const [id, indices] of duplicates) {
+        const responseIds = indices.map(index => draft.actions[index]?.response_id);
+        if (responseIds.some(responseId => typeof responseId !== 'string'
+            || !passages.has(responseId)) || new Set(responseIds).size !== indices.length)
+            return [];
+        if (draft.actions.some((action, index) => !indices.includes(index)
+            && responseIds.includes(action?.response_id))) return [];
+        if ((draft.narrative || []).some(passage => passage?.action_id === id
+            && !responseIds.includes(passage.id))) return [];
+        if (indices.some((index, offset) => passages.get(responseIds[offset]).action_id !== undefined
+            && passages.get(responseIds[offset]).action_id !== id)) return [];
+        if (draft.actions.some(action => (action?.depends_on || []).some(
+            dependency => dependency?.action_id === id))) return [];
+        for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+            if ((draft[key] || []).some(item => item?.action_id === id
+                && !responseIds.includes(item.passage_id))) return [];
+        indices.slice(1).forEach((index, offset) => {
+            let serial = offset + 2;
+            let replacement;
+            do {
+                const suffix = `_${serial++}`;
+                replacement = id.slice(0, 80 - suffix.length) + suffix;
+            } while (reserved.has(replacement));
+            reserved.add(replacement);
+            proposed.push({ id, index, responseId: responseIds[offset + 1], replacement });
+        });
+    }
+    for (const { id, index, responseId, replacement } of proposed) {
+        draft.actions[index].action_id = replacement;
+        passages.get(responseId).action_id = replacement;
+        for (const key of ['events', 'speech', 'commitments', 'resolutions'])
+            for (const item of draft[key] || [])
+                if (item?.action_id === id && item.passage_id === responseId)
+                    item.action_id = replacement;
+    }
+    return proposed.map(({ id, index, responseId, replacement }) => ({
+        type: 'duplicate_action_id', action_id: replacement,
+        original: { action_index: index, action_id: id, response_id: responseId },
+        corrected: { action_index: index, action_id: replacement, response_id: responseId },
+        reason: 'A unique response passage identifies the second action and its references.'
+    }));
+}
 function validateActionLinks(draft, context, fail) {
     if (draft.protocol !== 'scene_draft_v3' || !Array.isArray(draft.actions)) return null;
     const linked = draft.actions.some(action => action?.action_id !== undefined
@@ -303,11 +374,8 @@ function validateActionLinks(draft, context, fail) {
                 fail(`actions.${index}.action_effects.${key}`, 'unsupported_capability',
                     `requested=${key}; available=${context.capability.names.join(',')}; source=worlds/effect-registry.js; stage=scene_draft_compiler; action_id=${id || ''}`);
     });
-    // In a single simple request there is only one possible owner for an
-    // event whose action reference was omitted. A dialogue event can also be
-    // linked through its exact passage when both the passage and its speech
-    // action have one unambiguous owner, even for multi-sentence dialogue.
-    // Never infer a physical event or replace an explicit, wrong reference.
+    // The exact passage relationship may establish an omitted event owner.
+    // Never replace an explicit reference or infer from narrative wording.
     const repairs = [];
     const soleSimpleActionId = draft.actions.length === 1 && simpleRequest(context.input)
         ? ids.keys().next().value : null;
@@ -328,21 +396,18 @@ function validateActionLinks(draft, context, fail) {
     for (const [index, event] of (draft.events || []).entries())
         if (object(event) && event.action_id === undefined) {
             const owners = passageOwners.get(event.passage_id);
-            const passageOwner = event.type === 'dialogue'
-                && passageCounts.get(event.passage_id) === 1 && owners?.size === 1
+            const passageOwner = passageCounts.get(event.passage_id) === 1 && owners?.size === 1
+                && (event.type === 'dialogue' || draft.actions.length > 1 || soleSimpleActionId)
                 ? owners.values().next().value : null;
-            const ownerAction = passageOwner == null ? null : draft.actions[ids.get(passageOwner)];
-            const dialogueOwner = ['speech', 'question'].includes(ownerAction?.kind)
-                ? passageOwner : null;
-            const inferred = dialogueOwner || soleSimpleActionId;
+            const inferred = passageOwner || soleSimpleActionId;
             if (!inferred) continue;
             const original = { event_index: index, passage_id: event.passage_id,
                 action_id: null };
             event.action_id = inferred;
             repairs.push({ type: 'event_action_id', action_id: inferred,
                 original, corrected: { ...original, action_id: inferred },
-                reason: dialogueOwner
-                    ? 'Unique dialogue passage and speech action own this event.'
+                reason: passageOwner
+                    ? 'One unique passage is claimed by exactly one action.'
                     : 'Exactly one valid action and one simple player request.' });
         }
     if (object(draft.effects) && Object.keys(draft.effects).length)
@@ -504,6 +569,13 @@ function transportFailureReason(value, finishReason = '') {
     return openFence || openTag || reader.started && !reader.finished && !reader.error
         ? 'incomplete_json_transport' : 'invalid_json_transport';
 }
+function completionFailureReason(finishReason, streamed = false) {
+    if (finishReason === 'length') return 'truncated_receipt';
+    if (finishReason === 'content_filter') return 'filtered_receipt';
+    if (streamed && !['stop', 'tool_calls', 'function_call'].includes(finishReason))
+        return 'incomplete_provider_stream';
+    return null;
+}
 
 // Migration adapter for engine-owned instructions, not a parser for model prose.
 // Keep one protocol authoritative while the legacy replay path is supported.
@@ -557,6 +629,7 @@ function compile(draft, context) {
     }
     context = { ...context, capability };
     draft = copy(draft);
+    const duplicateActionRepairs = repairDuplicateActionIds(draft);
     const spokenInput = String(context.input || '').trim();
     const whollyQuotedSpeech = /^"[^]*"$|^“[^]*”$|^„[^]*“$/.test(spokenInput);
     const speechOnlyAction = context.linkedRequired
@@ -574,18 +647,22 @@ function compile(draft, context) {
         const responsePassages = (Array.isArray(draft.narrative) ? draft.narrative : [])
             .filter(passage => passage?.id === speechAction.response_id);
         const mechanicalPayload = {
-            movement: ['from_location_id', 'to_location_id'],
+            movement: ['from_location_id', 'to_location_id', 'location_id'],
             inventory: ['item'], outfit: ['outfit', 'current_outfit', 'value'],
             condition: ['condition', 'value'], relationship: ['change', 'value', 'score'],
             time: ['minutes_elapsed', 'minutes'], status: ['next_status']
         };
         draft.events = draft.events.filter((event, index) => {
             const payloadFields = mechanicalPayload[event?.type];
+            const descriptiveReaction = ['movement', 'status'].includes(event?.type)
+                && Object.keys(event).every(field => ['type', 'status', 'actor_id',
+                    'action_id', 'passage_id', 'action'].includes(field));
             if (event?.status !== 'completed' || !payloadFields
                 || (!whollyQuotedSpeech && (!event.actor_id || event.actor_id === 'player'
                     || Object.keys(event).some(field => !['type', 'status', 'actor_id',
-                        'action_id', 'passage_id'].includes(field))))
-                || (!whollyQuotedSpeech && !['status', 'time', 'condition', 'relationship'].includes(event.type))
+                        'action_id', 'passage_id', ...(descriptiveReaction ? ['action'] : [])].includes(field))))
+                || (!whollyQuotedSpeech && !['status', 'time', 'condition',
+                    'relationship', 'movement'].includes(event.type))
                 || event.passage_id !== speechAction.response_id
                 || responsePassages.length !== 1
                 || responsePassages[0].action_id !== undefined
@@ -602,7 +679,7 @@ function compile(draft, context) {
         });
     }
     if (draft.protocol === 'scene_draft_v3' && String(context.input || '').trim()
-        && !simpleRequest(context.input) && Array.isArray(draft.actions)) {
+        && !simpleRequest(context.input) && !speechOnlyAction && Array.isArray(draft.actions)) {
         draft.actions.forEach((action, index) => {
             if (object(action) && action.request === undefined)
                 fail(`actions.${index}.request`, 'explicit_request_coverage_required');
@@ -610,7 +687,7 @@ function compile(draft, context) {
         if (errors.length) return { ok: false, errors };
     }
     const linkedPlan = validateActionLinks(draft, context, fail);
-    if (linkedPlan) linkedPlan.repairs.push(...discardedSpeechEvents);
+    if (linkedPlan) linkedPlan.repairs.push(...duplicateActionRepairs, ...discardedSpeechEvents);
     if (context.linkedRequired && draft.protocol === 'scene_draft_v3'
         && draft.actions?.length && !linkedPlan)
         fail('actions', 'linked_actions_required');
@@ -632,7 +709,7 @@ function compile(draft, context) {
         if (draft.effects === undefined) draft.effects = {};
         if (Array.isArray(draft.actions)) draft.actions.forEach((action, index) => {
             if (!object(action) || action.request !== undefined) return;
-            if (draft.actions.length === 1 && simpleRequest(context.input))
+            if (draft.actions.length === 1 && (simpleRequest(context.input) || speechOnlyAction))
                 action.request = context.input;
             else fail(`actions.${index}.request`, 'explicit_request_coverage_required');
         });
@@ -770,7 +847,7 @@ function compile(draft, context) {
     const allowed = new Set(['protocol', 'narrative', 'actions', 'events', 'effects', 'speech', 'commitments', 'resolutions']);
     Object.keys(draft).forEach(key => { if (!allowed.has(key)) fail(key, 'unsupported_draft_field'); });
     const narrative = typeof draft.narrative === 'string' ? draft.narrative.trim() : '';
-    if (!narrative || narrative.length > 16000) fail('narrative', 'invalid_scene_narrative');
+    if (!hasReadableText(narrative) || narrative.length > 16000) fail('narrative', 'invalid_scene_narrative');
     for (const key of ['actions', 'events', 'speech', 'commitments']) {
         if (!Array.isArray(draft[key]) || draft[key].length > 32) fail(key, 'invalid_draft_list');
     }
@@ -821,7 +898,7 @@ function compile(draft, context) {
             fail(`actions.${index}`, 'invalid_action_disposition'); return;
         }
         if (typeof action.request !== 'string') fail(`actions.${index}.request`, 'invalid_action_request');
-        if (typeof action.response !== 'string' || action.response.trim().length < 8
+        if (typeof action.response !== 'string' || !hasReadableText(action.response)
             || !narrative.includes(action.response.trim())) fail(`actions.${index}.response`, 'response_missing_from_scene');
     });
     if (errors.length) return { ok: false, errors };
@@ -907,6 +984,7 @@ function compile(draft, context) {
         // for a movement, item, time, condition or other mechanical payload.
         event.type = 'other';
     }
+    const derivedEventStart = events.length;
     draft.speech.forEach((speech, index) => {
         const listeners = speech?.listeners;
         if (!object(speech) || !present.has(speech.speaker) || !Array.isArray(listeners)
@@ -920,7 +998,9 @@ function compile(draft, context) {
             events.push({ type: 'observation', actor_id: listener, status: 'completed',
                 observation: speech.statement, source_type: 'told', source_npc_id: speech.speaker,
                 confidence: 1, visibility: 'private', allowed_to_share: true,
-                witnessed_by: [listener], evidence: speech.statement });
+                witnessed_by: [listener], evidence: speech.statement,
+                ...(speech.action_id ? { action_id: speech.action_id } : {}),
+                ...(speech.passage_id ? { passage_id: speech.passage_id } : {}) });
         }
     });
     const commitments = [];
@@ -962,7 +1042,12 @@ function compile(draft, context) {
         due_in_minutes: Math.max(1, item.dueMinute - context.now)
     }));
     const resolutions = [];
-    const proposedElapsed = Math.max(0, Number(effects.time_skip_minutes) || 0,
+    const linkedElapsed = (linkedPlan?.actions || []).filter(action =>
+        ['resolved', 'answered'].includes(action.status)).reduce((sum, action) =>
+        sum + Math.max(0, Number(action.action_effects?.time_skip_minutes) || 0)
+            + (Array.isArray(action.action_effects?.time_advance) ? action.action_effects.time_advance : [])
+                .reduce((minutes, item) => minutes + Math.max(0, Number(item?.minutes) || 0), 0), 0);
+    const proposedElapsed = Math.max(0, linkedElapsed, Number(effects.time_skip_minutes) || 0,
         ...events.filter(event => event.type === 'time' && event.status === 'completed')
             .map(event => Number(event.minutes_elapsed) || 0));
     for (const [index, resolution] of (draft.resolutions || []).entries()) {
@@ -1000,6 +1085,9 @@ function compile(draft, context) {
     }
     if (events.length > 100) fail('speech', 'too_many_compiled_events');
     if (errors.length) return { ok: false, errors };
+    // Derived observations are persistent events too. Keep them in the linked
+    // plan so the executor and saved receipt see the same event stream.
+    if (linkedPlan) linkedPlan.events.push(...copy(events.slice(derivedEventStart)));
     const first = actions[0];
     return { ok: true, narrative, actions: copy(actions), speech: copy(draft.speech), commitments, resolutions,
         linkedPlan, repairs: linkedPlan?.repairs || [], repairCount: linkedPlan?.repairs?.length || 0,
@@ -1117,6 +1205,7 @@ function streamValidator(contract) {
 }
 
 root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, transportFailureReason,
+    completionFailureReason, hasReadableText,
     alignInstructions, streamValidator, simpleRequest, localInteraction };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldSceneDraft;
 })(globalThis);

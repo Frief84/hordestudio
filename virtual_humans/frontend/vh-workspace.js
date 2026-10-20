@@ -604,12 +604,12 @@ function vhWorkspaceSpecial(force=false){
   const root=document.getElementById('vh-workspace-special');if(!root||(!force&&root.dataset.life===getActiveCompanionTimeline(state.activeCompanionId)?.id&&root.dataset.section===vhWorkspaceSection&&root.contains(document.activeElement)&&document.activeElement.matches('input,select,textarea')))return;
   root.dataset.section=vhWorkspaceSection;const companion=getCompanion(state.activeCompanionId),timeline=companion&&getActiveCompanionTimeline(companion.id),link=timeline?.vh2;if(root.dataset.life!==timeline?.id){vhReferenceOwner='all';root.dataset.life=timeline?.id||'';}root.replaceChildren();root.classList.toggle('vh-auto-reference-library',vhWorkspaceSection==='references');
   if(vhWorkspaceSection==='voice'){
-   root.innerHTML='<section class="vh-current-card"><h3>Voice · Kokoro Local</h3><p>Describe the voice with tags. The preview speaks English; opening this page does not change an existing voice.</p><div data-kokoro-voice></div><p role="status"></p></section>';
+   root.innerHTML='<section class="vh-current-card"><h3>Voice · Kokoro Local</h3><p>Describe the voice in your own words or choose suggested traits. The preview speaks English; opening this page does not change an existing voice.</p><div data-kokoro-voice></div><p role="status"></p></section>';
    const status=root.querySelector('[role=status]');
    if(!window.KokoroTagDesigner){status.textContent='Kokoro voice designer could not be loaded.';return;}
    window.KokoroTagDesigner.render(root.querySelector('[data-kokoro-voice]'),async profile=>{
     const previous=companion.voice_profile;
-    companion.voice_profile=profile;
+    companion.voice_profile={...profile,character_id:String(companion.id)};
     try{await saveCompanionTemplatesState();status.textContent='Voice saved.';}
     catch(error){companion.voice_profile=previous;status.textContent='Save failed: '+error.message;}
    },companion.voice_profile);

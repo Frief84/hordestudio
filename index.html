@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261015-linked-actions-fix2">
+    <link rel="stylesheet" href="style.css?v=20261017-world-speech">
     <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
 <link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
 </head>
@@ -578,6 +578,7 @@
                                 </div>
                                 
                                 <button class="tool-btn" id="world-studio-btn" title="Open World in Studio">⚙️ Studio</button>
+                                <button class="tool-btn world-audio-toggle" id="world-audio-toggle" type="button" title="Mute world sounds" aria-label="Mute world sounds" aria-pressed="false">🔊</button>
                                 <button class="tool-btn world-hud-toggle" id="world-hud-toggle" type="button" aria-controls="world-status-panel" aria-expanded="true" title="Show or hide world information">◫ Hide world info</button>
                                 <button class="tool-btn tool-btn-danger" id="world-exit-btn" title="Exit World">✕ Exit</button>
                             </div>
@@ -917,9 +918,16 @@
                             </div>
                             <div class="form-section">
                                 <h3>World voice (Kokoro)</h3>
-                                <p class="form-hint">Optional default voice for narration and NPCs without their own voice.</p>
-                                <label><input type="checkbox" id="world-kokoro-enable"> Use Kokoro as the world voice</label>
+                                <p class="form-hint">Optional fallback voice for NPCs without their own voice.</p>
+                                <label><input type="checkbox" id="world-kokoro-enable"> Use Kokoro as the NPC fallback voice</label>
                                 <div id="world-voice-designer"></div>
+                            </div>
+                            <div class="form-section">
+                                <h3>Narrator voice (Kokoro)</h3>
+                                <p class="form-hint">Reads scene descriptions between character dialogue. Configure this independently for each world.</p>
+                                <label><input type="checkbox" id="world-narrator-enable"> Read narration aloud</label>
+                                <p id="world-narrator-hint" class="form-hint"></p>
+                                <div id="world-narrator-designer"></div>
                             </div>
                         </div>
                     </div>
@@ -5411,9 +5419,9 @@
     <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
     <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
     <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
-    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017-persona-voice"></script>
-    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017-persona-voice"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-kokoro-en"></script>
+    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017-54voices"></script>
+    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017-54voices"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-54voices"></script>
     <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
     <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
     <script src="virtual_humans/frontend/vh-page-builder.js?v=20260925-v182"></script>
@@ -5423,15 +5431,16 @@
     <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
     <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
     <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
-    <script src="worlds/working-state.js?v=20261015-linked-actions-fix2"></script>
+    <script src="worlds/working-state.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/effect-registry.js?v=20261015-linked-actions-fix2"></script>
-    <script src="worlds/linked-world-actions.js?v=20261015-linked-actions-fix2"></script>
-    <script src="worlds/scene-draft.js?v=20261015-linked-actions-fix2"></script>
+    <script src="worlds/linked-world-actions.js?v=20261018-server-bound-turns"></script>
+    <script src="worlds/scene-draft.js?v=20261018-server-bound-turns"></script>
+    <script src="worlds/turn-binding.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
     <script src="worlds/horde-client.js?v=20261017-queue"></script>
     <script src="worlds/background-sim.js?v=20261017-background-time"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261017-persona-voice"></script>
+    <script src="app.js?v=20261018-server-bound-turns"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

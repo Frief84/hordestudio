@@ -41,7 +41,7 @@ const root = path.resolve(__dirname, '..');
                 ], entities: [
                     { id: 'key_1', name: 'Bronze key', type: 'item', startLocation: 'foyer' },
                     { id: 'guide_1', name: 'Guide', type: 'npc', startLocation: 'foyer' }
-                ], kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                ], kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true, serverBindings: false,
                     sceneDraftProtocol: 'scene_draft_v3' },
                 gameRules: { dice: { resolution: 'player' } },
                 hudConfig: { startTimeHours: 8, startTimeMinutes: 0, timeStep: 5 } };

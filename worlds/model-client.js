@@ -156,6 +156,17 @@ function decodeCompletionBody(raw) {
     return data;
 }
 
+// Compatible providers differ on whether a streamed field is a delta or the
+// whole text accumulated so far. Accept either without duplicating a growing
+// prefix; an unrelated fragment still appends in arrival order.
+function mergeStreamText(previous, incoming) {
+    const before = String(previous || '');
+    const next = String(incoming || '');
+    if (!next) return before;
+    if (before && next.length > before.length && next.startsWith(before)) return next;
+    return before + next;
+}
+
 // Compare only like routes/protocols. Missing legacy measurements remain
 // unknown; they must not become artificial zero-millisecond samples.
 function latencySummary(history) {
@@ -186,7 +197,7 @@ function latencySummary(history) {
 
 root.HordeWorldModelClient = {
     latencySummary,
-    json, stream, decodeCompletionBody,
+    json, stream, decodeCompletionBody, mergeStreamText,
     runAbortable: awaitAbortable,
     readText: (response, signal) => awaitAbortable(() => response.text(), signal),
     readChunk: (reader, signal) => awaitAbortable(() => reader.read(), signal)

@@ -58,16 +58,19 @@ const root = path.resolve(__dirname, '..');
             renderWorldPlayState();
             const initialLength = sess.history.length;
             let phase = '';
+            let activeInput = '';
             const calls = [];
             const realFetch = window.fetch;
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 const body = JSON.parse(options.body || '{}');
-                calls.push({ phase, stream: body.stream, hasTools: !!body.tools,
+                calls.push({ phase, input: activeInput, stream: body.stream, hasTools: !!body.tools,
+                    finalMessage: body.messages?.at(-1),
                     purpose: String(body.messages?.at(-1)?.content || '').slice(0, 110) });
                 if (!body.stream) {
                     if (phase === 'tool_only_rescue_inline'
-                        && String(body.messages?.at(-1)?.content || '').includes('requested tools have been processed')) {
+                        && body.messages?.some(message => /requested tools have been processed|\[NARRATIVE RESCUE\]/i
+                            .test(String(message.content || '')))) {
                         const rescuedReceipt = { ...receipt,
                             state_updates: { ledger_update: 'The player heard the floorboards creak.' } };
                         const rescued = `The floorboards creak under your boots.\n<world_turn_receipt>${JSON.stringify(rescuedReceipt)}</world_turn_receipt>`;
@@ -151,6 +154,7 @@ const root = path.resolve(__dirname, '..');
             };
             const run = async (name, input) => {
                 phase = name;
+                activeInput = input;
                 state.globalSettings.apiProvider = name.endsWith('_local') ? 'local' : 'openrouter';
                 if (name.endsWith('_local')) state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
                 document.getElementById('world-user-input').value = input;
@@ -241,9 +245,11 @@ const root = path.resolve(__dirname, '..');
         assert.match(outcome.authError.toast, /authorization/i);
         assert.match(outcome.stalled.toast, /stopped/i);
         assert.equal(outcome.calls.length, 24,
-            'rejected receipts may use one bounded validation-guided repair retry');
+            `rejected receipts may use one bounded validation-guided repair retry: ${JSON.stringify(outcome.calls)}`);
         assert.equal(outcome.calls.filter(call => !call.stream).length, 4);
         assert.equal(outcome.calls.filter(call => !call.hasTools).length, 4);
+        for (const call of outcome.calls) assert.deepEqual(call.finalMessage,
+            { role: 'user', content: call.input }, JSON.stringify(call));
         assert.deepEqual(outcome.calls.filter(call => call.phase === 'tool_unsupported').map(call => call.hasTools),
             [true, false]);
         assert.deepEqual(outcome.calls.filter(call => call.phase === 'tool_unsupported_local').map(call => call.hasTools),

@@ -37,7 +37,8 @@ const root = path.resolve(__dirname, '..');
             const world = { id: 'linked_fixture', name: 'Wardrobe', model: 'fixture/model',
                 contextSize: 32768, maxTokens: 2048, dmPrompt: 'A coat lies on a chair.', intro: '',
                 startLocationId: 'room', locations: [{ id: 'room', name: 'Room', exits: [] }],
-                entities: [], kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                // This suite replays the legacy flat V3 transport; server binding has its own browser audit.
+                entities: [], kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true, serverBindings: false,
                     sceneDraftProtocol: 'scene_draft_v3' },
                 hudConfig: { startTimeHours: 8, startTimeMinutes: 0, timeStep: 5 } };
             state.worlds = [world];
@@ -295,6 +296,181 @@ const root = path.resolve(__dirname, '..');
             JSON.stringify(quotedSpeech));
         assert.equal(quotedSpeech.outcome, 'succeeded', JSON.stringify(quotedSpeech));
         assert.equal(quotedSpeech.input, '', JSON.stringify(quotedSpeech));
-        console.log('PASS linked V3 browser turn, rollback, reload, compound actions and quoted speech');
+        const echoedDraft = await page.evaluate(async () => {
+            const input = '“I need a careful answer about the earlier date, the missing witness, and the closed passage before I can decide which lead is worth following.”';
+            const session = state.worldInstances.linked_fixture.sessions.find(item =>
+                item.outfit === 'green coat');
+            const before = session.worldTurnReceipts?.length || 0;
+            let calls = 0, outgoing = null;
+            const realFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                outgoing = JSON.parse(options.body);
+                const draft = { protocol: 'scene_draft_v3', narrative: [{ id: 'reply',
+                    action_id: 'ask', text: `${input}\n\nThe clock ticks; no answer comes yet.` }],
+                    actions: [{ action_id: 'ask', kind: 'speech', status: 'resolved',
+                        request: input, response_id: 'reply', action_effects: {} }],
+                    events: [], effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta: {
+                    content: JSON.stringify(draft) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                    { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value = input;
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get('worldInstance:linked_fixture'))?.sessions
+                ?.find(item => item.id === session.id);
+            return { input, calls, before, receipts: session.worldTurnReceipts?.length || 0,
+                userMessage: outgoing?.messages?.at(-1),
+                systemEcho: outgoing?.messages?.some(message => message.role === 'system'
+                    && String(message.content).includes(input)),
+                stored: session.history.at(-1)?.text, saved: saved?.history?.at(-1)?.text,
+                rendered: document.querySelector('#world-messages-container .msg-dm:last-of-type .msg-text')?.innerText };
+        });
+        assert.deepEqual(errors, [], JSON.stringify(errors));
+        assert.equal(echoedDraft.calls, 1, JSON.stringify(echoedDraft));
+        assert.equal(echoedDraft.receipts, echoedDraft.before + 1, JSON.stringify(echoedDraft));
+        assert.deepEqual(echoedDraft.userMessage, { role: 'user', content: echoedDraft.input });
+        assert.equal(echoedDraft.systemEcho, false, JSON.stringify(echoedDraft));
+        assert.equal(echoedDraft.stored, 'The clock ticks; no answer comes yet.', JSON.stringify(echoedDraft));
+        assert.equal(echoedDraft.saved, echoedDraft.stored, JSON.stringify(echoedDraft));
+        assert.equal(echoedDraft.rendered, echoedDraft.stored, JSON.stringify(echoedDraft));
+        const untimedAslan = await page.evaluate(async () => {
+            const input = 'I ask Aslan what he wants from me.';
+            const providerText = 'Aslan raises one brow ridge. "I provide you with stories no library possesses, and you share them with the world. Truthfully, mind you. And with proper attribution. I should rather like to remind the rest that I exist."';
+            const session = state.worldInstances.linked_fixture.sessions.find(item =>
+                item.outfit === 'green coat');
+            const before = session.worldTurnReceipts?.length || 0;
+            const deadlinesBefore = session.scheduledEvents?.length || 0;
+            let calls = 0;
+            const realFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                const draft = { protocol: 'scene_draft_v3',
+                    narrative: [{ id: 'aslan_reply', action_id: 'ask_aslan', text: providerText }],
+                    actions: [{ action_id: 'ask_aslan', kind: 'question', status: 'answered',
+                        response_id: 'aslan_reply', action_effects: {} }],
+                    events: [], effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta: {
+                    content: JSON.stringify(draft) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                    { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value = input;
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get('worldInstance:linked_fixture'))?.sessions
+                ?.find(item => item.id === session.id);
+            return { input, providerText, calls, before,
+                receipts: session.worldTurnReceipts?.length || 0,
+                deadlinesBefore, deadlinesAfter: session.scheduledEvents?.length || 0,
+                savedDeadlines: saved?.scheduledEvents?.length || 0,
+                user: session.history.at(-2), stored: session.history.at(-1)?.text,
+                savedText: saved?.history?.at(-1)?.text,
+                rendered: document.querySelector('#world-messages-container .msg-dm:last-of-type .msg-text')?.innerText };
+        });
+        assert.deepEqual(errors, [], JSON.stringify(errors));
+        assert.equal(untimedAslan.calls, 1, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.receipts, untimedAslan.before + 1, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.deadlinesAfter, untimedAslan.deadlinesBefore, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.savedDeadlines, untimedAslan.deadlinesBefore, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.user?.role, 'user', JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.user?.text, untimedAslan.input, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.stored, untimedAslan.providerText, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.savedText, untimedAslan.providerText, JSON.stringify(untimedAslan));
+        assert.equal(untimedAslan.rendered, untimedAslan.providerText, JSON.stringify(untimedAslan));
+        const repairedPast = await page.evaluate(async () => {
+            const session = state.worldInstances.linked_fixture.sessions.find(item =>
+                item.outfit === 'green coat');
+            const before = session.worldTurnReceipts?.length || 0;
+            let calls = 0, beforeRepair = false;
+            const input = 'I ask Aslan about his old admiration for Lorne Kael.';
+            const realFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                const body = JSON.parse(options.body);
+                if (!body.stream) beforeRepair = (session.worldTurnReceipts?.length || 0) === before;
+                const draft = { protocol: 'scene_draft_v3',
+                    narrative: [{ id: 'reply', action_id: 'ask', text: 'Aslan laughs at the memory.' }],
+                    actions: [{ action_id: 'ask', kind: 'question', status: 'answered',
+                        request: input, response_id: 'reply', action_effects: {} }],
+                    events: [], effects: {}, speech: [], commitments: body.stream ? [{
+                        id: 'invented_date', title: 'Remember Aslan', description: 'A false appointment.',
+                        day: 1, minute_of_day: 1, location_id: 'room', status: 'scheduled',
+                        reschedule: false, passage_id: 'reply', action_id: 'ask' }] : [] };
+                if (!body.stream) return new Response(JSON.stringify({ choices: [{
+                    message: { content: JSON.stringify(draft) }, finish_reason: 'stop' }] }),
+                    { headers: { 'Content-Type': 'application/json' } });
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta: {
+                    content: JSON.stringify(draft) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                    { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value = input;
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            return { calls, beforeRepair, before,
+                receipts: session.worldTurnReceipts?.length || 0,
+                deadlines: session.scheduledEvents?.length || 0,
+                stored: session.history.at(-1)?.text };
+        });
+        assert.equal(repairedPast.calls, 2, JSON.stringify(repairedPast));
+        assert(repairedPast.beforeRepair, JSON.stringify(repairedPast));
+        assert.equal(repairedPast.receipts, repairedPast.before + 1, JSON.stringify(repairedPast));
+        assert.equal(repairedPast.deadlines, 0, JSON.stringify(repairedPast));
+        assert.equal(repairedPast.stored, 'Aslan laughs at the memory.', JSON.stringify(repairedPast));
+        const interrupted = await page.evaluate(async () => {
+            const session = state.worldInstances.linked_fixture.sessions.find(item =>
+                item.outfit === 'green coat');
+            const before = session.worldTurnReceipts?.length || 0;
+            const historyBefore = session.history.length;
+            const realFetch = window.fetch;
+            let phase = 'quote', calls = 0;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                const body = JSON.parse(options.body);
+                if (!body.stream) return new Response(JSON.stringify({ choices: [{
+                    message: { content: '"' }, finish_reason: 'stop' }] }),
+                    { headers: { 'Content-Type': 'application/json' } });
+                const draft = { protocol: 'scene_draft_v3',
+                    narrative: [{ id: 'reply', action_id: 'ask', text: 'Aslan begins a story.' }],
+                    actions: [{ action_id: 'ask', kind: 'question', status: 'answered',
+                        request: 'I ask Aslan for a story.', response_id: 'reply', action_effects: {} }],
+                    events: [], effects: {}, speech: [], commitments: [] };
+                const content = phase === 'quote' ? '"' : JSON.stringify(draft);
+                const finish_reason = phase === 'quote' ? 'stop'
+                    : phase === 'length' ? 'length' : null;
+                const malformedPrefix = phase === 'malformed' ? 'data: not-json\n\n' : '';
+                return new Response(`${malformedPrefix}data: ${JSON.stringify({ choices: [{ delta: { content },
+                    finish_reason }] })}\n\ndata: [DONE]\n\n`,
+                    { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            const run = async (name, input) => {
+                phase = name;
+                document.getElementById('world-user-input').value = input;
+                await executeWorldTurn();
+                return { input: document.getElementById('world-user-input').value,
+                    receipts: session.worldTurnReceipts?.length || 0,
+                    history: session.history.length,
+                    saved: (await HordeDB.get('worldInstance:linked_fixture'))?.sessions
+                        ?.find(item => item.id === session.id)?.worldTurnReceipts?.length || 0 };
+            };
+            const quote = await run('quote', 'I ask Aslan for a story.');
+            const length = await run('length', 'I ask Aslan for a story.');
+            const missingFinish = await run('missing', 'I ask Aslan for a story.');
+            const malformed = await run('malformed', 'I ask Aslan for a story.');
+            window.fetch = realFetch;
+            return { before, historyBefore, calls, quote, length, missingFinish, malformed };
+        });
+        for (const item of [interrupted.quote, interrupted.length,
+            interrupted.missingFinish, interrupted.malformed]) {
+            assert.equal(item.receipts, interrupted.before, JSON.stringify(interrupted));
+            assert.equal(item.saved, interrupted.before, JSON.stringify(interrupted));
+            assert.equal(item.history, interrupted.historyBefore, JSON.stringify(interrupted));
+            assert.equal(item.input, 'I ask Aslan for a story.', JSON.stringify(interrupted));
+        }
+        console.log('PASS linked V3 turn, rollback, reload, compound actions, Aslan dialogue and interrupted provider responses');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

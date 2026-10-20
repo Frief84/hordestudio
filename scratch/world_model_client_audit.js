@@ -75,6 +75,16 @@ const client = require('../worlds/model-client.js');
         error.code === 'WORLD_MODEL_EMPTY_COMPLETION');
     assert.throws(() => client.decodeCompletionBody('{"error":{"message":"blocked"}}'), error =>
         error.code === 'WORLD_MODEL_PROVIDER_ERROR' && /blocked/.test(error.message));
+    assert.equal(['L', 'Lo', 'Lor', 'Lorne'].reduce(client.mergeStreamText, ''), 'Lorne',
+        'cumulative provider text must not be repeated into broken narration');
+    assert.equal(['Lorne ', 'Kael ', 'answers.'].reduce(client.mergeStreamText, ''),
+        'Lorne Kael answers.', 'ordinary deltas must not lose words');
+    assert.equal(['{', '{"protocol"', '{"protocol":"scene_draft_v3"}']
+        .reduce(client.mergeStreamText, ''), '{"protocol":"scene_draft_v3"}',
+        'growing JSON tool arguments remain parseable');
+    const scene = require('../worlds/scene-draft.js');
+    assert.equal(scene.hasReadableText('"'), false, 'an isolated quote is no World reply');
+    assert.equal(scene.completionFailureReason('length', true), 'truncated_receipt');
     const stalledStream = new AbortController();
     const neverHeaders = client.stream({ url: 'https://fixture.test/chat/completions', body,
         init: { signal: stalledStream.signal }, fetcher: () => new Promise(() => {}) });

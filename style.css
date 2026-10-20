@@ -4509,6 +4509,8 @@ input[type=number].form-input::-webkit-inner-spin-button {
     gap: 8px;
 }
 .world-toolbar-primary .session-selector-wrap { flex: 0 1 230px; flex-wrap: nowrap; }
+.world-audio-toggle { min-width: 36px; padding-inline: 8px; font-size: 1rem; }
+.world-audio-toggle.is-muted { color: var(--text-muted); }
 .world-timeline-menu { position: relative; flex: 0 0 auto; }
 .world-timeline-btn { min-height: 32px; }
 .world-timeline-actions {
@@ -9612,3 +9614,14 @@ label[data-help] > span:first-child::after,
  .lore-text-editor-header { align-items:flex-start; flex-direction:column; }
  .world-lore-explore-controls, .world-lore-structure-panel > #w-lore-browser { padding:14px; }
 }
+
+/* Kokoro: chosen traits and free text are distinct from optional suggestions. */
+.kokoro-designer { display:grid; gap:8px; }
+.kokoro-designer > .form-hint { margin:2px 0 0; }
+.kokoro-designer .chip-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-height:28px; }
+.kokoro-designer .chip-row.selected { padding:8px; border:1px solid var(--accent); border-radius:8px; }
+.kokoro-designer .chip-row.suggestions { padding:8px; border:1px dashed var(--border); border-radius:8px; }
+.kokoro-designer .chip { padding:4px 9px; border:1px solid var(--border); border-radius:999px; background:var(--surface2); color:var(--text); cursor:pointer; }
+.kokoro-designer .chip.active { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 18%, var(--surface2)); }
+.kokoro-designer .formula-box { white-space:pre-wrap; overflow-wrap:anywhere; }
+.world-speech-controls { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; margin-top:8px; }

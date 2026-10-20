@@ -123,11 +123,38 @@ const rhetoricalDraft = { protocol: 'scene_draft_v3',
         passage_id: 'p1' }] };
 const pastProposal = scene.compile(rhetoricalDraft, { ...baseContext,
     input: '', contract: null, commitments: [] });
-assert(pastProposal.errors.some(error => error.reason === 'new_commitment_in_past'
-    && error.detail.includes('current day=1, minute_of_day=500')),
-    'past commitments stay rejected with exact time context, never moved silently');
+assert(pastProposal.errors.some(error => error.reason === 'new_commitment_in_past'),
+    'a past deadline needs a corrected proposal before any turn may commit');
 assert.equal(rhetoricalDraft.commitments[0].minute_of_day, 400,
     'compiler may not alter the model proposal');
+const aslanSpeech = 'Aslan raises one brow ridge. "I provide you with stories no library possesses, and you share them with the world. Truthfully, mind you. And with proper attribution. My name is Aslan. Once upon a time, people actually prayed to me. A few of the older ones might still remember. I should rather like to remind the rest that I exist. Consider it a modest effort to correct humanity’s rather deplorable memory."';
+const aslanDraft = { ...rhetoricalDraft,
+    narrative: [{ id: 'p1', text: aslanSpeech }],
+    commitments: [{ ...rhetoricalDraft.commitments[0], id: 'aslan_stories',
+        title: 'Share Aslan’s stories', day: 1, minute_of_day: 400 }] };
+const aslanProposal = scene.compile(aslanDraft, { ...baseContext,
+    input: '', contract: null,
+    now: 500, commitments: [] });
+assert(aslanProposal.errors.some(error => error.reason === 'new_commitment_in_past'),
+    'an invented past date cannot be silently removed');
+const untimedDialogue = scene.compile({ ...aslanDraft, commitments: [] },
+{ ...baseContext, input: '', contract: null, now: 500, commitments: [] });
+assert(untimedDialogue.ok, JSON.stringify(untimedDialogue.errors));
+assert.deepEqual(untimedDialogue.receipt.state_updates, {},
+    'an effect-free dialogue has no scheduled World event');
+const explicitPast = scene.compile({ ...rhetoricalDraft,
+    narrative: [{ id: 'p1', text: 'Linda says, "Meet me today at 6:00."' }] },
+{ ...baseContext, input: '', contract: null, now: 500, commitments: [] });
+assert(explicitPast.errors.some(error => error.reason === 'new_commitment_in_past'
+    && error.detail.includes('current day=1, minute_of_day=500')),
+    'an expressly stated past deadline must still be rejected, never silently moved');
+const explicitFuture = scene.compile({ ...rhetoricalDraft,
+    narrative: [{ id: 'p1', text: 'Linda says, "Meet me tomorrow at 6:00."' }],
+    commitments: [{ ...rhetoricalDraft.commitments[0], day: 2, minute_of_day: 360 }] },
+{ ...baseContext, input: '', contract: null, now: 500, commitments: [] });
+assert(explicitFuture.ok, JSON.stringify(explicitFuture.errors));
+assert.equal(explicitFuture.commitments[0].dueMinute, 1800,
+    'an expressly stated future deadline remains scheduled');
 const deadlineSchema = scene.schema(legacy, 'scene_draft_v3', { input: baseContext.input,
     commitments: deadlines, location: 'office', now: 500, plannedWait: 15 });
 assert.deepEqual(deadlineSchema.properties.resolutions.items.properties.id.enum,

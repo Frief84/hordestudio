@@ -13,8 +13,10 @@ assert.equal(context.budget(4096, 4096, 32768, 1000), 4096,
     'respect an advertised provider output ceiling');
 assert.equal(context.budget(4096, 128, 32768, 1000), 128,
     'never exceed even a low advertised provider output ceiling');
-assert.equal(context.budget(4096, 0, 6000, 16000), 256,
-    'leave a bounded output floor when the repair prompt nearly fills context');
+assert.equal(context.budget(4096, 0, 6000, 16000), 1,
+    'an exhausted context must not invent output space; the caller rejects budgets below 1024');
+assert.equal(context.budget(8192, 0, 32768, 1000), 16384,
+    'a second truncated receipt can expand beyond the previous 8192 ceiling');
 const turn = functionSource('executeWorldTurn');
 assert.match(turn, /repairBody\.max_tokens = worldReceiptRepairOutputLimit/,
     'the actual receipt repair request must use the expanded budget');

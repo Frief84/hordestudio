@@ -52,6 +52,7 @@ try:
         synthesize_wav_bytes as kokoro_synthesize_wav_bytes,
         tags_to_formula as kokoro_tags_to_formula,
     )
+    from virtual_humans.backend.kokoro_text2voice import parse_free_text_with_rules as kokoro_text_to_profile
     KOKORO_AVAILABLE = True
 except ImportError as error:
     KOKORO_AVAILABLE = False
@@ -240,6 +241,7 @@ STATIC_FILES = {
     "/worlds/effect-registry.js": ("worlds/effect-registry.js", "text/javascript"),
     "/worlds/linked-world-actions.js": ("worlds/linked-world-actions.js", "text/javascript"),
     "/worlds/scene-draft.js": ("worlds/scene-draft.js", "text/javascript"),
+    "/worlds/turn-binding.js": ("worlds/turn-binding.js", "text/javascript"),
     "/worlds/turn-context.js": ("worlds/turn-context.js", "text/javascript"),
     "/worlds/bgm-player.js": ("worlds/bgm-player.js", "text/javascript"),
     "/large-archive.js": ("large-archive.js", "text/javascript"),
@@ -4329,7 +4331,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
             parsed_path = urllib.parse.urlparse(self.path).path
             if not self.remote_surface_allowed(parsed_path):
                 return
-            if parsed_path in {"/api/tts/kokoro/tags_to_formula", "/api/tts/kokoro/synthesize"}:
+            if parsed_path == "/worlds/bind-turn":
+                if int(self.headers.get("Content-Length", "0") or 0) > 2 * 1024 * 1024:
+                    return self.respond(413, {"error": "World turn binding exceeds 2 MB."})
+                node = always_on_runtime._node_path()
+                if not node:
+                    return self.respond(503, {"error": "World turn binding requires Node.js 18+."})
+                result = subprocess.run(
+                    [node, str(APP_DIR / "worlds/turn-binding-worker.js")],
+                    input=json.dumps(self.read_json()), text=True, encoding="utf-8",
+                    capture_output=True, timeout=15, cwd=APP_DIR,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                if not result.stdout:
+                    raise RuntimeError("World turn binding worker did not return a result.")
+                return self.respond(200, json.loads(result.stdout))
+            if parsed_path in {"/api/tts/kokoro/tags_to_formula", "/api/tts/kokoro/text_to_profile",
+                               "/api/tts/kokoro/synthesize"}:
                 if not self.kokoro_local_allowed():
                     return self.respond(403, {"error": "Kokoro TTS is local-only."})
                 if not KOKORO_AVAILABLE:
@@ -4342,23 +4359,36 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     raise ValueError("tags must be an array of at most 20 values")
                 if parsed_path.endswith("tags_to_formula"):
                     return self.respond(200, kokoro_tags_to_formula(tags))
+                if parsed_path.endswith("text_to_profile"):
+                    profile = kokoro_text_to_profile(data.get("text", ""))
+                    character_id = data.get("character_id")
+                    if character_id is not None:
+                        if not isinstance(character_id, str) or not character_id.strip() or len(character_id) > 160:
+                            raise ValueError("character_id must be a non-empty string of at most 160 characters")
+                        profile["character_id"] = character_id
+                    return self.respond(200, profile)
                 text = data.get("text", "")
                 if not isinstance(text, str) or not text.strip() or len(text) > 1000:
                     raise ValueError("text must be 1–1000 characters")
                 gpu = data.get("gpu", False)
                 if not isinstance(gpu, bool):
                     raise ValueError("gpu must be a boolean")
+                character_id = data.get("character_id")
+                if not isinstance(character_id, str) or not character_id.strip() or len(character_id) > 160:
+                    raise ValueError("character_id must be a non-empty string of at most 160 characters")
                 try:
                     with KOKORO_SYNTH_LOCK:
                         if tags:
                             wav, _ = kokoro_synthesize_from_tags(
                                 text, tags, data.get("speed"), data.get("lang", "a"),
-                                gpu=gpu, pitch=data.get("pitch"))
+                                gpu=gpu, pitch=data.get("pitch"),
+                                effects=data.get("effects"), character_id=character_id)
                         else:
                             wav = kokoro_synthesize_wav_bytes(
                                 text, data.get("formula", "af_heart:100"),
                                 data.get("speed", 1.0), data.get("lang", "a"),
-                                gpu=gpu, pitch=data.get("pitch", 0))
+                                gpu=gpu, pitch=data.get("pitch", 0),
+                                effects=data.get("effects"), character_id=character_id)
                 except RuntimeError as error:
                     return self.respond(503, {"error": str(error), "gpu_requested": gpu})
                 self.send_response(200)

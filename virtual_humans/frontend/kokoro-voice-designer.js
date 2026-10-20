@@ -1,34 +1,62 @@
 /* Adapted from the corrected kokoro-voice-designer_1.js in the supplied ZIP. */
 (function () {
     'use strict';
-    const CATALOG = ['af_heart','af_sarah','af_nicole','af_sky','bf_emma','bf_isabella','am_adam','am_michael','bm_george','bm_lewis'];
+    const VOICE_CATALOG = [
+        'af_alloy','af_aoede','af_bella','af_heart','af_jessica','af_kore','af_nicole','af_nova',
+        'af_river','af_sarah','af_sky','am_adam','am_echo','am_eric','am_fenrir','am_liam',
+        'am_michael','am_onyx','am_puck','am_santa','bf_alice','bf_emma','bf_isabella','bf_lily',
+        'bm_daniel','bm_fable','bm_george','bm_lewis','ef_dora','em_alex','em_santa','ff_siwis',
+        'hf_alpha','hf_beta','hm_omega','hm_psi','if_sara','im_nicola','jf_alpha',
+        'jf_gongitsune','jf_nezumi','jf_tebukuro','jm_kumo','pf_dora','pm_alex','pm_santa',
+        'zf_xiaobei','zf_xiaoni','zf_xiaoxiao','zf_xiaoyi','zm_yunjian','zm_yunxi',
+        'zm_yunxia','zm_yunyang'
+    ];
     const TAG_MAP = {
-        female:['af_heart','af_sarah','af_sky','bf_emma'],
-        male:['am_adam','am_michael','bm_george','bm_lewis'],
-        young:['af_sky','bf_emma','bm_lewis'],
-        adult:['af_sarah','am_adam','af_heart'],
-        mature:['bm_george','am_michael','af_heart'],
-        warm:['af_heart','af_sarah','bf_emma','am_adam','bm_lewis'],
-        cold:['af_nicole','bf_isabella'],
-        clear:['af_nicole','bf_isabella'],
-        raspy:['bm_george','am_michael'],
-        gentle:['af_sarah','bf_isabella','af_heart'],
-        soft:['af_sarah','bf_isabella','am_adam','bm_lewis'],
-        breathy:['bf_isabella','af_sarah'],
+        female:VOICE_CATALOG.filter(voice=>voice[1]==='f'),
+        male:VOICE_CATALOG.filter(voice=>voice[1]==='m'),
+        american:VOICE_CATALOG.filter(voice=>voice[0]==='a'),
+        british:VOICE_CATALOG.filter(voice=>voice[0]==='b'),
+        spanish:VOICE_CATALOG.filter(voice=>voice[0]==='e'),
+        french:VOICE_CATALOG.filter(voice=>voice[0]==='f'),
+        hindi:VOICE_CATALOG.filter(voice=>voice[0]==='h'),
+        italian:VOICE_CATALOG.filter(voice=>voice[0]==='i'),
+        japanese:VOICE_CATALOG.filter(voice=>voice[0]==='j'),
+        portuguese:VOICE_CATALOG.filter(voice=>voice[0]==='p'),
+        chinese:VOICE_CATALOG.filter(voice=>voice[0]==='z'),
+        young:['af_sky','af_nova','am_puck','bf_lily','bm_lewis'],
+        adult:['af_heart','af_sarah','am_adam','am_michael','bm_george'],
+        mature:['am_michael','am_onyx','bm_george','bm_daniel','bf_isabella'],
+        warm:['af_heart','af_sarah','am_adam','bm_lewis','bf_emma'],
+        cold:['af_nicole','af_kore','am_onyx','bf_isabella'],
+        clear:['af_nicole','af_alloy','am_eric','bm_daniel'],
+        raspy:['bm_george','am_michael','am_onyx','bm_fable'],
+        scratchy:['bm_george','am_michael','bm_fable'],
+        smoky:['bm_george','am_michael','am_onyx','bf_isabella'],
+        tired:['bm_george','am_michael','bf_lily'],
+        whisper:['am_onyx','bf_isabella','af_nicole'],
+        gentle:['af_sarah','af_heart','am_liam','bf_isabella'],
+        soft:['af_sarah','bf_isabella','am_liam','bm_lewis'],
+        breathy:['bf_isabella','af_sarah','af_nova'],
         flattering:['af_heart','bf_emma','am_adam','bm_lewis'],
-        powerful:['af_nicole','am_michael','bm_george'],
-        happy:['af_sky','bf_emma','am_adam','bm_lewis'],
-        british:['bf_emma','bf_isabella','bm_george','bm_lewis'],
-        american:['af_heart','af_sarah','am_adam']
+        powerful:['af_kore','am_fenrir','am_michael','bm_george'],
+        happy:['af_sky','af_nova','am_puck','bm_lewis'],
+        barkeeper:['bm_george','am_michael','bm_lewis'],
+        elf:['af_kore','af_aoede','am_liam','bm_fable'],
+        orc:['am_fenrir','am_onyx','bm_george','bm_daniel'],
+        child:['af_sky','af_nova','am_puck','bf_lily'],
+        drunk:['bm_george','am_michael','bf_emma']
     };
     const TAG_ALIASES = {
         weiblich:'female', 'männlich':'male', jung:'young', erwachsen:'adult', reif:'mature',
         kalt:'cold', klar:'clear', rau:'raspy', sanft:'gentle', weich:'soft',
         hauchig:'breathy', britisch:'british', amerikanisch:'american',
         tief:'deep', dunkel:'dark', hoch:'high', hell:'bright',
-        schnell:'fast', langsam:'slow', energisch:'energetic', ruhig:'calm', 'geflüstert':'whispered',
+        schnell:'fast', langsam:'slow', energisch:'energetic', ruhig:'calm', 'geflüstert':'whisper',
         powerfull:'powerful', softly:'soft', masculine:'male', feminine:'female',
-        old:'mature', elderly:'mature'
+        old:'mature', elderly:'mature', rauchig:'smoky', rauchige:'smoky', kratzig:'scratchy',
+        müde:'tired', muede:'tired', gehaucht:'whisper', ork:'orc', kind:'child',
+        betrunken:'drunk', britisch:'british', amerikanisch:'american',
+        barkeeperin:'barkeeper', bartender:'barkeeper', elfe:'elf'
     };
     const SUGGEST = [...Object.keys(TAG_MAP),'deep','high','fast','slow','energetic','calm','whispered'];
     const PREVIEW_TEXT = 'Welcome to Horde Studio, where imagination comes alive. Every character has a story worth hearing.';
@@ -47,27 +75,46 @@
         const tags = [...new Set(splitTags(input))].slice(0,20);
         const unmapped = tags.filter(tag => !KNOWN_TAGS.has(tag));
         const gender = tags.filter(tag => tag === 'male' || tag === 'female').at(-1);
-        const allowedVoices = CATALOG.filter(voice => !gender || voice[1] === (gender === 'male' ? 'm' : 'f'));
-        const scores = Object.fromEntries(CATALOG.map(voice => [voice,0]));
+        const languageTags = {spanish:'e',french:'f',hindi:'h',italian:'i',japanese:'j',portuguese:'p',chinese:'z'};
+        const language = tags.find(tag => languageTags[tag]);
+        const allowedVoices = VOICE_CATALOG.filter(voice =>
+            (language ? voice[0] === languageTags[language] : ['a','b'].includes(voice[0]))
+            && (!gender || voice[1] === (gender === 'male' ? 'm' : 'f')));
+        const scores = Object.fromEntries(allowedVoices.map(voice => [voice,0]));
         tags.forEach(tag => (TAG_MAP[tag] || []).forEach(voice => {
-            if (allowedVoices.includes(voice)) scores[voice]++;
+            if (!['male','female','adult','american','british'].includes(tag)
+                && allowedVoices.includes(voice)) scores[voice]++;
         }));
-        if (!Object.values(scores).some(Boolean)) { scores.af_heart = 2; scores.bf_emma = 1; }
-        const ranked = allowedVoices.map(voice => [voice,scores[voice],CATALOG.indexOf(voice)])
+        if (tags.includes('british')) allowedVoices.filter(voice => voice[0] === 'b').forEach(voice => scores[voice]++);
+        else if (tags.includes('american')) allowedVoices.filter(voice => voice[0] === 'a').forEach(voice => scores[voice]++);
+        if (!Object.values(scores).some(Boolean) && allowedVoices.length) {
+            const preferred = gender === 'male' ? (tags.includes('british') ? 'bm_george' : 'am_adam') : 'af_heart';
+            scores[allowedVoices.includes(preferred) ? preferred : allowedVoices[0]] = 1;
+        }
+        const ranked = allowedVoices.map(voice => [voice,scores[voice],VOICE_CATALOG.indexOf(voice)])
             .sort((a,b) => b[1]-a[1] || a[2]-b[2]);
         const top = ranked.filter(item => item[1] > 0).slice(0,3).map(([voice,score]) => [voice,score]);
         if (top.length === 1) {
-            const fallbacks = gender === 'male' ? ['am_adam','bm_george']
-                : gender === 'female' ? ['af_heart','bf_emma'] : ['bf_emma','af_heart'];
-            top.push([fallbacks.find(voice => voice !== top[0][0]),0.5]);
+            const alternate = ranked.find(([voice]) => voice !== top[0][0]);
+            if (alternate) top.push([alternate[0],0.5]);
         }
-        const total = top.reduce((sum,[,score]) => sum + score,0);
-        const reserve = 10*top.length;
-        const parts = top.map(([voice,score]) => [voice,10+Math.floor(score/total*(100-reserve)+0.5)]);
-        parts[parts.length-1][1] = 100-parts.slice(0,-1).reduce((sum,[,weight]) => sum+weight,0);
+        let parts;
+        if (['barkeeper','male','british'].every(tag => tags.includes(tag))
+            && (tags.includes('smoky') || tags.includes('scratchy'))) {
+            parts = [['bm_george',50],['am_michael',30],['bm_lewis',20]];
+        } else {
+            const total = top.reduce((sum,[,score]) => sum + score,0) || 1;
+            parts = top.map(([voice,score]) => [voice,Math.round(score/total*100)]);
+            if (parts.length) parts[parts.length-1][1] = 100-parts.slice(0,-1).reduce((sum,[,weight]) => sum+weight,0);
+            parts = parts.filter(([,weight]) => weight > 0);
+        }
         const pitch = (tags.some(tag => ['deep','dark'].includes(tag)) ? -3 : 0) + (tags.some(tag => ['high','bright'].includes(tag)) ? 3 : 0);
         const speed = tags.some(tag => ['slow','calm','whispered'].includes(tag)) ? 0.88 : tags.some(tag => ['fast','energetic'].includes(tag)) ? 1.15 : 1;
-        return {formula:parts.map(([voice,weight]) => `${voice}:${weight}`).join(','),parts,tags,speed,pitch,unmapped};
+        const effects = {};
+        for (const [tag,strength] of [['smoky',0.8],['tired',0.6],['whisper',0.65],['scratchy',0.55],['drunk',0.45]])
+            if (tags.includes(tag)) effects[tag] = strength;
+        return {formula:parts.map(([voice,weight]) => `${voice}:${weight}`).join(','),parts,tags,speed,pitch,
+            prosody:{speed,pitch},effects,unmapped};
     }
 
     function tagsFromPersona(persona) {
@@ -78,10 +125,11 @@
         const malePronouns = /\b(he|him|his)\b/.test(text);
         const femalePronouns = /\b(she|her|hers)\b/.test(text);
         let gender = '';
-        if (male !== female && !(male && femalePronouns && !malePronouns)
-            && !(female && malePronouns && !femalePronouns)) gender = male ? 'male' : 'female';
-        else if (!male && !female && malePronouns !== femalePronouns)
-            gender = malePronouns ? 'male' : 'female';
+        // Exclusive self-referential pronouns are stronger evidence than an
+        // incidental title such as "Holy Mother" in a male NPC's persona.
+        if (malePronouns !== femalePronouns) gender = malePronouns ? 'male' : 'female';
+        else if (!malePronouns && !femalePronouns && male !== female)
+            gender = male ? 'male' : 'female';
         const tags = gender ? [gender] : [];
         if (/\b(old|older|elderly|aged|alt|älter|reif)(?:\s+[\p{L}-]+){0,2}\s+(man|woman|male|female|gentleman|lady|person|mann|frau)\b/u.test(text)
             || /\b(he|she)\s+is\s+(?:an?\s+)?(old|older|elderly|aged)\b/u.test(text))
@@ -127,11 +175,12 @@
         wrapper.className = 'kokoro-designer';
         const input = document.createElement('input');
         input.className = 'form-input';
-        input.placeholder = 'Describe a voice in your own words, e.g. an old, cheerful man with a soft voice';
+        input.placeholder = 'Describe voice as text, e.g. a tired, smoky British barkeeper';
+        input.setAttribute('aria-label','Describe voice as text');
         input.maxLength = 160;
         const inputNote = document.createElement('p');
         inputNote.className = 'form-hint';
-        inputNote.textContent = 'Press Enter to add a description. New words are interpreted with your default AI model (which may incur charges).';
+        inputNote.textContent = 'Press Enter to apply deterministic voice rules. No AI model or voice cloning is used.';
         const selectedLabel = document.createElement('p');
         selectedLabel.className = 'form-hint'; selectedLabel.textContent = 'Selected voice traits';
         const chips = document.createElement('div');
@@ -168,8 +217,19 @@
         let descriptions = Array.isArray(initialProfile?.descriptions)
             ? initialProfile.descriptions.filter(value => typeof value === 'string').slice(0,5) : [];
         let profile = initialProfile?.engine === 'kokoro' ? {...initialProfile} : null;
+        const renderToken = Symbol('kokoro-designer-render');
+        container._kokoroRenderToken = renderToken;
         let previewAudio = null;
         let previewVersion = 0;
+        function mergeTraits(traits) {
+            for (const tag of traits) {
+                if (!KNOWN_TAGS.has(tag)) continue;
+                if (tag === 'male') activeTags = activeTags.filter(item => item !== 'female');
+                if (tag === 'female') activeTags = activeTags.filter(item => item !== 'male');
+                if (!activeTags.includes(tag)) activeTags.push(tag);
+            }
+            activeTags = activeTags.slice(0,20);
+        }
         function stopPreview() {
             if (!previewAudio) return;
             previewAudio.pause();
@@ -177,9 +237,12 @@
             previewAudio = null;
             preview.textContent = '🔊 Preview voice';
         }
-        function redraw(changed = false) {
+        function redraw(changed = false, revoice = true) {
             if (changed) { previewVersion++; stopPreview(); }
-            if (changed || !profile) profile = {engine:'kokoro',...tags_to_formula(activeTags),descriptions:[...descriptions],lang:'a'};
+            if ((changed && revoice) || !profile)
+                profile = {engine:'kokoro',...tags_to_formula(activeTags),descriptions:[...descriptions],
+                    character_id:profile?.character_id || initialProfile?.character_id,lang:'a'};
+            else if (changed) profile = {...profile,descriptions:[...descriptions]};
             chips.replaceChildren();
             activeTags.forEach(tag => {
                 const chip = document.createElement('button');
@@ -205,44 +268,52 @@
         SUGGEST.forEach(tag => {
             const button = document.createElement('button');
             button.type = 'button'; button.className = 'chip'; button.textContent = tag;
-            button.onclick = () => { if (!activeTags.includes(tag)) { activeTags.push(tag); redraw(true); } };
+            button.onclick = () => { if (!activeTags.includes(tag)) { mergeTraits([tag]); redraw(true); } };
             suggestions.append(button);
         });
         input.onkeydown = async event => {
             if (event.key !== 'Enter') return;
             event.preventDefault();
+            if (container._kokoroRenderToken !== renderToken
+                || (typeof container.isConnected === 'boolean' && !container.isConnected)) return;
             const description = input.value.trim();
             if (!description) return;
             const entered = [...new Set(splitTags([description]))];
-            const known = entered.filter(tag => KNOWN_TAGS.has(tag));
+            const known = [...new Set([...entered,...tagsFromPersona(description)])]
+                .filter(tag => KNOWN_TAGS.has(tag));
             const needsInterpretation = entered.some(tag => !KNOWN_TAGS.has(tag));
-            activeTags = [...new Set([...activeTags,...known])].slice(0,20);
+            const oldTags = activeTags.join('\0');
+            mergeTraits(known);
             if (needsInterpretation && !descriptions.includes(description))
                 descriptions = [...descriptions,description].slice(-5);
-            redraw(true);
+            redraw(true,oldTags !== activeTags.join('\0'));
+            const requestVersion = previewVersion;
             input.value = '';
             if (!needsInterpretation) {
                 status.textContent = 'Voice traits added.';
                 return;
             }
-            if (typeof window.HordeKokoroInterpretVoiceText !== 'function') {
-                status.textContent = 'Description saved, but AI interpretation is unavailable. The selected traits still control the sound.';
-                return;
-            }
-            status.textContent = 'Interpreting description with the default AI model…';
+            status.textContent = 'Applying voice-description rules…';
             try {
-                const interpreted = await window.HordeKokoroInterpretVoiceText(description,[...activeTags]);
-                if (!descriptions.includes(description)) return;
+                const response = await fetch('/api/tts/kokoro/text_to_profile',{
+                    method:'POST',headers:{'Content-Type':'application/json'},
+                    body:JSON.stringify({text:description})
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+                const interpreted = Array.isArray(result.tags) ? result.tags : [];
+                if (container._kokoroRenderToken !== renderToken || previewVersion !== requestVersion
+                    || !descriptions.includes(description)
+                    || (typeof container.isConnected === 'boolean' && !container.isConnected)) return;
                 const gender = activeTags.find(tag => tag === 'male' || tag === 'female');
                 const safe = interpreted.filter(tag => KNOWN_TAGS.has(tag)
                     && (!gender || (tag !== 'male' && tag !== 'female') || tag === gender));
-                activeTags = [...new Set([...activeTags,...safe])].slice(0,20);
-                redraw(true);
+                if (safe.length) { mergeTraits(safe); redraw(true); }
                 status.textContent = safe.length
                     ? `Description interpreted as: ${safe.join(', ')}.`
-                    : 'Description saved, but no supported voice trait could be derived. Try describing tone, age, accent or gender.';
+                    : 'Description saved, but no audible trait matched the rules. Try tone, age, accent or gender.';
             } catch (error) {
-                status.textContent = `Description saved, but AI interpretation failed: ${error.message}`;
+                status.textContent = `Description saved, but rule lookup failed: ${error.message}`;
             }
         };
         copy.onclick = () => navigator.clipboard.writeText(profile.formula).then(() => { status.textContent = 'Copied'; }).catch(error => { status.textContent = error.message; });
@@ -275,6 +346,6 @@
         return {getProfile:() => ({...profile})};
     }
 
-    window.KokoroTagDesigner = {tags_to_formula,render,TAG_MAP,PREVIEW_TEXT,normalizeTag,
+    window.KokoroTagDesigner = {tags_to_formula,render,TAG_MAP,VOICE_CATALOG,PREVIEW_TEXT,normalizeTag,
         profileGenderMismatch,tagsFromPersona,profileFromPersona};
 })();

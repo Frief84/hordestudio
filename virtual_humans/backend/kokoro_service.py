@@ -7,12 +7,15 @@ of the repository and CPU/CUDA sessions are deliberately separate.
 from __future__ import annotations
 
 import io
+import hashlib
 from pathlib import Path
-import re
 import sys
 import threading
 
 import numpy as np
+
+from .kokoro_text2voice import VOICE_CATALOG, TAG_MAP, ALIASES as TAG_ALIASES
+from .kokoro_text2voice import tags_to_formula
 
 
 SEARCH_DIRS = [
@@ -20,38 +23,6 @@ SEARCH_DIRS = [
     Path(r"N:\Horde Studio\.cache\kokoro_82m"),
     Path.home() / ".cache" / "kokoro_82m",
 ]
-VOICE_CATALOG = [
-    "af_heart", "af_sarah", "af_nicole", "af_sky", "bf_emma",
-    "bf_isabella", "am_adam", "am_michael", "bm_george", "bm_lewis",
-]
-TAG_MAP = {
-    "female": ["af_heart", "af_sarah", "af_sky", "bf_emma"],
-    "male": ["am_adam", "am_michael", "bm_george", "bm_lewis"],
-    "young": ["af_sky", "bf_emma", "bm_lewis"],
-    "adult": ["af_sarah", "am_adam", "af_heart"],
-    "mature": ["bm_george", "am_michael", "af_heart"],
-    "warm": ["af_heart", "af_sarah", "bf_emma", "am_adam", "bm_lewis"],
-    "cold": ["af_nicole", "bf_isabella"],
-    "clear": ["af_nicole", "bf_isabella"],
-    "raspy": ["bm_george", "am_michael"],
-    "gentle": ["af_sarah", "bf_isabella", "af_heart"],
-    "soft": ["af_sarah", "bf_isabella", "am_adam", "bm_lewis"],
-    "breathy": ["bf_isabella", "af_sarah"],
-    "flattering": ["af_heart", "bf_emma", "am_adam", "bm_lewis"],
-    "powerful": ["af_nicole", "am_michael", "bm_george"],
-    "happy": ["af_sky", "bf_emma", "am_adam", "bm_lewis"],
-    "british": ["bf_emma", "bf_isabella", "bm_george", "bm_lewis"],
-    "american": ["af_heart", "af_sarah", "am_adam"],
-}
-TAG_ALIASES = {
-    "weiblich": "female", "männlich": "male", "jung": "young", "erwachsen": "adult", "reif": "mature",
-    "kalt": "cold", "klar": "clear", "rau": "raspy", "sanft": "gentle", "weich": "soft",
-    "hauchig": "breathy", "britisch": "british", "amerikanisch": "american",
-    "tief": "deep", "dunkel": "dark", "hoch": "high", "hell": "bright",
-    "schnell": "fast", "langsam": "slow", "energisch": "energetic", "ruhig": "calm", "geflüstert": "whispered",
-    "powerfull": "powerful", "softly": "soft", "masculine": "male", "feminine": "female",
-    "old": "mature", "elderly": "mature",
-}
 
 _sessions: dict[str, object] = {}
 _session_lock = threading.RLock()
@@ -110,45 +81,6 @@ def get_kokoro(gpu: bool = False):
         return kokoro
 
 
-def tags_to_formula(tags: list[str]) -> dict:
-    if not isinstance(tags, list):
-        raise ValueError("tags must be an array")
-    cleaned = list(dict.fromkeys(TAG_ALIASES.get(value, value)
-        for tag in tags for value in re.findall(r"[\w-]+", str(tag).lower())))[:20]
-    known = set(TAG_MAP) | {"deep", "dark", "high", "bright", "fast", "slow", "energetic", "calm", "whispered"}
-    unmapped = [tag for tag in cleaned if tag not in known]
-    gender = next((tag for tag in reversed(cleaned) if tag in ("male", "female")), None)
-    allowed_voices = [voice for voice in VOICE_CATALOG
-                      if not gender or voice[1] == ("m" if gender == "male" else "f")]
-    scores = {voice: 0 for voice in VOICE_CATALOG}
-    for tag in cleaned:
-        for voice in TAG_MAP.get(tag, []):
-            if voice in allowed_voices:
-                scores[voice] += 1
-    if not any(scores.values()):
-        scores["af_heart"], scores["bf_emma"] = 2, 1
-    ranked = sorted(((voice, scores[voice]) for voice in allowed_voices),
-                    key=lambda item: (-item[1], VOICE_CATALOG.index(item[0])))
-    top = [(voice, score) for voice, score in ranked if score > 0][:3]
-    if len(top) == 1:
-        fallbacks = (["am_adam", "bm_george"] if gender == "male" else
-                     ["af_heart", "bf_emma"] if gender == "female" else ["bf_emma", "af_heart"])
-        fallback = next(voice for voice in fallbacks if voice != top[0][0])
-        top.append((fallback, 0.5))
-    total = sum(score for _, score in top)
-    reserve = 10 * len(top)
-    weights = [10 + int(np.floor(score / total * (100 - reserve) + 0.5)) for _, score in top]
-    weights[-1] = 100 - sum(weights[:-1])
-    parts = [[voice, weight] for (voice, _), weight in zip(top, weights)]
-    pitch = (-3 if any(tag in cleaned for tag in ("deep", "dark")) else 0) + (3 if any(tag in cleaned for tag in ("high", "bright")) else 0)
-    speed = 1.15 if any(tag in cleaned for tag in ("fast", "energetic")) else 1.0
-    if any(tag in cleaned for tag in ("slow", "calm", "whispered")):
-        speed = 0.88
-    return {"formula": ",".join(f"{voice}:{weight}" for voice, weight in parts),
-            "parts": parts, "tags": cleaned, "speed": speed, "pitch": pitch,
-            "unmapped": unmapped}
-
-
 def _parse_formula(formula: str) -> list[tuple[str, float]]:
     chunks = str(formula or "af_heart:100").split(",")
     if not 1 <= len(chunks) <= 3:
@@ -188,9 +120,53 @@ def _pitch_shift(samples: np.ndarray, semitones: float) -> np.ndarray:
     return np.interp(source, np.arange(len(samples)), samples).astype(np.float32)
 
 
+def apply_effects_deterministic(samples: np.ndarray, sr: int, effects: dict | None,
+                                character_id: str) -> np.ndarray:
+    """Small, repeatable timbre variation; SHA-256 avoids Python hash randomization."""
+    if not isinstance(character_id, str) or not character_id.strip() or len(character_id) > 160:
+        raise ValueError("character_id must be a non-empty string of at most 160 characters")
+    if effects is None:
+        effects = {}
+    if not isinstance(effects, dict) or len(effects) > 8:
+        raise ValueError("effects must be an object with at most eight entries")
+    allowed = {"smoky", "tired", "whisper", "scratchy", "drunk"}
+    if set(effects) - allowed:
+        raise ValueError(f"Unsupported Kokoro effects: {sorted(set(effects) - allowed)}")
+    strengths = {}
+    for name, value in effects.items():
+        strength = float(value)
+        if not np.isfinite(strength) or not 0 <= strength <= 1:
+            raise ValueError(f"{name} must be between 0 and 1")
+        strengths[name] = strength
+    digest = hashlib.sha256(character_id.encode("utf-8")).digest()
+    seed = int.from_bytes(digest[:8], "big")
+    rng = np.random.default_rng(seed)
+    # Variation is deliberately subtle: one character remains recognizable
+    # across lines without making voices sound like random takes.
+    offset = ((int.from_bytes(digest[8:12], "big") / 2**32) - 0.5) * 0.8
+    result = _pitch_shift(np.asarray(samples, dtype=np.float32), offset)
+    result *= 0.985 + (digest[12] / 255) * 0.03
+    if strength := strengths.get("smoky", 0):
+        result = (1 - strength) * result + strength * np.tanh(result * 1.3) / 1.3
+    if strength := strengths.get("tired", 0):
+        phase = np.linspace(0, 4 * np.pi, len(result), dtype=np.float32)
+        result *= 1 - strength * (0.1 - 0.1 * np.sin(phase))
+    if strength := strengths.get("whisper", 0):
+        noise = rng.standard_normal(len(result)).astype(np.float32)
+        noise[1:] -= noise[:-1] * 0.85
+        result = result * (1 - 0.2 * strength) + noise * np.minimum(np.abs(result), 0.2) * (0.16 * strength)
+    if strength := strengths.get("scratchy", 0):
+        result = (1 - strength * 0.2) * result + strength * 0.2 * np.tanh(result * 3) / 3
+    if strength := strengths.get("drunk", 0):
+        wobble = np.sin(np.arange(len(result), dtype=np.float32) * (2 * np.pi * 3 / sr))
+        result *= 1 - strength * 0.08 + strength * 0.08 * wobble
+    return np.clip(result, -1, 1).astype(np.float32)
+
+
 def synthesize_wav_bytes(text: str, formula: str = "af_heart:100", speed: float = 1.0,
                          lang: str = "a", use_blending: bool = True, gpu: bool = False,
-                         pitch: float = 0) -> bytes:
+                         pitch: float = 0, effects: dict | None = None,
+                         character_id: str = "") -> bytes:
     if not isinstance(text, str) or not text.strip() or len(text) > 1000:
         raise ValueError("text must be 1–1000 characters")
     speed = float(speed)
@@ -207,6 +183,9 @@ def synthesize_wav_bytes(text: str, formula: str = "af_heart:100", speed: float 
     voice = blend_voices(parts, gpu) if use_blending and len(parts) > 1 else parts[0][0]
     samples, sample_rate = kokoro.create(text.strip(), voice=voice, speed=speed, lang=language)
     samples = _pitch_shift(np.asarray(samples, dtype=np.float32), pitch)
+    samples = apply_effects_deterministic(samples, sample_rate, effects, character_id)
+    _, voices_path = find_model()
+    print(f"[Kokoro] loaded {len(kokoro.get_voices())} voices from {voices_path}, character_id={character_id}", flush=True)
     import soundfile as sf
     output = io.BytesIO()
     sf.write(output, samples, sample_rate, format="WAV")
@@ -214,23 +193,28 @@ def synthesize_wav_bytes(text: str, formula: str = "af_heart:100", speed: float 
 
 
 def synthesize_from_tags(text: str, tags: list[str], speed: float | None = None,
-                         lang: str = "a", gpu: bool = False, pitch: float | None = None):
+                         lang: str = "a", gpu: bool = False, pitch: float | None = None,
+                         effects: dict | None = None, character_id: str = ""):
     profile = tags_to_formula(tags)
     wav = synthesize_wav_bytes(text, profile["formula"], profile["speed"] if speed is None else speed,
-                               lang, gpu=gpu, pitch=profile["pitch"] if pitch is None else pitch)
+                               lang, gpu=gpu, pitch=profile["pitch"] if pitch is None else pitch,
+                               effects=profile["effects"] if effects is None else effects,
+                               character_id=character_id)
     return wav, profile
 
 
 def list_voices() -> dict:
     model, voices = find_model()
-    info = {"available": False, "voices": VOICE_CATALOG,
+    info = {"available": False, "voices": [],
             "model_dir": str(Path(model).parent) if model else None,
             "searched": [str(path) for path in SEARCH_DIRS]}
     try:
         import onnxruntime as ort
         info["providers"] = ort.get_available_providers()
         if model and voices:
-            get_kokoro(False)
+            kokoro = get_kokoro(False)
+            info["voices"] = kokoro.get_voices()
+            info["voice_count"] = len(info["voices"])
             info["available"] = True
             if "CUDAExecutionProvider" in info["providers"]:
                 try:

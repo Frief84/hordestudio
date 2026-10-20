@@ -366,6 +366,9 @@ function assertWorldModelInvariants(world, session, candidate) {
     return true;
 }
 function assertReceiptMatchesCandidate(receipt, candidate) {
+    if (receipt.clock && (!Number.isFinite(receipt.clock.absolute_minutes)
+        || receipt.clock.absolute_minutes !== candidate.session.worldClock?.absoluteMinutes))
+        throw new Error('receipt_state_mismatch:clock');
     if (receipt?.scene?.player_location_id !== candidate.session.playerLocation)
         throw new Error('receipt_state_mismatch:player_location');
     const entities = new Set((candidate.world.entities || []).map(item => item.id));

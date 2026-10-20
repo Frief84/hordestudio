@@ -335,9 +335,11 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         return typeof context.onEvent === 'function' ? context.onEvent(value, working) : [];
     });
     registerNative('time_advance', value => Number.isInteger(value?.minutes)
-        && value.minutes > 0 && value.minutes <= 10080, (value, working) => {
+        && value.minutes > 0 && value.minutes <= 10080, (value, working, context) => {
+        const included = Math.min(value.minutes, context.turnTimeBudget?.remaining || 0);
+        if (context.turnTimeBudget) context.turnTimeBudget.remaining -= included;
         working.writeTime('bonusTimeMinutes', field => {
-            field.value = (Number(field.value) || 0) + value.minutes;
+            field.value = (Number(field.value) || 0) + value.minutes - included;
         });
     });
     registerNative('outfit_set', value => safeId(value?.actor_id)
@@ -362,7 +364,11 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         registry.register(type, () => true, (payload, working, context) => {
             if (typeof context.applyLegacyEffect !== 'function')
                 throw new Error(`missing_legacy_effect_adapter:${type}`);
-            context.applyLegacyEffect(type, payload, working);
+            if (type === 'time_skip_minutes' && Number.isInteger(payload) && payload > 0) {
+                const included = Math.min(payload, context.turnTimeBudget?.remaining || 0);
+                if (context.turnTimeBudget) context.turnTimeBudget.remaining -= included;
+                context.applyLegacyEffect(type, payload - included, working);
+            } else context.applyLegacyEffect(type, payload, working);
         });
     }
     return capability ? { ...registry,
@@ -382,6 +388,47 @@ function executeLinkedActions(plan, world, session, context = {}) {
     const outcomes = new Map();
     const events = [];
     const errors = [];
+    // Only completed, structurally witnessed operations may survive a repair.
+    // The reducer succeeding is deliberately insufficient: the action must
+    // also have passed its guards, outcome check, event link and invariants.
+    const verifiedEffects = [];
+    const verifiedEvents = [];
+    const eventTypes = { actor_move: ['movement'], interactable_transition: ['environment'],
+        item_transfer: ['inventory'], item_introduce: ['inventory'],
+        entity_introduce: ['environment'], location_introduce: ['environment'],
+        condition_change: ['condition'], relation_set: ['relationship'],
+        event_emit: null, time_advance: ['time'], time_skip_minutes: ['time'],
+        outfit_set: ['outfit'] };
+    const witnessed = (operation, actionEvents, moves = []) => actionEvents.some(event => {
+        if (event.status !== 'completed') return false;
+        const types = eventTypes[operation.type]
+            || registryApi.technicalEffects.get(operation.type)?.eventTypes;
+        if (!Object.hasOwn(eventTypes, operation.type) && !types) return false;
+        if (types && !types.includes(event.type)) return false;
+        if (operation.type === 'event_emit' && event.type !== operation.payload?.type) return false;
+        const actor = operation.payload?.actor_id || operation.payload?.subject_id
+            || (operation.type === 'condition_change' ? operation.payload?.target_id : '');
+        if (actor && event.actor_id !== actor
+            && !(operation.payload?.companion_ids || []).includes(event.actor_id)) return false;
+        if (['interactable_transition', 'relation_set'].includes(operation.type)
+            && event.target_id !== operation.payload?.target_id) return false;
+        if (operation.type === 'outfit_set' && event.outfit !== operation.payload?.outfit) return false;
+        if (operation.type === 'condition_change'
+            && (event.condition !== operation.payload?.condition
+                || event.action !== operation.payload?.action)) return false;
+        if (operation.type === 'item_transfer' && !String(event.item || '').trim()) return false;
+        if (['time_advance', 'time_skip_minutes'].includes(operation.type)
+            && event.minutes_elapsed !== undefined
+            && event.minutes_elapsed !== (operation.payload?.minutes || operation.payload)) return false;
+        if (operation.type === 'actor_move'
+            && (event.to_location_id !== operation.payload?.to_location_id
+                || !event.from_location_id
+                || !moves.some(move => move.actor === event.actor_id
+                    && move.from === event.from_location_id
+                    && move.to === event.to_location_id))) return false;
+        return true;
+    });
+    const turnTimeBudget = { remaining: Math.max(0, Number(context.includedTurnMinutes) || 0) };
     for (const action of plan.actions) {
         const guards = action.depends_on || [];
         if (guards.some(guard => outcomes.get(guard.action_id) !== guard.outcome)) {
@@ -389,6 +436,9 @@ function executeLinkedActions(plan, world, session, context = {}) {
             continue;
         }
         const point = working.savepoint();
+        const includedTimeAtStart = turnTimeBudget.remaining;
+        let appliedOperations = [];
+        let actionMoves = [];
         try {
             if ((action.state_conditions || []).some(condition => !facts.test(condition, working)))
                 throw new BlockedAction('state_condition_not_met');
@@ -426,9 +476,23 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 if (!Array.isArray(values)) throw new Error(`invalid_effect_list:${type}`);
                 return values.map(payload => ({ type, payload }));
             });
-            const applied = effects.run(operations, working, { ...context, capability,
+            const moveTransitions = [], predictedLocations = new Map();
+            for (const operation of operations) if (operation.type === 'actor_move')
+                for (const actor of [operation.payload.actor_id,
+                    ...(operation.payload.companion_ids || [])]) {
+                    const from = predictedLocations.has(actor) ? predictedLocations.get(actor)
+                        : actor === 'player' ? working.getSession('playerLocation')
+                            : working.getEntity(actor).state?.location;
+                    moveTransitions.push({ actor, from, to: operation.payload.to_location_id });
+                    predictedLocations.set(actor, operation.payload.to_location_id);
+                }
+            actionMoves = moveTransitions;
+            const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
                 protocol: capability.protocol, executionMode: capability.executionMode,
                 actionId: action.action_id, sessionId: session.id });
+            // Follow-up reducer effects are consequences, not model proposals
+            // that a later draft must repeat verbatim.
+            appliedOperations = operations.filter((_operation, index) => applied.changes[index]);
             if (action.status === 'resolved' || action.status === 'answered') {
                 const executed = applied.applied;
                 const stateEffect = executed.some(effect => ![
@@ -441,7 +505,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 ].includes(effect.type));
                 const completed = plan.events.filter(event => event.action_id === action.action_id
                     && event.status === 'completed');
-                const responseLinked = !!String(action.request || '').trim()
+                const responseLinked = (!!String(action.request || '').trim()
+                    || (context.worldActionIds || []).includes(action.action_id))
                     && plan.narrative.some(passage => passage.id === action.response_id
                         && passage.action_id === action.action_id
                         && !!String(passage.text || '').trim());
@@ -494,11 +559,21 @@ function executeLinkedActions(plan, world, session, context = {}) {
                         && (event.actor_id === 'player' ? working.getSession('playerLocation')
                             : working.getEntity(event.actor_id).state?.location) !== event.to_location_id)
                         throw new Error('event_movement_mismatch');
+                    if (event.type === 'movement' && event.from_location_id
+                        && !moveTransitions.some(move => move.actor === event.actor_id
+                            && move.from === event.from_location_id
+                            && move.to === event.to_location_id))
+                        throw new Error('event_movement_origin_mismatch');
                 }
                 events.push(copy(event));
             }
+            if ((context.worldActionIds || []).includes(action.action_id)
+                && operations.some(operation => !witnessed(operation,
+                    plan.events.filter(event => event.action_id === action.action_id), moveTransitions)))
+                throw new Error('unwitnessed_world_effect');
         } catch (error) {
             working.restore(point);
+            turnTimeBudget.remaining = includedTimeAtStart;
             if (error instanceof BlockedAction) outcomes.set(action.action_id, 'blocked');
             else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
                 code: error.code || error.message, effect: error.effect || '',
@@ -519,8 +594,30 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 proposed, actual });
             break;
         }
+        if (actual === 'succeeded') verifiedEvents.push(...plan.events
+            .filter(event => event.action_id === action.action_id && event.status === 'completed')
+            .map(copy));
+        if (actual === 'succeeded' && appliedOperations.length) {
+            const actionEvents = plan.events.filter(event => event.action_id === action.action_id);
+            const supported = appliedOperations.filter(operation => witnessed(operation, actionEvents,
+                actionMoves));
+            if (supported.length) {
+                try {
+                    workingApi.assertWorldModelInvariants(world, session, working.prepare());
+                    verifiedEffects.push({ action_id: action.action_id,
+                        source: (context.worldActionIds || []).includes(action.action_id) ? 'reaction' : 'player',
+                        request: action.request, kind: action.kind,
+                        effects: supported.map(copy) });
+                } catch (error) {
+                    errors.push({ action_id: action.action_id, reason: 'world_invariant_violation',
+                        cause: error.message });
+                    break;
+                }
+            }
+        }
     }
-    if (errors.length) { working.rollback(); return { ok: false, errors, outcomes }; }
+    if (errors.length) { working.rollback(); return { ok: false, errors, outcomes,
+        verifiedEffects, verifiedEvents }; }
     try {
         workingApi.assertWorldModelInvariants(world, session, working.prepare());
     } catch (error) {
@@ -529,11 +626,11 @@ function executeLinkedActions(plan, world, session, context = {}) {
             reason: error.message, protocol: capability.protocol,
             executionMode: capability.executionMode, available: capability.names,
             source: 'worlds/working-state.js', stage: 'post_action_invariants',
-            cause: error.message }], outcomes };
+            cause: error.message }], outcomes, verifiedEffects: [], verifiedEvents: [] };
     }
     const visiblePassages = (plan.narrative || []).filter(passage =>
-        !passage.action_id || !['skipped', 'unresolved'].includes(outcomes.get(passage.action_id)));
-    return { ok: true, working, outcomes, events,
+        !passage.action_id || outcomes.get(passage.action_id) !== 'skipped');
+    return { ok: true, working, outcomes, events, verifiedEffects, verifiedEvents,
         narrative: visiblePassages.map(passage => passage.text).join('\n\n'),
         skipped: [...outcomes].filter(([, result]) => result === 'skipped').map(([id]) => id) };
 }

@@ -133,6 +133,7 @@ function createEffectRegistry() {
         if (!Array.isArray(initial) || initial.length > 32) throw new Error('invalid_effect_queue');
         const queue = initial.map(effect => ({ effect, ancestry: [] }));
         const applied = [];
+        const changes = [];
         let followUps = 0;
         while (queue.length) {
             const { effect, ancestry } = queue.shift();
@@ -155,16 +156,22 @@ function createEffectRegistry() {
             if (ancestry.includes(signature)) throw new Error('cyclic_follow_up_effect');
             if (!entry.validate(effect.payload, workingState, context))
                 throw new Error(`invalid_technical_effect:${effect.type}`);
+            const before = workingState.prepare();
+            const includedBefore = context.turnTimeBudget?.remaining;
             const emitted = entry.reduce(effect.payload, workingState, context) || [];
             if (!Array.isArray(emitted)) throw new Error(`invalid_follow_up_effects:${effect.type}`);
             applied.push(effect);
+            const after = workingState.prepare();
+            changes.push(JSON.stringify(before.world) !== JSON.stringify(after.world)
+                || JSON.stringify(before.session) !== JSON.stringify(after.session)
+                || includedBefore !== context.turnTimeBudget?.remaining);
             for (const next of emitted) {
                 followUps++;
                 if (followUps > MAX_FOLLOW_UP_EFFECTS) throw new Error('follow_up_effect_budget_exceeded');
                 queue.push({ effect: next, ancestry: [...ancestry, signature] });
             }
         }
-        return { applied, followUps };
+        return { applied, changes, followUps };
     };
     return { register, run, has: type => reducers.has(type), types: () => [...reducers.keys()] };
 }
