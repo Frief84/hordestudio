@@ -226,6 +226,12 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         contract.properties.actions.items.required = ['kind', 'status', 'response_id'];
         if (options.linkedRequired) contract.properties.actions.items.required.push('action_id');
         const action = contract.properties.actions.items.properties;
+        action.status = { ...action.status,
+            enum: capability.schemas.checks ? action.status.enum
+                : action.status.enum.filter(value => value !== 'pending_check'),
+            description: capability.schemas.checks
+                ? 'pending_check means one real unresolved engine check in this action\'s action_effects.checks; no check means use the actual resolved, attempted, blocked or clarification status. A requested NPC decision is not a check.'
+                : 'Checks are unavailable in this World. Never use pending_check.' };
         action.action_id = text('Stable unique action ID. Required for compound or linked actions.', 80);
         action.depends_on = list(shape({
             action_id: text('Exact ID of an earlier action.', 80),
@@ -774,6 +780,12 @@ function compile(draft, context) {
                     detail: `events.${index}.action`, index, actor_id: event.actor_id });
         });
     }
+    if (errors.length) return { ok: false, errors };
+    // A lifecycle payload cannot be attached to an unrelated event type.
+    // This check applies equally to the canonical and compact V3 transports.
+    for (const [index, event] of (draft.events || []).entries())
+        if (object(event) && event.next_status !== undefined && event.type !== 'status')
+            fail(`events.${index}.next_status`, 'event_field_type_conflict');
     if (errors.length) return { ok: false, errors };
     // Older drafts carried alternative outcome prose. It has never been state
     // authority; strip it before schema checking as well as before compiling

@@ -79,8 +79,14 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     const registry = registryApi.createEffectRegistry();
     const registerNative = (name, validate, reduce) => {
         if (!registryApi.technicalEffects.has(name)) return;
-        registryApi.bindTechnicalOperation(name, validate, reduce);
-        registry.register(name, validate, reduce);
+        const guardedReduce = (payload, working, context) => {
+            const policy = registryApi.moduleVerdict(name,
+                context.worldModules || working.getWorld('gameRules')?.modules);
+            if (!policy.ok) throw new Error(policy.reason);
+            return reduce(payload, working, context);
+        };
+        registryApi.bindTechnicalOperation(name, validate, guardedReduce);
+        registry.register(name, validate, guardedReduce);
     };
     const ids = (...values) => values.every(safeId);
     const actorLocation = (working, actor) => actor === 'player'
@@ -89,18 +95,26 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         working.writeEntity(actor, entity => {
             entity.state ||= {};
             entity.state.location = to;
+            delete entity.state.journey;
         });
         if (actor === 'player') working.writeSession('playerLocation', field => { field.value = to; });
     };
     registerNative('actor_move', value => ids(value?.actor_id, value?.to_location_id)
+        && (value.mode === undefined || ['journey', 'teleport'].includes(value.mode))
+        && (value.explore === undefined || typeof value.explore === 'boolean')
         && (value.companion_ids === undefined || Array.isArray(value.companion_ids)
             && value.companion_ids.every(safeId)), (value, working, context) => {
-        const from = actorLocation(working, value.actor_id);
+        const inTransit = value.actor_id === 'player' ? null
+            : working.getEntity(value.actor_id).state?.journey;
+        const from = actorLocation(working, value.actor_id)
+            || (value.mode === 'teleport' && inTransit
+                ? inTransit.path?.[inTransit.progressIndex || 0] || inTransit.originId : null);
         const target = working.getLocation(value.to_location_id).definition;
         if (!from || !target) throw new BlockedAction('unknown_or_unreachable_destination');
         const scene = working.prepare();
         const verdict = context.canMove
-            ? context.canMove(scene.world, scene.session, value.actor_id, from, value.to_location_id)
+            ? context.canMove(scene.world, scene.session, value.actor_id, from, value.to_location_id,
+                { mode: value.mode || 'arrival', explore: value.explore === true })
             : (() => {
                 const source = working.getLocation(from).definition;
                 const connected = (source?.exits || []).some(exit => {
@@ -111,6 +125,13 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 return { ok: connected, reason: connected ? '' : 'unreachable' };
             })();
         if (!verdict?.ok) throw new BlockedAction(verdict?.reason || 'unreachable');
+        if (value.mode === 'journey') {
+            if (value.actor_id === 'player' || value.companion_ids?.length
+                || typeof context.startJourney !== 'function'
+                || !context.startJourney(working, value.actor_id, target.id, value.explore === true))
+                throw new BlockedAction('journey_unavailable');
+            return;
+        }
         const companions = new Set(value.companion_ids || []);
         if (value.actor_id === 'player') for (const actor of working.getEntitiesByFilter(entity =>
             entity.state?.followingPlayer === true && entity.state.location === from))
@@ -120,12 +141,23 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 throw new BlockedAction('companion_unavailable');
             if (context.canMove) {
                 const allowed = context.canMove(scene.world, scene.session,
-                    companion, from, value.to_location_id, { accompanyingPlayer: true });
+                    companion, from, value.to_location_id,
+                    { accompanyingPlayer: true, mode: value.mode || 'arrival',
+                        explore: value.explore === true });
                 if (!allowed?.ok) throw new BlockedAction(allowed?.reason || 'companion_access_denied');
+                if (value.mode !== 'teleport' && Number(allowed.travelTime) > 0
+                    && (Number(allowed.elapsedMinutes) || 0) - (context.travelSpent?.get(companion) || 0)
+                        < Number(allowed.travelTime)) throw new BlockedAction('insufficient_travel_time');
             }
         }
+        if (value.mode !== 'teleport' && Number(verdict.travelTime) > 0
+            && (Number(verdict.elapsedMinutes) || 0) - (context.travelSpent?.get(value.actor_id) || 0)
+                < Number(verdict.travelTime)) throw new BlockedAction('insufficient_travel_time');
         moveActor(working, value.actor_id, target.id);
         for (const companion of companions) moveActor(working, companion, target.id);
+        if (context.travelSpent && value.mode !== 'teleport')
+            for (const actor of [value.actor_id, ...companions]) context.travelSpent.set(actor,
+                (context.travelSpent.get(actor) || 0) + Number(verdict.travelTime || 0));
         const turn = Number(working.getSession('turnCount')) || 1;
         working.writeLocation(from, location => {
             location.state ||= {}; location.state.lastExitedTurn = turn;
@@ -182,6 +214,14 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             && value.quantity > 0 && value.quantity <= 100), (value, working) => {
         const quantity = value.quantity || 1;
         if (value.from_id === value.to_id) throw new BlockedAction('same_transfer_endpoint');
+        const sourceEntity = working.getEntity(value.from_id).definition;
+        const destinationEntity = working.getEntity(value.to_id).definition;
+        const sourceIsActor = value.from_id === 'player' || sourceEntity?.type === 'npc';
+        const sourceIsLocation = !!working.getLocation(value.from_id).definition;
+        const destinationIsActor = value.to_id === 'player' || destinationEntity?.type === 'npc';
+        if (!sourceIsActor && !sourceIsLocation) throw new Error('unknown_transfer_source');
+        if (!destinationIsActor && !working.getLocation(value.to_id).definition)
+            throw new Error('unknown_transfer_destination');
         const sourceInventory = value.from_id === 'player' ? working.getSession('inventory')
             : working.getEntity(value.from_id).state?.inventory;
         const itemEntity = working.getEntity(value.item_id);
@@ -281,6 +321,9 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     registerNative('condition_change', value => ids(value?.target_id)
         && typeof value?.condition === 'string' && !!value.condition
         && ['add', 'remove'].includes(value.action), (value, working) => {
+        if (value.target_id !== 'player'
+            && working.getEntity(value.target_id).definition?.type !== 'npc')
+            throw new Error('unknown_condition_target');
         const update = conditions => {
             const result = Array.isArray(conditions) ? conditions : [];
             const index = result.findIndex(item => String(typeof item === 'string'
@@ -299,11 +342,29 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     });
     registerNative('relation_set', value => ids(value?.subject_id, value?.target_id)
         && Number.isInteger(value?.value) && value.value >= -100 && value.value <= 100,
-    (value, working) => {
+    (value, working, context) => {
         const factions = working.getSession('factions') || working.getWorld('factions') || [];
-        if (factions.some(item => item.id === value.subject_id)
-            && factions.some(item => item.id === value.target_id)) {
-            if (value.subject_id === value.target_id) throw new Error('self_relation');
+        const factionSubject = factions.find(item => item.id === value.subject_id);
+        const factionTarget = factions.find(item => item.id === value.target_id);
+        const subjectType = factionSubject ? 'faction' : value.subject_id === 'player'
+            ? 'player' : working.getEntity(value.subject_id).definition?.type === 'npc' ? 'npc' : '';
+        const targetType = factionTarget ? 'faction' : value.target_id === 'player'
+            ? 'player' : working.getEntity(value.target_id).definition?.type === 'npc' ? 'npc' : '';
+        const currentScore = factionSubject && factionTarget
+            ? factionSubject.relations?.find(item => item.factionId === value.target_id)?.score || 0
+            : working.getSession('npcRelationships')?.[pairKey(value.subject_id, value.target_id)]?.score || 0;
+        const verdict = registryApi.relationVerdict({
+            modules: context.worldModules || working.getWorld('gameRules')?.modules,
+            subjectId: value.subject_id, targetId: value.target_id,
+            subjectType, targetType, currentScore, value: value.value,
+            events: (context.actionEvents || []).filter(event =>
+                !context.consumedRelationEvents?.has(event)), actionId: context.actionId,
+            requireWitness: context.requireEffectWitnesses === true
+                || (context.worldActionIds || []).includes(context.actionId)
+        });
+        if (!verdict.ok) throw new Error(verdict.reason);
+        if (verdict.event) context.consumedRelationEvents?.add(verdict.event);
+        if (factionSubject && factionTarget) {
             working.writeRelation('factions', field => {
                 field.value ||= copy(factions);
                 for (const [fromId, toId] of [[value.subject_id, value.target_id],
@@ -317,9 +378,6 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             });
             return;
         }
-        if ((value.subject_id !== 'player' && !working.getEntity(value.subject_id).definition)
-            || (value.target_id !== 'player' && !working.getEntity(value.target_id).definition))
-            throw new Error('unknown_relation_target');
         working.writeRelation('npcRelationships', field => {
             field.value ||= {};
             field.value[pairKey(value.subject_id, value.target_id)] = {
@@ -344,6 +402,9 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     });
     registerNative('outfit_set', value => safeId(value?.actor_id)
         && typeof value?.outfit === 'string' && !!value.outfit.trim(), (value, working) => {
+        if (value.actor_id !== 'player'
+            && working.getEntity(value.actor_id).definition?.type !== 'npc')
+            throw new Error('unknown_outfit_actor');
         if (value.actor_id === 'player') working.writeSession('outfit', field => {
             field.value = value.outfit.trim();
         });
@@ -393,6 +454,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
     // also have passed its guards, outcome check, event link and invariants.
     const verifiedEffects = [];
     const verifiedEvents = [];
+    const confirmedEffects = [];
     const eventTypes = { actor_move: ['movement'], interactable_transition: ['environment'],
         item_transfer: ['inventory'], item_introduce: ['inventory'],
         entity_introduce: ['environment'], location_introduce: ['environment'],
@@ -401,6 +463,10 @@ function executeLinkedActions(plan, world, session, context = {}) {
         outfit_set: ['outfit'] };
     const witnessed = (operation, actionEvents, moves = []) => actionEvents.some(event => {
         if (event.status !== 'completed') return false;
+        if (operation.type === 'actor_move' && operation.payload?.mode === 'journey')
+            return event.type === 'activity' && event.actor_id === operation.payload.actor_id
+                && event.to_location_id === operation.payload.to_location_id
+                && (operation.payload.explore !== true || event.explore === true);
         const types = eventTypes[operation.type]
             || registryApi.technicalEffects.get(operation.type)?.eventTypes;
         if (!Object.hasOwn(eventTypes, operation.type) && !types) return false;
@@ -421,7 +487,10 @@ function executeLinkedActions(plan, world, session, context = {}) {
             && event.minutes_elapsed !== undefined
             && event.minutes_elapsed !== (operation.payload?.minutes || operation.payload)) return false;
         if (operation.type === 'actor_move'
-            && (event.to_location_id !== operation.payload?.to_location_id
+            && ((operation.payload?.mode === 'teleport'
+                && (event.movement_mode !== 'teleport' || !String(event.cause || '').trim()))
+                || (operation.payload?.explore === true && event.explore !== true)
+                || event.to_location_id !== operation.payload?.to_location_id
                 || !event.from_location_id
                 || !moves.some(move => move.actor === event.actor_id
                     && move.from === event.from_location_id
@@ -429,15 +498,28 @@ function executeLinkedActions(plan, world, session, context = {}) {
         return true;
     });
     const turnTimeBudget = { remaining: Math.max(0, Number(context.includedTurnMinutes) || 0) };
+    const travelSpent = new Map();
     for (const action of plan.actions) {
         const guards = action.depends_on || [];
         if (guards.some(guard => outcomes.get(guard.action_id) !== guard.outcome)) {
             outcomes.set(action.action_id, 'skipped');
             continue;
         }
+        if (action.action_effects?.actor_move?.length
+            && typeof context.syncClockEffects === 'function') {
+            try { context.syncClockEffects(working); }
+            catch (error) {
+                working.rollback();
+                return { ok: false, errors: [{ action_id: action.action_id,
+                    reason: error.message, stage: 'movement_clock_sync' }],
+                outcomes, verifiedEffects: [], verifiedEvents: [] };
+            }
+        }
         const point = working.savepoint();
         const includedTimeAtStart = turnTimeBudget.remaining;
+        const travelSpentAtStart = new Map(travelSpent);
         let appliedOperations = [];
+        let executedOperations = [];
         let actionMoves = [];
         try {
             if ((action.state_conditions || []).some(condition => !facts.test(condition, working)))
@@ -476,20 +558,44 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 if (!Array.isArray(values)) throw new Error(`invalid_effect_list:${type}`);
                 return values.map(payload => ({ type, payload }));
             });
+            for (const operation of operations) if (['resolved', 'answered'].includes(action.status)
+                && operation.type === 'actor_move'
+                && ['journey', 'teleport'].includes(operation.payload?.mode)) {
+                const direct = operation.payload.mode === 'teleport';
+                const supported = (plan.events || []).some(event => event.action_id === action.action_id
+                    && event.actor_id === operation.payload.actor_id
+                    && event.to_location_id === operation.payload.to_location_id
+                    && event.status === 'completed'
+                    && (operation.payload.explore !== true || event.explore === true)
+                    && (direct ? event.type === 'movement' && event.movement_mode === 'teleport'
+                        && !!String(event.cause || '').trim() : event.type === 'activity'));
+                if (!supported) throw new Error(direct ? 'unverified_direct_move' : 'unverified_journey_start');
+            }
             const moveTransitions = [], predictedLocations = new Map();
-            for (const operation of operations) if (operation.type === 'actor_move')
+            for (const operation of operations) if (operation.type === 'actor_move'
+                && operation.payload?.mode !== 'journey')
                 for (const actor of [operation.payload.actor_id,
                     ...(operation.payload.companion_ids || [])]) {
                     const from = predictedLocations.has(actor) ? predictedLocations.get(actor)
                         : actor === 'player' ? working.getSession('playerLocation')
-                            : working.getEntity(actor).state?.location;
+                            : working.getEntity(actor).state?.location
+                                || (operation.payload?.mode === 'teleport'
+                                    ? working.getEntity(actor).state?.journey?.path?.[
+                                        working.getEntity(actor).state?.journey?.progressIndex || 0]
+                                        || working.getEntity(actor).state?.journey?.originId : null);
                     moveTransitions.push({ actor, from, to: operation.payload.to_location_id });
                     predictedLocations.set(actor, operation.payload.to_location_id);
                 }
             actionMoves = moveTransitions;
             const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
+                travelSpent,
+                actionEvents: plan.events.filter(event => event.action_id === action.action_id),
+                consumedRelationEvents: new Set(),
                 protocol: capability.protocol, executionMode: capability.executionMode,
                 actionId: action.action_id, sessionId: session.id });
+            executedOperations = applied.applied.map((operation, index) => ({
+                ...copy(operation), origin: index < operations.length ? 'proposal' : 'reducer',
+                result: applied.changes[index] ? 'changed' : 'no_change' }));
             // Follow-up reducer effects are consequences, not model proposals
             // that a later draft must repeat verbatim.
             appliedOperations = operations.filter((_operation, index) => applied.changes[index]);
@@ -530,7 +636,10 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 if (event.action_id !== action.action_id) continue;
                 if (event.status === 'completed') {
                     const knownActor = event.actor_id === 'player'
-                        || working.getEntity(event.actor_id).definition;
+                        || working.getEntity(event.actor_id).definition
+                        || event.type === 'relationship'
+                            && (working.getSession('factions') || working.getWorld('factions') || [])
+                                .some(faction => faction.id === event.actor_id);
                     if (!knownActor) throw new Error('unknown_event_actor');
                     const requiredEffects = {
                         movement: ['actor_move'],
@@ -588,6 +697,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
         } catch (error) {
             working.restore(point);
             turnTimeBudget.remaining = includedTimeAtStart;
+            travelSpent.clear();
+            for (const [actor, minutes] of travelSpentAtStart) travelSpent.set(actor, minutes);
             if (error instanceof BlockedAction) outcomes.set(action.action_id, 'blocked');
             else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
                 code: error.code || error.message, effect: error.effect || '',
@@ -611,6 +722,14 @@ function executeLinkedActions(plan, world, session, context = {}) {
         if (actual === 'succeeded') verifiedEvents.push(...plan.events
             .filter(event => event.action_id === action.action_id && event.status === 'completed')
             .map(copy));
+        if (actual === 'succeeded') for (const operation of executedOperations) {
+            const eventIndices = events.flatMap((event, index) => event.action_id === action.action_id
+                && witnessed(operation, [event], actionMoves) ? [index] : []);
+            confirmedEffects.push({ action_id: action.action_id,
+                source: (context.worldActionIds || []).includes(action.action_id) ? 'reaction' : 'player',
+                type: operation.type, payload: copy(operation.payload), origin: operation.origin,
+                result: operation.result, event_indices: eventIndices });
+        }
         if (actual === 'succeeded' && appliedOperations.length) {
             const actionEvents = plan.events.filter(event => event.action_id === action.action_id);
             const supported = appliedOperations.filter(operation => witnessed(operation, actionEvents,
@@ -631,7 +750,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
         }
     }
     if (errors.length) { working.rollback(); return { ok: false, errors, outcomes,
-        verifiedEffects, verifiedEvents }; }
+        verifiedEffects, verifiedEvents, confirmedEffects: [] }; }
     try {
         workingApi.assertWorldModelInvariants(world, session, working.prepare());
     } catch (error) {
@@ -640,11 +759,11 @@ function executeLinkedActions(plan, world, session, context = {}) {
             reason: error.message, protocol: capability.protocol,
             executionMode: capability.executionMode, available: capability.names,
             source: 'worlds/working-state.js', stage: 'post_action_invariants',
-            cause: error.message }], outcomes, verifiedEffects: [], verifiedEvents: [] };
+        cause: error.message }], outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [] };
     }
     const visiblePassages = (plan.narrative || []).filter(passage =>
         !passage.action_id || outcomes.get(passage.action_id) !== 'skipped');
-    return { ok: true, working, outcomes, events, verifiedEffects, verifiedEvents,
+    return { ok: true, working, outcomes, events, verifiedEffects, verifiedEvents, confirmedEffects,
         narrative: visiblePassages.map(passage => passage.text).join('\n\n'),
         skipped: [...outcomes].filter(([, result]) => result === 'skipped').map(([id]) => id) };
 }

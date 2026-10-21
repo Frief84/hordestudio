@@ -13,7 +13,9 @@ const shape = (properties, required = Object.keys(properties)) =>
 // logical capability set used by compilation and execution.
 const technicalEffects = new Map(Object.entries({
     actor_move: list(shape({ actor_id: field('Exact actor ID.'),
-        to_location_id: field('One adjacent mapped destination ID.'),
+        to_location_id: field('Exact mapped destination ID; one adjacent leg for completed movement.'),
+        mode: { type: 'string', enum: ['journey', 'teleport'] },
+        explore: { type: 'boolean' },
         companion_ids: list(field('Exact accompanying actor ID.')) },
     ['actor_id', 'to_location_id'])),
     interactable_transition: list(shape({ target_id: field('Exact object or door ID.'),
@@ -43,6 +45,47 @@ const technicalEffects = new Map(Object.entries({
         outfit: field('Complete resulting outfit.', 500) }))
 }).map(([name, schema]) => [name, { name, schema, protocols: ['scene_draft_v3'],
     executionModes: ['linked'], operation: name }]));
+const effectModules = Object.freeze({ item_transfer: 'inventory', item_introduce: 'inventory',
+    condition_change: 'conditions' });
+function moduleVerdict(effect, modules) {
+    const module = effectModules[effect];
+    return !module || modules?.[module] !== false
+        ? { ok: true } : { ok: false, reason: 'module_disabled', module };
+}
+// Shared relation policy for legacy relative updates and linked absolute sets.
+// Callers resolve their supported reference syntax before invoking it.
+function relationVerdict({ modules, subjectId, targetId, subjectType, targetType,
+    currentScore = 0, change, value, events = [], actionId = '', requireWitness = true,
+    requireActionId = false, requireEvidence = false, requireMagnitude = false }) {
+    if (!subjectId || !targetId || !subjectType || !targetType)
+        return { ok: false, reason: 'unknown_relation_target' };
+    const module = subjectType === 'faction' && targetType === 'faction'
+        ? 'livingWorld' : 'relationships';
+    if (modules?.[module] === false) return { ok: false, reason: 'module_disabled', module };
+    if (subjectType === 'player')
+        return { ok: false, reason: 'player_feelings_not_engine_controlled' };
+    if (subjectId === targetId || (subjectType === 'faction') !== (targetType === 'faction'))
+        return { ok: false, reason: 'invalid_relation_target' };
+    const nextScore = value === undefined ? Math.max(-100, Math.min(100,
+        Number(currentScore || 0) + Number(change))) : Number(value);
+    if (!Number.isFinite(nextScore) || nextScore < -100 || nextScore > 100)
+        return { ok: false, reason: 'invalid_relation_value' };
+    if (requireWitness) {
+        if (requireActionId && !actionId) return { ok: false, reason: 'missing_relation_action_id' };
+        const delta = nextScore - Number(currentScore || 0);
+        const declaredChange = value === undefined ? Number(change) : delta;
+        const witnessed = events.find(event => event?.type === 'relationship'
+            && event.status === 'completed' && event.actor_id === subjectId
+            && event.target_id === targetId && (!actionId || event.action_id === actionId)
+            && (!requireEvidence || !!String(event.cause || event.evidence || '').trim())
+            && (!requireMagnitude || event.change !== undefined || event.value !== undefined)
+            && (event.change === undefined || Number(event.change) === declaredChange)
+            && (event.value === undefined || Number(event.value) === nextScore));
+        if (!witnessed) return { ok: false, reason: 'unwitnessed_relation_effect' };
+        return { ok: true, value: nextScore, event: witnessed };
+    }
+    return { ok: true, value: nextScore };
+}
 const OMIT_LEGACY = new Set(['summary', 'scene', 'events', 'entity_updates',
     'state_updates', 'action_resolution', 'npc_observations', 'world_events']);
 const legacyOperation = name => name === 'checks' ? 'requestPendingCheck' : 'applyLegacyEffect';
@@ -177,6 +220,8 @@ function createEffectRegistry() {
 }
 const api = { createEffectRegistry, capabilities, assertSupported, capabilityError,
     defineTechnicalEffect, bindTechnicalOperation, technicalEffects, legacyOperation,
+    relationVerdict,
+    moduleVerdict,
     MAX_FOLLOW_UP_EFFECTS };
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 root.HordeEffectRegistry = api;

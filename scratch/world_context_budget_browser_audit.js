@@ -32,12 +32,34 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
         page.on('pageerror', error => errors.push(error.message));
         await page.goto('https://world-context-budget.test/');
         await page.waitForFunction(() => typeof companionAgencyTimer !== 'undefined' && !!companionAgencyTimer);
-        const results = await page.evaluate(async () => {
+        const results = await page.evaluate(async ({ capture, profile }) => {
             clearInterval(companionAgencyTimer); clearInterval(companionAlwaysOnTimer);
             await Promise.all([saveStateInFlight, worldSaveInFlight].filter(Boolean));
-            state.apiKey = 'offline'; state.globalSettings.apiProvider = 'openrouter';
+            let costs = null;
+            if (profile) {
+                costs = {};
+                const timeAsync = (owner, name, key) => {
+                    const original = owner[name];
+                    owner[name] = async function (...args) {
+                        const start = performance.now();
+                        try { return await original.apply(this, args); }
+                        finally { costs[key] = (costs[key] || 0) + performance.now() - start; }
+                    };
+                };
+                timeAsync(HordeDB, 'get', 'indexedDbReadMs');
+                timeAsync(HordeDB, 'setMultiple', 'indexedDbWriteMs');
+                const clone = safeJsonClone;
+                safeJsonClone = function (...args) {
+                    const start = performance.now();
+                    try { return clone(...args); }
+                    finally { costs.cloneMs = (costs.cloneMs || 0) + performance.now() - start; }
+                };
+            }
+            state.apiKey = 'offline'; state.globalSettings.apiProvider = capture ? 'local' : 'openrouter';
+            if (capture) state.globalSettings.localBaseUrl = 'http://127.0.0.1:11434/v1';
             const realFetch = window.fetch, rows = [];
             for (const scenario of ['small', 'dense', 'shifted', 'repair', 'mixed']) {
+                if (costs) costs = {};
                 const dense = scenario !== 'small';
                 const locations = dense ? Array.from({ length: 18 }, (_, index) => ({
                     id: index ? `room_${index}` : 'office', name: index ? `Room ${index}` : 'Office',
@@ -117,6 +139,14 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
                     reactions: [{ text: 'Linda puts on a blue coat.',
                         effects: { outfit_set: [{ actor_id: 'linda', outfit: 'blue coat' }] },
                         events: [{ type: 'outfit', actor_id: 'linda', status: 'completed', outfit: 'blue coat' }] }] };
+                const initialFixture = capture ? { input, world: safeJsonClone(world),
+                    session: safeJsonClone(sess), now: getWorldTimeData(world, sess).currentTotalMinutes } : null;
+                let canonicalCapture = null;
+                const originalSchema = HordeWorldTurnBinding.schema;
+                if (capture) HordeWorldTurnBinding.schema = function (canonical, options) {
+                    canonicalCapture = safeJsonClone(canonical);
+                    return originalSchema(canonical, options);
+                };
                 let calls = 0;
                 const bodies = [];
                 window.fetch = async (url, options = {}) => {
@@ -133,7 +163,9 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
                     { headers: { 'Content-Type': 'application/json' } });
                 };
                 document.getElementById('world-user-input').value = input;
+                const turnStarted = performance.now();
                 await executeWorldTurn();
+                if (capture) HordeWorldTurnBinding.schema = originalSchema;
                 const firstTurn = scenario === 'mixed' ? { calls, audit: safeJsonClone(sess.history.at(-1)?.callAudit),
                     error: document.getElementById('world-turn-error-text')?.textContent,
                     latest: sess.history.at(-1)?.text } : null;
@@ -142,12 +174,23 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
                     document.getElementById('world-user-input').value = 'I put on the red cloak.';
                     await executeWorldTurn();
                 }
+                const turnMs = performance.now() - turnStarted;
                 const last = sess.history.at(-1), prompt = bodies[0]?.messages?.map(message => message.content).join('\n') || '';
                 rows.push({ scenario, calls, accepted: last?.role === 'dm' && last?.stateSource !== 'frozen_no_receipt',
                     audit: safeJsonClone(last?.callAudit), inputRetained: document.getElementById('world-user-input').value === input,
-                    prompt, requestCharacters: bodies.map(body => JSON.stringify({ messages: body.messages,
+                    prompt, denseSchema: scenario === 'dense' ? (bodies[0]?.response_format?.json_schema?.schema
+                        || bodies[0]?.tools?.find(tool => tool.function?.name === 'commit_world_turn')?.function?.parameters) : null,
+                    repairSchema: scenario === 'repair' ? (bodies[1]?.response_format?.json_schema?.schema
+                        || bodies[1]?.tools?.find(tool => tool.function?.name === 'commit_world_turn')?.function?.parameters) : null,
+                    fixture: capture ? { ...initialFixture, request: bodies[0], canonical: canonicalCapture } : null,
+                    requestCharacters: bodies.map(body => JSON.stringify({ messages: body.messages,
                         tools: body.tools, response_format: body.response_format }).length),
+                    schemaCharacters: bodies.map(body => JSON.stringify({ tools: body.tools,
+                        response_format: body.response_format }).length),
+                    messageCharacters: bodies.map(body => JSON.stringify(body.messages || []).length),
                     saved: !!(await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.some(item => item.id === sess.id),
+                    profile: costs ? { ...costs, turnMs,
+                        heapUsedBytes: performance.memory?.usedJSHeapSize ?? null } : null,
                     sessionId: sess.id, worldId: world.id, historyCount: sess.history.length,
                     protocols: (sess.worldTurnReceipts || []).map(item => item.audit?.protocol || item.receipt?.protocol),
                     firstTurn,
@@ -158,10 +201,19 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
             }
             window.fetch = realFetch;
             return rows;
-        });
+        }, { capture: !!process.env.HORDE_AB_CAPTURE,
+            profile: process.env.HORDE_CONTEXT_PROFILE === '1' });
         if (process.env.HORDE_CONTEXT_DUMP)
             fs.writeFileSync(process.env.HORDE_CONTEXT_DUMP,
                 results.find(row => row.scenario === 'shifted').prompt);
+        if (process.env.HORDE_COMPACT_SCHEMA_DUMP)
+            fs.writeFileSync(process.env.HORDE_COMPACT_SCHEMA_DUMP,
+                JSON.stringify({ dense: results.find(row => row.scenario === 'dense').denseSchema,
+                    repair: results.find(row => row.scenario === 'repair').repairSchema }));
+        if (process.env.HORDE_AB_CAPTURE)
+            fs.writeFileSync(process.env.HORDE_AB_CAPTURE,
+                JSON.stringify(results.filter(row => ['small', 'dense', 'repair'].includes(row.scenario))
+                    .map(row => ({ scenario: row.scenario, ...row.fixture }))));
         assert.deepEqual(errors, []);
         for (const row of results) {
             assert(row.accepted && row.saved, JSON.stringify({ scenario: row.scenario, calls: row.calls,
@@ -209,8 +261,13 @@ const root = path.resolve(process.env.HORDE_APP_ROOT || path.resolve(__dirname, 
         console.log('CONTEXT_METRICS', JSON.stringify(results.map(row => ({ scenario: row.scenario,
             calls: row.calls, repairs: row.audit?.receiptRepair || 0,
             mainCharacters: row.requestCharacters[0],
+            mainSchemaCharacters: row.schemaCharacters[0],
+            mainMessageCharacters: row.messageCharacters[0],
             repairCharacters: row.scenario === 'repair' ? row.requestCharacters[1] : null,
+            repairSchemaCharacters: row.scenario === 'repair' ? row.schemaCharacters[1] : null,
             sources: row.audit?.metrics?.contextSources || null }))));
+        if (process.env.HORDE_CONTEXT_PROFILE === '1') console.log('CONTEXT_PROFILE',
+            JSON.stringify(results.map(row => ({ scenario: row.scenario, ...row.profile }))));
         console.log('PASS Worlds context budget fixtures, first pass, repair and memory reachability');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

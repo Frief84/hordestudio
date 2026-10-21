@@ -1,0 +1,577 @@
+{
+  "provider": "ollama",
+  "settings": {
+    "temperature": 0,
+    "top_p": 1,
+    "seed": 42,
+    "num_ctx": 32768,
+    "num_predict": 1200
+  },
+  "models": [
+    {
+      "id": "qwen2.5:14b",
+      "digest": "7cdf5a0187d5c58cc5d369b255592f7841d1c4696d45a8c8a9489440385b22f6",
+      "declaredContextWindow": 32768,
+      "structuredOutput": "ollama_json_schema_requested_support_unverified"
+    },
+    {
+      "id": "ministral-3:14b",
+      "digest": "4760c35aeb9d9e9c6174c2492562c0b999e80a222804fd96b1915ab72bbcdcf7",
+      "declaredContextWindow": 262144,
+      "structuredOutput": "ollama_json_schema_requested_support_unverified"
+    }
+  ],
+  "fixtures": [
+    {
+      "name": "dialogue",
+      "source": "small",
+      "input": "Hello, Linda.",
+      "initialStateSha256": "9dd689aa3ff2adb2e4adf440120e6991d1988385208100d13cec8ef301a5e9dc",
+      "invariants": [
+        "no_world_effect"
+      ],
+      "knownFailures": [
+        "player_echo"
+      ]
+    },
+    {
+      "name": "two_questions",
+      "source": "dense",
+      "input": "Linda, what happened to the silver compass, and what does the third letter say about it?",
+      "initialStateSha256": "38a187ac4f490477c960541a0b286d6467fd7d50e5b8feb196fee14f226a3c8c",
+      "invariants": [
+        "known_compass_recall",
+        "no_player_move"
+      ],
+      "knownFailures": [
+        "pending_action_requires_check",
+        "incomplete_answer"
+      ]
+    },
+    {
+      "name": "mixed_npc",
+      "source": "dense",
+      "input": "I nod to Linda, ask what happened to the silver compass, and ask her to walk to room_2.",
+      "initialStateSha256": "961dfadb1ba94aae3d4e82a556e2e2402f51a429e70034bf0d2a4290b15fbd39",
+      "invariants": [
+        "known_compass_recall",
+        "no_player_move",
+        "npc_walk_response"
+      ],
+      "knownFailures": [
+        "request_coverage_mismatch",
+        "pending_action_requires_check",
+        "missing_npc_response"
+      ]
+    },
+    {
+      "name": "blocked_chain",
+      "source": "dense",
+      "input": "I open the locked way to room_1, walk into room_1, and give Linda the silver compass.",
+      "initialStateSha256": "09c72241de0e2e751f2f8caee1ad1935140791296f48b6704f43a6ec6e1774bc",
+      "invariants": [
+        "no_player_move",
+        "no_invented_compass"
+      ],
+      "knownFailures": [
+        "unverified_blockage",
+        "dependent_action_executed"
+      ]
+    }
+  ],
+  "results": [
+    {
+      "scenario": "dialogue",
+      "model": "qwen2.5:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 58850,
+              "elapsedMs": 2105,
+              "promptTokens": 4813,
+              "outputTokens": 79,
+              "totalDurationMs": 2100,
+              "outputCharacters": 285,
+              "validation": {
+                "ok": true,
+                "stage": "accepted",
+                "detachedCommitted": true,
+                "actionCount": 1,
+                "playerActionCount": 1,
+                "reactionCount": 0,
+                "verifiedEffects": 0,
+                "verifiedEvents": 0,
+                "eventTypes": [],
+                "outcome": [
+                  [
+                    "ab_dialogue_action_0",
+                    "succeeded"
+                  ]
+                ],
+                "narrative": "Hello there. How can I assist you today?",
+                "qualityStatus": "pass",
+                "qualityFlags": [],
+                "repairs": 0
+              }
+            }
+          ],
+          "firstPassEngineAccepted": true,
+          "firstPassFixtureAccepted": true,
+          "engineAccepted": true,
+          "detachedCommitted": true,
+          "fixtureAccepted": true,
+          "fixtureUnclear": false,
+          "totalInputTokens": 4813,
+          "totalOutputTokens": 79,
+          "totalElapsedMs": 2105
+        }
+      }
+    },
+    {
+      "scenario": "dialogue",
+      "model": "ministral-3:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 58854,
+              "elapsedMs": 126605,
+              "promptTokens": 5535,
+              "outputTokens": 184,
+              "totalDurationMs": 126600,
+              "outputCharacters": 704,
+              "validation": {
+                "ok": true,
+                "stage": "accepted",
+                "detachedCommitted": true,
+                "actionCount": 1,
+                "playerActionCount": 1,
+                "reactionCount": 0,
+                "verifiedEffects": 0,
+                "verifiedEvents": 0,
+                "eventTypes": [],
+                "outcome": [
+                  [
+                    "ab_dialogue_action_0",
+                    "succeeded"
+                  ]
+                ],
+                "narrative": "Linda looks up from the stack of papers on her desk, her fingers pausing mid-sort. The fluorescent light above flickers slightly, casting a pale glow over the office’s worn carpet. She doesn’t smile, but the corners of her mouth twitch—just once—before she sets the papers down with deliberate care. \"Morning,\" she says, voice measured, like she’s weighing each syllable. \"You’re early. Or I’m late. Hard to say which.\" Her gaze flicks to the door, then back to you. \"What brings you here?\"",
+                "qualityStatus": "pass",
+                "qualityFlags": [],
+                "repairs": 0
+              }
+            }
+          ],
+          "firstPassEngineAccepted": true,
+          "firstPassFixtureAccepted": true,
+          "engineAccepted": true,
+          "detachedCommitted": true,
+          "fixtureAccepted": true,
+          "fixtureUnclear": false,
+          "totalInputTokens": 5535,
+          "totalOutputTokens": 184,
+          "totalElapsedMs": 126605
+        }
+      }
+    },
+    {
+      "scenario": "two_questions",
+      "model": "ministral-3:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85807,
+              "elapsedMs": 10913,
+              "promptTokens": 11965,
+              "outputTokens": 397,
+              "totalDurationMs": 10903,
+              "outputCharacters": 1605,
+              "validation": {
+                "ok": true,
+                "stage": "accepted",
+                "detachedCommitted": true,
+                "actionCount": 1,
+                "playerActionCount": 1,
+                "reactionCount": 0,
+                "verifiedEffects": 0,
+                "verifiedEvents": 0,
+                "eventTypes": [],
+                "outcome": [
+                  [
+                    "ab_two_questions_action_0",
+                    "succeeded"
+                  ]
+                ],
+                "narrative": "Linda’s fingers pause mid-motion over the ledger, her pen hovering above the inkwell. The silver compass—*that* one—was never catalogued under the usual sequence. She sets the pen down with deliberate care, the nib clicking against the wooden desk. \"The compass was... *misplaced*,\" she says, her voice measured. \"Not lost. Not stolen. Simply... *not where it should be.*\" Her gaze drifts toward the locked drawer where the earlier letters reside, the one that only opens with the right key—or the right *permission*.\n\n\"As for the third letter—\" She leans forward slightly, the morning light catching the edge of a frayed seal on the desk. \"It speaks of a *test*. Not of the compass itself, but of what it *points to*. The third letter was addressed to someone who never claimed it. It describes a path—one that isn’t on any map we’ve seen. The compass, if it were here, would be the only thing that could *find* it. But it’s not here.\"\n\nShe exhales, the sound like a page turning in slow motion. \"The letters after that... they grow more urgent. The compass is mentioned in passing, as if the sender assumed we’d already have it. Or as if they *knew* we wouldn’t.\" Her fingers tap the desk once, a rhythm that doesn’t match her words. \"Do you have any idea where it might be? Or who might have taken it?\"",
+                "qualityStatus": "unclear",
+                "qualityFlags": [],
+                "repairs": 0
+              }
+            }
+          ],
+          "firstPassEngineAccepted": true,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": true,
+          "detachedCommitted": true,
+          "fixtureAccepted": false,
+          "fixtureUnclear": true,
+          "totalInputTokens": 11965,
+          "totalOutputTokens": 397,
+          "totalElapsedMs": 10913
+        }
+      }
+    },
+    {
+      "scenario": "two_questions",
+      "model": "qwen2.5:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85803,
+              "elapsedMs": 102155,
+              "promptTokens": 10819,
+              "outputTokens": 103,
+              "totalDurationMs": 102147,
+              "outputCharacters": 422,
+              "validation": {
+                "ok": true,
+                "stage": "accepted",
+                "detachedCommitted": true,
+                "actionCount": 1,
+                "playerActionCount": 1,
+                "reactionCount": 0,
+                "verifiedEffects": 0,
+                "verifiedEvents": 0,
+                "eventTypes": [],
+                "outcome": [
+                  [
+                    "ab_two_questions_action_0",
+                    "succeeded"
+                  ]
+                ],
+                "narrative": "The silver compass was catalogued with letter 3. It mentioned the compass was found in a hidden compartment within the old desk in this office. The letter also noted that the compass was to be kept under review.",
+                "qualityStatus": "unclear",
+                "qualityFlags": [],
+                "repairs": 0
+              }
+            }
+          ],
+          "firstPassEngineAccepted": true,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": true,
+          "detachedCommitted": true,
+          "fixtureAccepted": false,
+          "fixtureUnclear": true,
+          "totalInputTokens": 10819,
+          "totalOutputTokens": 103,
+          "totalElapsedMs": 102155
+        }
+      }
+    },
+    {
+      "scenario": "mixed_npc",
+      "model": "qwen2.5:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85802,
+              "elapsedMs": 3386,
+              "promptTokens": 10822,
+              "outputTokens": 139,
+              "totalDurationMs": 3379,
+              "outputCharacters": 555,
+              "validation": {
+                "ok": true,
+                "stage": "accepted",
+                "detachedCommitted": true,
+                "actionCount": 1,
+                "playerActionCount": 1,
+                "reactionCount": 0,
+                "verifiedEffects": 0,
+                "verifiedEvents": 0,
+                "eventTypes": [],
+                "outcome": [
+                  [
+                    "ab_mixed_npc_action_0",
+                    "succeeded"
+                  ]
+                ],
+                "narrative": "The silver compass was catalogued with letter 3. As for its current whereabouts, I'm afraid it's been misplaced. I'll be happy to walk to room_2 with you.",
+                "qualityStatus": "unclear",
+                "qualityFlags": [],
+                "repairs": 0
+              }
+            }
+          ],
+          "firstPassEngineAccepted": true,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": true,
+          "detachedCommitted": true,
+          "fixtureAccepted": false,
+          "fixtureUnclear": true,
+          "totalInputTokens": 10822,
+          "totalOutputTokens": 139,
+          "totalElapsedMs": 3386
+        }
+      }
+    },
+    {
+      "scenario": "mixed_npc",
+      "model": "ministral-3:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85806,
+              "elapsedMs": 114746,
+              "promptTokens": 11968,
+              "outputTokens": 606,
+              "totalDurationMs": 114739,
+              "outputCharacters": 2489,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            },
+            {
+              "requestCharacters": 86114,
+              "elapsedMs": 14616,
+              "promptTokens": 11472,
+              "outputTokens": 521,
+              "totalDurationMs": 14607,
+              "outputCharacters": 2044,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            }
+          ],
+          "firstPassEngineAccepted": false,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": false,
+          "detachedCommitted": false,
+          "fixtureAccepted": false,
+          "fixtureUnclear": false,
+          "totalInputTokens": 23440,
+          "totalOutputTokens": 1127,
+          "totalElapsedMs": 129362
+        }
+      }
+    },
+    {
+      "scenario": "blocked_chain",
+      "model": "ministral-3:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85804,
+              "elapsedMs": 17440,
+              "promptTokens": 11968,
+              "outputTokens": 835,
+              "totalDurationMs": 17431,
+              "outputCharacters": 3357,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            },
+            {
+              "requestCharacters": 86112,
+              "elapsedMs": 11289,
+              "promptTokens": 11472,
+              "outputTokens": 535,
+              "totalDurationMs": 11282,
+              "outputCharacters": 2138,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            }
+          ],
+          "firstPassEngineAccepted": false,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": false,
+          "detachedCommitted": false,
+          "fixtureAccepted": false,
+          "fixtureUnclear": false,
+          "totalInputTokens": 23440,
+          "totalOutputTokens": 1370,
+          "totalElapsedMs": 28729
+        }
+      }
+    },
+    {
+      "scenario": "blocked_chain",
+      "model": "qwen2.5:14b",
+      "settings": {
+        "temperature": 0,
+        "top_p": 1,
+        "seed": 42,
+        "num_ctx": 32768,
+        "num_predict": 1200
+      },
+      "variants": {
+        "current": {
+          "calls": [
+            {
+              "requestCharacters": 85800,
+              "elapsedMs": 113089,
+              "promptTokens": 10822,
+              "outputTokens": 567,
+              "totalDurationMs": 113082,
+              "outputCharacters": 2215,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            },
+            {
+              "requestCharacters": 86108,
+              "elapsedMs": 20576,
+              "promptTokens": 10870,
+              "outputTokens": 648,
+              "totalDurationMs": 20570,
+              "outputCharacters": 2580,
+              "validation": {
+                "ok": false,
+                "stage": "binding",
+                "errors": [
+                  {
+                    "reason": "request_coverage_mismatch",
+                    "detail": "actions"
+                  }
+                ]
+              }
+            }
+          ],
+          "firstPassEngineAccepted": false,
+          "firstPassFixtureAccepted": false,
+          "engineAccepted": false,
+          "detachedCommitted": false,
+          "fixtureAccepted": false,
+          "fixtureUnclear": false,
+          "totalInputTokens": 21692,
+          "totalOutputTokens": 1215,
+          "totalElapsedMs": 133665
+        }
+      }
+    }
+  ],
+  "summary": [
+    {
+      "model": "qwen2.5:14b",
+      "cases": 4,
+      "firstPass": 3,
+      "finalAccepted": 3,
+      "fixturePass": 1,
+      "fixtureUnclear": 2,
+      "repairs": 1,
+      "inputTokens": 48146,
+      "outputTokens": 1536,
+      "elapsedMs": 241311,
+      "causes": [
+        "request_coverage_mismatch"
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "cases": 4,
+      "firstPass": 2,
+      "finalAccepted": 2,
+      "fixturePass": 1,
+      "fixtureUnclear": 1,
+      "repairs": 2,
+      "inputTokens": 64380,
+      "outputTokens": 3078,
+      "elapsedMs": 295609,
+      "causes": [
+        "request_coverage_mismatch"
+      ]
+    }
+  ]
+}

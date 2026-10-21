@@ -30,7 +30,7 @@ const root = path.resolve(__dirname, '..');
             clearInterval(companionAlwaysOnTimer);
             world.model = 'fixture/model';
             world.contextSize = 65536;
-            world.kernel = { enabled: true, sceneDrafts: true, memoryMode: 'ledger' };
+            world.kernel = { enabled: true, sceneDrafts: true, sceneDraftProtocol: 'scene_draft_v2', memoryMode: 'ledger' };
             state.worlds = [world];
             state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };
             state.activeWorldId = world.id;

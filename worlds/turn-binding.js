@@ -30,9 +30,12 @@ function schema(canonical, options = {}) {
         }
         return result;
     };
+    const hasChecks = !!source.actions.items.properties.action_effects.properties?.checks;
     const effects = { anyOf: [source.actions.items.properties.action_effects,
         { type: 'array', maxItems: 0 }],
-        description: 'Only real lasting changes, using the supported typed operations. [] means no change.' };
+        description: hasChecks
+            ? 'Typed changes or exactly one checks entry for a pending_check action. A check must describe a real unresolved risk and use its registered fields; [] means no effect or check.'
+            : 'Only real lasting changes, using the supported typed operations. [] means no change.' };
     const paragraph = shape({ text: { type: 'string', minLength: 1, maxLength: 4000 },
         events: list(withoutLinks(source.events.items)),
         speech: list(withoutLinks(source.speech.items)),
@@ -57,7 +60,7 @@ function schema(canonical, options = {}) {
                 outcome: { type: 'string', enum: ['succeeded', 'failed', 'blocked'] }
             }, ['action_index', 'outcome'])), state_conditions: action.state_conditions
         }, ['kind', 'status', 'response'])),
-        description: 'Responses belong inside their action. No action_id, passage_id or response_id: the server creates all links. Use one action for a dialogue with incidental gestures and questions. Split only independently resolved player actions; their request excerpts must cover the player message in order.' },
+        description: 'Responses belong inside their action. No action_id, passage_id or response_id: the server creates all links. Use one action for a dialogue with incidental gestures and questions. Split only independently resolved player actions; their request excerpts must cover the player message in order without duplicated wording.' },
         reactions: list(shape({ ...paragraph.properties, effects }, ['text']), 16)
     }, ['protocol', 'actions']);
 }
@@ -99,6 +102,51 @@ function validate(value, spec, path = '', errors = []) {
         }
     }
     return errors;
+}
+// Align exact model excerpts with the player text. Overlapping excerpts are
+// safe to partition only when their ordered placement is unique and each
+// action retains its own nonempty part of the request.
+function alignRequests(input, actions) {
+    const candidates = actions.map(action => {
+        const excerpt = String(action.request || '').trim();
+        if (!excerpt) return [];
+        const positions = [];
+        for (let start = input.indexOf(excerpt); start >= 0; start = input.indexOf(excerpt, start + 1))
+            positions.push({ start, end: start + excerpt.length });
+        return positions;
+    });
+    const solutions = [];
+    const visit = (index, placed) => {
+        if (solutions.length > 1) return;
+        if (index === candidates.length) {
+            const coveredEnd = Math.max(...placed.map(match => match.end));
+            if (input.slice(coveredEnd).trim()) return;
+            const spans = placed.map((match, i) => ({ start: match.start,
+                end: i + 1 < placed.length && placed[i + 1].start < match.end
+                    ? placed[i + 1].start : i + 1 === placed.length ? coveredEnd : match.end }));
+            if (spans.every((span, i) => input.slice(span.start, span.end).trim()
+                && (i + 1 === spans.length || placed[i].end >= spans[i + 1].start
+                    || !input.slice(placed[i].end, spans[i + 1].start).trim())
+                && /^[\s\p{P}\p{S}]*$/u.test(input.slice(placed[i].end, span.end))))
+                solutions.push(spans);
+            return;
+        }
+        for (const match of candidates[index]) {
+            const previous = placed.at(-1);
+            if (!previous) {
+                if (input.slice(0, match.start).trim()) continue;
+            } else {
+                if (match.start <= previous.start
+                    || input.slice(Math.max(...placed.map(item => item.end)), match.start).trim()
+                    || match.start < previous.end && /[\p{L}\p{N}]/u.test(input[match.start - 1] || '')
+                        && /[\p{L}\p{N}]/u.test(input[match.start] || '')) continue;
+            }
+            visit(index + 1, [...placed, match]);
+            if (solutions.length > 1) return;
+        }
+    };
+    visit(0, []);
+    return solutions.length === 1 ? solutions[0] : null;
 }
 function bind(proposal, context, canonical) {
     proposal = clone(proposal);
@@ -191,25 +239,14 @@ function bind(proposal, context, canonical) {
         effects: [], response: proposal.actions.flatMap(action => action.response) }];
         repairs.push({ type: 'merge_conversational_actions', detail: `${originalCount} nonmechanical clauses` });
     }
-    const requestSpans = [];
-    let cursor = 0;
-    for (const [index, action] of proposal.actions.entries()) {
-        if (proposal.actions.length === 1) {
-            requestSpans.push({ start: 0, end: context.input.length });
-            break;
-        }
-        while (/\s/u.test(context.input[cursor] || '') && cursor < context.input.length) cursor++;
-        const excerpt = String(action.request || '').trim();
-        if (!excerpt || !context.input.startsWith(excerpt, cursor)) {
-            errors.push({ reason: 'request_coverage_mismatch', detail: `actions.${index}.request` });
-            break;
-        }
-        requestSpans.push({ start: cursor, end: cursor + excerpt.length });
-        cursor += excerpt.length;
-    }
-    if (proposal.actions.length > 1 && context.input.slice(cursor).trim())
-        errors.push({ reason: 'request_coverage_mismatch', detail: 'actions' });
+    const requestSpans = proposal.actions.length === 1
+        ? [{ start: 0, end: context.input.length }]
+        : proposal.actions.length ? alignRequests(context.input, proposal.actions) : [];
+    if (!requestSpans) errors.push({ reason: 'request_coverage_mismatch', detail: 'actions' });
     if (errors.length) return { ok: false, errors };
+    if (proposal.actions.length > 1 && requestSpans.some((span, index) =>
+        String(proposal.actions[index].request).trim() !== context.input.slice(span.start, span.end).trim()))
+        repairs.push({ type: 'partition_overlapping_requests', detail: 'unique ordered excerpts' });
     const draft = { protocol: 'scene_draft_v3', actions: [], narrative: [], events: [],
         effects: {}, speech: [], commitments: [], resolutions: [] };
     const worldActionIds = [], gestureActionIds = [];
@@ -300,10 +337,11 @@ function bind(proposal, context, canonical) {
 }
 // The caller supplies only effects with an Engine verification trace. Schema
 // validity or a successful reducer call alone never grants repair protection.
-function repairLosses(verified, next, canonical, previous = null) {
+function repairLosses(verified, next, canonical, previous = null, input = '') {
     if (!Array.isArray(verified) || !object(next) || !Array.isArray(next.actions)) return [];
     const effects = canonical.properties.actions.items.properties.action_effects.properties;
     const result = [];
+    const spans = input && next.actions.length > 1 ? alignRequests(input, next.actions) : null;
     for (const proof of verified) {
         if (!object(proof) || !['player', 'reaction'].includes(proof.source)
             || !Array.isArray(proof.effects) || !proof.action_id) continue;
@@ -313,8 +351,10 @@ function repairLosses(verified, next, canonical, previous = null) {
         const index = Number(proof.action_id.slice(proof.action_id.lastIndexOf(suffix) + suffix.length));
         if (!Number.isInteger(index) || index < 0) continue;
         const action = next[group]?.[index];
+        const request = spans?.[index] ? input.slice(spans[index].start, spans[index].end)
+            : action?.request;
         const sameSource = object(action) && (proof.source === 'reaction'
-            || !action.request || action.request.trim() === String(proof.request || '').trim());
+            || !request || request.trim() === String(proof.request || '').trim());
         const remaining = normalizedEffects(action?.effects);
         for (const operation of proof.effects) {
             const spec = effects[operation.type];

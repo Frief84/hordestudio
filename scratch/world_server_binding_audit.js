@@ -5,6 +5,7 @@ const path = require('node:path');
 const scene = require('../worlds/scene-draft');
 const binding = require('../worlds/turn-binding');
 const linked = require('../worlds/linked-world-actions');
+const turnContext = require('../worlds/turn-context');
 const workingApi = require('../worlds/working-state');
 const fields = Object.fromEntries(['type', 'actor_id', 'status', 'action', 'item', 'outfit',
     'from_location_id', 'to_location_id', 'activity', 'condition', 'next_status',
@@ -17,6 +18,12 @@ quests_update: { type: 'array', items: { type: 'object', properties: {
     id: { type: 'string' }, title: { type: 'string' } }, additionalProperties: false } },
 time_skip_minutes: { type: 'integer', minimum: 1 } }, 'scene_draft_v3',
 { linkedRequired: true });
+const registeredEffects = canonical.properties.actions.items.properties.action_effects;
+const boundContract = binding.schema(canonical);
+assert.deepEqual(boundContract.properties.actions.items.properties.effects.anyOf[0], registeredEffects);
+assert.deepEqual(boundContract.properties.reactions.items.properties.effects.anyOf[0], registeredEffects);
+assert(!boundContract.properties.actions.items.properties.status.enum.includes('pending_check'),
+    'a World without registered checks cannot propose pending_check');
 const world = { id: 'test', locations: [{ id: 'stone', exits: [{ targetLocationId: 'path' }] },
     { id: 'path', exits: [{ targetLocationId: 'stone' }] }],
 entities: [{ id: 'lorne', type: 'npc', name: 'Lorne' }] };
@@ -56,6 +63,25 @@ He shifts slightly on his sun-warmed stone.
     assert(gestures.executed.ok, JSON.stringify(gestures.executed.errors));
     assert.equal(gestures.bound.draft.events[0].action_id, gestures.bound.draft.actions[0].action_id,
         'events.0.action_id is supplied by the host');
+    const answered = dialogue('Lorne says the map is in the archive.');
+    answered.actions[0].kind = 'question'; answered.actions[0].status = 'answered';
+    const answeredTurn = compile(answered, { input: 'Where is the map?' });
+    assert(answeredTurn.executed.ok);
+    assert.equal(answeredTurn.executed.outcomes.get(answeredTurn.bound.draft.actions[0].action_id), 'succeeded');
+    assert.match(answeredTurn.executed.narrative, /archive/);
+    const deferred = dialogue('Lorne says he does not know where the map is.');
+    deferred.actions[0].kind = 'question'; deferred.actions[0].status = 'needs_clarification';
+    const deferredTurn = compile(deferred, { input: 'Where is the map?' });
+    assert(deferredTurn.executed.ok);
+    assert.equal(deferredTurn.executed.outcomes.get(deferredTurn.bound.draft.actions[0].action_id),
+        'unresolved', 'an unanswered question is not a confirmed answer');
+    const irrelevant = dialogue('The curtains are blue.');
+    irrelevant.actions[0].kind = 'question'; irrelevant.actions[0].status = 'answered';
+    const irrelevantTurn = compile(irrelevant, { input: 'Where is the map?' });
+    assert(irrelevantTurn.executed.ok,
+        'the engine confirms structure and state, not arbitrary free-language relevance');
+    assert(!/map|archive/u.test(irrelevantTurn.executed.narrative),
+        'fixture oracle, unlike structural validation, detects this missing answer');
     const spoken = dialogue('You say: "The bridge is out." Lorne listens.');
     spoken.actions[0].kind = 'speech';
     spoken.actions[0].response[0].speech = [{ speaker: 'player', listeners: ['lorne'] }];
@@ -64,6 +90,17 @@ He shifts slightly on his sun-warmed stone.
     assert(observed.executed.events.some(event => event.type === 'observation'
         && event.actor_id === 'lorne' && event.action_id === observed.bound.draft.actions[0].action_id),
     'derived NPC knowledge is kept in the linked receipt and cannot be treated as neutral');
+    const conflictingEvent = dialogue('Lorne keeps working at the desk.');
+    conflictingEvent.reactions = [{ text: 'Lorne keeps working at the desk.',
+        events: [{ type: 'activity', actor_id: 'lorne', status: 'completed',
+            activity: 'working at the desk', next_status: 'dead' }] }];
+    const conflictingBound = binding.bind(conflictingEvent, context, canonical);
+    assert(conflictingBound.ok, JSON.stringify(conflictingBound.errors));
+    const conflictingCompiled = scene.compile(conflictingBound.draft, { input: context.input,
+        location: 'stone', playerStart: 'stone', present: ['lorne'], locations: ['stone', 'path'],
+        now: 485, commitments: [], linkedRequired: true, contract: canonical });
+    assert(conflictingCompiled.errors.some(error => error.reason === 'event_field_type_conflict'),
+        'a lifecycle change cannot be hidden inside an activity event');
     const droppedObservation = observed.compiled.receipt.events.filter(event => event.type !== 'observation');
     assert(binding.repairEventLosses(observed.executed.verifiedEvents, droppedObservation).length,
         'a verified NPC observation cannot be silently removed from a repair');
@@ -85,6 +122,71 @@ He shifts slightly on his sun-warmed stone.
     const omitted = structuredClone(double); omitted.actions[1].request = 'Third.';
     assert(binding.bind(omitted, { ...context, input: 'First. Second.' }, canonical).errors.some(error =>
         error.reason === 'request_coverage_mismatch'), 'a second player instruction cannot disappear or be replaced');
+    const duplicated = structuredClone(double);
+    duplicated.actions[0].request = 'First. Second.';
+    duplicated.actions[1].request = 'Second.';
+    const partitioned = compile(duplicated, { input: 'First. Second.' });
+    assert.deepEqual(partitioned.bound.draft.actions.map(action => action.request),
+        ['First. ', 'Second.'], 'a uniquely contained suffix is assigned once');
+    duplicated.actions[1].request = 'First. Second.';
+    assert(binding.bind(duplicated, { ...context, input: 'First. Second.' }, canonical).errors.some(error =>
+        error.reason === 'request_coverage_mismatch'),
+    'identical whole-input requests cannot be assigned to distinct actions');
+    const rawInput = 'I nod to Lorne, ask where the map went, and ask him to walk to path.';
+    const rawOverlap = { protocol: 'scene_draft_v3', actions: [
+        { kind: 'speech', status: 'resolved', request: rawInput, effects: [],
+            response: [{ text: 'Lorne says the map went to the archive.' }] },
+        { kind: 'speech', status: 'pending_check', request: 'ask him to walk to path', effects: [],
+            response: [{ text: 'Lorne considers the trip.' }] }
+    ] };
+    assert(binding.bind(rawOverlap, { ...context, input: rawInput }, canonical).errors.some(error =>
+        error.reason === 'invalid_bound_field' && error.detail === 'actions.1.status'));
+    const checkCanonical = scene.schema({ events: { type: 'array', items: { type: 'object',
+        properties: fields, required: ['type', 'actor_id', 'status'] } },
+    checks: { type: 'array', maxItems: 1,
+        items: { type: 'object', properties: { label: { type: 'string' },
+            difficulty: { type: 'integer', minimum: 2, maximum: 30 } },
+        required: ['label', 'difficulty'], additionalProperties: false } } },
+    'scene_draft_v3', { linkedRequired: true });
+    const checkContract = binding.schema(checkCanonical);
+    assert(checkContract.properties.actions.items.properties.status.enum.includes('pending_check'));
+    assert.match(checkContract.properties.actions.items.properties.status.description, /exactly one|one real/u);
+    const rawBound = binding.bind(rawOverlap, { ...context, input: rawInput }, checkCanonical);
+    assert(rawBound.ok, JSON.stringify(rawBound.errors));
+    assert.equal(rawBound.draft.actions[1].request, 'ask him to walk to path.');
+    const rawCompiled = scene.compile(rawBound.draft, { input: rawInput,
+        location: 'stone', playerStart: 'stone', present: ['lorne'],
+        locations: ['stone', 'path'], now: 485, commitments: [],
+        linkedRequired: true, contract: checkCanonical });
+    assert(rawCompiled.errors.some(error => error.reason === 'pending_action_requires_check'),
+        'a model check status without a registered check stays rejected after request repair');
+    const supportedCheck = structuredClone(rawOverlap);
+    supportedCheck.actions[1].effects = { checks: [{ label: 'Uncertain route', difficulty: 11 }] };
+    const checkedBound = binding.bind(supportedCheck, { ...context, input: rawInput }, checkCanonical);
+    assert(checkedBound.ok, JSON.stringify(checkedBound.errors));
+    const checkedCompiled = scene.compile(checkedBound.draft, { input: rawInput,
+        location: 'stone', playerStart: 'stone', present: ['lorne'],
+        locations: ['stone', 'path'], now: 485, commitments: [], effectKeys: ['checks'],
+        linkedRequired: true, contract: checkCanonical });
+    assert(checkedCompiled.ok, JSON.stringify(checkedCompiled.errors));
+    const wrongCheckStatus = structuredClone(supportedCheck);
+    wrongCheckStatus.actions[1].status = 'resolved';
+    const wrongCheckBound = binding.bind(wrongCheckStatus,
+        { ...context, input: rawInput }, checkCanonical);
+    assert(wrongCheckBound.ok);
+    assert(scene.compile(wrongCheckBound.draft, { input: rawInput,
+        location: 'stone', playerStart: 'stone', present: ['lorne'],
+        locations: ['stone', 'path'], now: 485, commitments: [], effectKeys: ['checks'],
+        linkedRequired: true, contract: checkCanonical }).errors.some(error =>
+        error.reason === 'check_requires_pending_action'));
+    const twoQuestions = dialogue('Lorne says the map is in the archive.');
+    twoQuestions.actions[0].kind = 'question';
+    twoQuestions.actions[0].status = 'resolved';
+    twoQuestions.actions[0].response.push({ text: 'He does not know who drew it.' });
+    const questions = compile(twoQuestions, { input: 'Where is the map, and who drew it?' });
+    assert(questions.executed.ok);
+    assert.equal(questions.bound.draft.narrative.length, 2,
+        'distinct answers or explicit deferrals remain in the same conversational action');
     const liftRequest = `Aslan speaks of sick orchards, glances at his short legs, makes a joke and asks Lorne: "Since you're heading to Millbrook anyway, perhaps you wouldn't mind giving an elderly toad a lift? I promise to be excellent company."`;
     const lift = { protocol: 'scene_draft_v3', actions: [
         { kind: 'speech', status: 'resolved', request: 'Aslan speaks of sick orchards', effects: [],
@@ -136,6 +238,23 @@ He shifts slightly on his sun-warmed stone.
     assert.equal(moved.session.entityStates.lorne.location, 'stone', 'no canonical mutation before commit');
     assert.equal(moved.executed.verifiedEffects[0].source, 'reaction',
         'an autonomous NPC action has a world provenance without player authorization');
+    assert(moved.executed.confirmedEffects.some(effect => effect.source === 'reaction'
+        && effect.type === 'actor_move' && effect.result === 'changed'
+        && effect.event_indices.some(index => moved.executed.events[index]?.type === 'movement')));
+    const departure = structuredClone(autonomous);
+    departure.reactions[0].text = 'Lorne sets off toward the path.';
+    departure.reactions[0].effects.actor_move[0].mode = 'journey';
+    departure.reactions[0].events[0].type = 'activity';
+    departure.reactions[0].events[0].activity = 'travelling';
+    delete departure.reactions[0].events[0].from_location_id;
+    const boundDeparture = binding.bind(departure, context, canonical);
+    assert(boundDeparture.ok, JSON.stringify(boundDeparture.errors));
+    const compiledDeparture = scene.compile(boundDeparture.draft, {
+        input: context.input, location: 'stone', playerStart: 'stone',
+        present: ['lorne'], locations: ['stone', 'path'], now: 485,
+        commitments: [], linkedRequired: true, contract: canonical });
+    assert(compiledDeparture.ok, JSON.stringify(compiledDeparture.errors));
+    assert.equal(compiledDeparture.linkedPlan.actions[1].action_effects.actor_move[0].mode, 'journey');
     const missingNpcEvent = structuredClone(autonomous);
     delete missingNpcEvent.reactions[0].events;
     const missingWitness = compile(missingNpcEvent);
@@ -162,16 +281,21 @@ He shifts slightly on his sun-warmed stone.
         events: [{ type: 'relationship', actor_id: 'lorne', target_id: 'other',
             status: 'completed', change: 5 }] }];
     const contradictory = compile(falseRelation);
-    assert.equal(contradictory.executed.errors[0].reason, 'unwitnessed_world_effect');
+    assert.equal(contradictory.executed.errors[0].reason, 'unwitnessed_relation_effect');
     assert.deepEqual(contradictory.executed.verifiedEffects, [],
         'an executable reducer with a contradictory event never gains repair protection');
     assert.deepEqual(contradictory.session.npcRelationships, {},
         'the detached relation change is rolled back');
     const matchedRelation = structuredClone(falseRelation);
     matchedRelation.reactions[0].events[0].target_id = 'player';
+    matchedRelation.reactions[0].events[0].change = 50;
     const related = compile(matchedRelation);
     assert(related.executed.ok, JSON.stringify(related.executed.errors));
     assert.equal(related.executed.verifiedEffects[0].source, 'reaction');
+    const wrongMagnitude = structuredClone(matchedRelation);
+    wrongMagnitude.reactions[0].events[0].change = 5;
+    assert.equal(compile(wrongMagnitude).executed.errors[0].reason,
+        'unwitnessed_relation_effect', 'the event must match the actual absolute score change');
     const emptyNpc = dialogue(); emptyNpc.reactions = [{ text: 'Lorne smiles.', effects: [] }];
     assert(compile(emptyNpc).executed.ok, 'an autonomous NPC reaction needs no invented effect');
     const unrequested = dialogue(); unrequested.reactions = [{ text: 'You decide to leave.',
@@ -187,11 +311,22 @@ He shifts slightly on his sun-warmed stone.
     assert(dressed.executed.ok, JSON.stringify(dressed.executed.errors));
     assert.equal(dressed.executed.working.prepare().session.outfit, 'red cloak');
     assert.equal(dressed.executed.verifiedEffects.length, 1);
+    assert(dressed.executed.confirmedEffects.some(effect => effect.type === 'outfit_set'
+        && effect.payload.outfit === 'red cloak' && effect.result === 'changed'
+        && effect.event_indices.some(index => dressed.executed.events[index]?.type === 'outfit')));
     const unchangedOutfit = compile(changed, { input: 'I put on the cloak.',
         session: { ...structuredClone(initial), outfit: 'red cloak' } });
     assert(unchangedOutfit.executed.ok);
     assert.deepEqual(unchangedOutfit.executed.verifiedEffects, [],
         'a reducer write with no actual persistent result grants no repair protection');
+    assert(unchangedOutfit.executed.confirmedEffects.some(effect => effect.type === 'outfit_set'
+        && effect.result === 'no_change'), 'executed no-ops remain visible without claiming a state change');
+    const noChangeMemory = turnContext.sceneMemory({
+        action_results: [...unchangedOutfit.executed.outcomes].map(([action_id, outcome]) =>
+            ({ action_id, outcome })), confirmed_effects: unchangedOutfit.executed.confirmedEffects,
+        events: unchangedOutfit.executed.events, speech_attributions: [] }, 'no_change', 'stone', 1);
+    assert(noChangeMemory.records.some(record => record.kind === 'effect'
+        && record.result === 'no_change'));
     const mixedInput = 'I put on the cloak. I nod.';
     const mixedTurn = { protocol: 'scene_draft_v3', actions: [
         { ...structuredClone(changed.actions[0]), request: 'I put on the cloak.' },
@@ -200,10 +335,38 @@ He shifts slightly on his sun-warmed stone.
     ], reactions: [{ text: 'Lorne tries to leave.',
         effects: { actor_move: [{ actor_id: 'lorne', to_location_id: 'path' }] } }] };
     const mixedFailure = compile(mixedTurn, { input: mixedInput });
+    const overlapping = structuredClone(mixedTurn);
+    overlapping.actions[0].request = 'I put on the cloak. I';
+    overlapping.reactions[0].effects = [];
+    const aligned = compile(overlapping, { input: mixedInput });
+    assert(aligned.executed.ok, JSON.stringify(aligned.executed.errors));
+    assert.deepEqual(aligned.bound.draft.actions.slice(0, 2).map(action => action.request),
+        ['I put on the cloak. ', 'I nod.']);
+    assert.equal(aligned.executed.verifiedEffects.length, 1,
+        'unique request partition preserves the independent outfit effect');
+    assert.equal(aligned.bound.binding.worldActionIds.length, 1,
+        'independent NPC reaction survives request normalization');
+    assert(aligned.bound.binding.repairs.some(repair => repair.type === 'partition_overlapping_requests'));
+    assert.deepEqual(binding.repairLosses(aligned.executed.verifiedEffects, overlapping,
+        canonical, null, mixedInput), [],
+    'an overlap repair keeps its verified effect under the same unique request partition');
+    const dependentOverlap = structuredClone(overlapping);
+    dependentOverlap.actions[1].depends_on = [{ action_index: 0, outcome: 'succeeded' }];
+    const dependent = compile(dependentOverlap, { input: mixedInput });
+    assert(dependent.executed.ok);
+    assert.deepEqual(dependent.bound.draft.actions[1].depends_on,
+        [{ action_id: 'turn_stable_action_0', outcome: 'succeeded' }],
+    'normalization retains dependencies');
+    const missingPart = structuredClone(overlapping);
+    missingPart.actions[1].request = 'I smile.';
+    assert(binding.bind(missingPart, { ...context, input: mixedInput }, canonical).errors.some(error =>
+        error.reason === 'request_coverage_mismatch'));
     assert.equal(mixedFailure.executed.ok, false);
     assert.equal(mixedFailure.executed.errors[0].reason, 'unwitnessed_world_effect');
     assert.equal(mixedFailure.executed.verifiedEffects.length, 1,
         'only the earlier player action has a verified chain');
+    assert.deepEqual(mixedFailure.executed.confirmedEffects, [],
+        'a rejected transaction exposes no committed effect trace');
     const mixedRepair = structuredClone(mixedTurn);
     mixedRepair.reactions[0].effects = [];
     assert.deepEqual(binding.repairLosses(mixedFailure.executed.verifiedEffects,
@@ -236,6 +399,8 @@ He shifts slightly on his sun-warmed stone.
     assert.equal(skippedDependency.outcomes.get('second'), 'skipped');
     assert.deepEqual(skippedDependency.verifiedEffects, [],
         'an effect behind a failed dependency was never executed or protected');
+    assert.deepEqual(skippedDependency.confirmedEffects, [],
+        'an effect behind a failed dependency cannot enter the confirmed trace');
     const waited = dialogue('Ten minutes pass.'); waited.actions[0].kind = 'wait';
     waited.actions[0].effects = { time_skip_minutes: 10 };
     const boundWait = compile(waited, { input: 'I wait ten minutes.' });

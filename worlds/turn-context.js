@@ -103,6 +103,40 @@ function recentHistory(options) {
 // to reinterpret state. Records live on the originating take, not in a second
 // mutable archive, so rerolls/deletion cannot leave orphaned canon behind.
 function sceneMemory(draft, receiptId, location, turn) {
+    if (Array.isArray(draft?.action_results) && Array.isArray(draft?.confirmed_effects)) {
+        const outcomes = new Map(draft.action_results.map(item => [item.action_id, item.outcome]));
+        const records = [];
+        const events = Array.isArray(draft.events) ? draft.events : [];
+        events.forEach((event, eventIndex) => {
+            if (event?.status !== 'completed' || outcomes.get(event.action_id) !== 'succeeded') return;
+            const text = String(event.type === 'observation'
+                ? event.observation || event.evidence || '' : event.evidence || '').trim();
+            if (!text) return;
+            const witnesses = event.type === 'observation' ? [event.actor_id]
+                : Array.isArray(event.witnessed_by) ? event.witnessed_by : [];
+            records.push({ kind: event.source_type === 'told' ? 'testimony' : 'event',
+                actor: event.actor_id, text: text.slice(0, 700), actionId: event.action_id,
+                eventIndex, witnesses, effects: draft.confirmed_effects.filter(effect =>
+                    effect.result === 'changed' && effect.event_indices.includes(eventIndex))
+                    .map(effect => effect.type) });
+        });
+        for (const speech of draft.speech_attributions || []) if (speech?.speaker
+            && outcomes.get(speech.action_id) !== 'skipped')
+            records.push({ kind: 'testimony', actor: speech.speaker,
+                listeners: speech.listeners, text: String(speech.statement).slice(0, 700),
+                actionId: speech.action_id, passageId: speech.passage_id });
+        for (const effect of draft.confirmed_effects) if (outcomes.get(effect?.action_id) === 'succeeded')
+            records.push({ kind: 'effect', actor: effect.payload?.actor_id
+                || effect.payload?.subject_id || '', actionId: effect.action_id,
+                eventIndices: effect.event_indices, witnesses: effect.event_indices.flatMap(index =>
+                    Array.isArray(events[index]?.witnessed_by) ? events[index].witnessed_by : []),
+                result: effect.result,
+                text: JSON.stringify({ type: effect.type, payload: effect.payload,
+                    result: effect.result }).slice(0, 700) });
+        const unique = [...new Map(records.map(record =>
+            [`${record.kind}:${record.actionId || ''}:${record.actor || ''}:${record.text}`, record])).values()];
+        return { receiptId, location, turn, records: unique };
+    }
     const records = [];
     for (const event of draft.receipt.events || []) {
         if (event.status !== 'completed' || !event.evidence) continue;

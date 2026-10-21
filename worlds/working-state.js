@@ -267,7 +267,7 @@ function assertDirtyCoverage(world, session, candidate) {
                 && dirty.has('time'))
             && !(['scheduledEvents', 'worldEvents', 'eventLog', 'engineEvents', 'turnEvents'].includes(field)
                 && dirty.has('event'))
-            && !(['relationships', 'factionRelations', 'npcRelationships'].includes(field)
+            && !(['relationships', 'factionRelations', 'npcRelationships', 'factions'].includes(field)
                 && dirty.has('relation')))
             throw new Error(`untracked_session_diff:${field}`);
     }

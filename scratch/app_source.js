@@ -317,6 +317,7 @@ function resolveDependencies(seeds, options = {}) {
  * so a test can reach a helper it never named without the suite listing it.
  */
 function buildContext(vm, seeds, context = {}, options = {}) {
+    context.HordeWorldTime ||= require('../worlds/world-time.js');
     context.HordeHumanPackage ||= require('../human-package.js');
     context.Blob ||= Blob;
     context.crypto ||= require('node:crypto').webcrypto;

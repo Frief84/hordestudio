@@ -51,7 +51,7 @@ test('complete Aslan dialogue: an unsupported relationship effect is not committ
     assert(result.bound.ok, JSON.stringify(result.bound.errors));
     assert.equal(result.bound.draft.actions[0].request, aslanInput);
     assert.equal(result.executed.ok, false);
-    assert.equal(result.executed.errors[0].reason, 'unwitnessed_action_effect');
+    assert.equal(result.executed.errors[0].reason, 'unwitnessed_relation_effect');
     assert.deepEqual(result.session.npcRelationships, {});
     const repaired = structuredClone(draft);
     repaired.actions[0].effects = [];
@@ -64,7 +64,7 @@ test('the same unsupported effect is rejected even when labelled speech', () => 
         { relation_set: [{ subject_id: 'lorne', target_id: 'aslan', value: 50 }] })]), aslanInput);
     assert(result.bound.ok, JSON.stringify(result.bound.errors));
     assert.equal(result.executed.ok, false);
-    assert.equal(result.executed.errors[0].reason, 'unwitnessed_action_effect');
+    assert.equal(result.executed.errors[0].reason, 'unwitnessed_relation_effect');
 });
 
 test('a gesture label cannot discard a witnessed player outfit change', () => {

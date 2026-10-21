@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { chromium, launchOptions } = require('./browser_runtime').browserRuntime();
+const receiptNarration = require('../worlds/receipt-narration');
 const root = path.resolve(__dirname, '..');
 (async () => {
     const browser = await chromium.launch(launchOptions);
@@ -51,6 +52,8 @@ const root = path.resolve(__dirname, '..');
             state.activeWorldId = world.id;
             const sess = prepareCurrentWorldSession(); sess.setupComplete = true;
             sess.entityStates.lorne = { ...sess.entityStates.lorne, location: 'stone' };
+            sess.placeDiscoveries ||= {};
+            sess.placeDiscoveries.lorne = ['path']; // the authored reaction uses a known adjacent place
             switchView('worldPlay'); renderWorldPlayState();
             const realFetch = window.fetch;
             const outcomes = [];
@@ -59,7 +62,8 @@ const root = path.resolve(__dirname, '..');
             const run = async (input, proposals, finishes = [], failSave = false, streamMode = 'single') => {
                 const before = { history: sess.history.length, turn: sess.turnCount,
                     version: sess.worldStateVersion || 0, outfit: sess.outfit,
-                    time: getWorldTimeData(world, sess).currentTotalMinutes };
+                    time: getWorldTimeData(world, sess).currentTotalMinutes,
+                    receipts: sess.worldTurnReceipts?.length || 0 };
                 let calls = 0;
                 const budgets = [];
                 window.fetch = async (url, options = {}) => {
@@ -94,12 +98,16 @@ const root = path.resolve(__dirname, '..');
                 const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.find(item => item.id === sess.id);
                 const after = { history: sess.history.length, turn: sess.turnCount,
                     version: sess.worldStateVersion || 0, outfit: sess.outfit,
-                    time: getWorldTimeData(world, sess).currentTotalMinutes };
+                    time: getWorldTimeData(world, sess).currentTotalMinutes,
+                    receipts: sess.worldTurnReceipts?.length || 0 };
                 return { calls, budgets, before, after, saved: saved && { history: saved.history.length,
-                    turn: saved.turnCount, outfit: saved.outfit, time: saved.worldClock?.absoluteMinutes },
+                    turn: saved.turnCount, outfit: saved.outfit, time: saved.worldClock?.absoluteMinutes,
+                    receipts: saved.worldTurnReceipts?.length || 0 },
                     input: document.getElementById('world-user-input').value,
                     error: document.getElementById('world-turn-error-text')?.textContent,
-                    receipt: sess.worldTurnReceipts?.at(-1), reply: sess.history.at(-1)?.text };
+                    receipt: sess.worldTurnReceipts?.at(-1), reply: sess.history.at(-1)?.text,
+                    sceneMemory: sess.history.at(-1)?.sceneMemory,
+                    savedSceneMemory: saved?.history?.at(-1)?.sceneMemory };
             };
             const aslan = `Aslan slowly raises his head, his faintly glowing golden eyes settling on the traveller.
 "How observant. And here I was, hoping to pass for a particularly handsome pebble."
@@ -163,6 +171,7 @@ He shifts slightly on his sun-warmed stone.
                             location_id: 'stone', status: 'scheduled', source_quote: 'if that succeeds, I put on the cloak.' }] }] }
             ] };
             outcomes.push(await run('I try to read the inscription; if that succeeds, I put on the cloak.', [conditional]));
+            const failedFixture = { world: structuredClone(world), session: structuredClone(sess) };
             outcomes.push(await run('What do you see?', [say('A warm breeze stirs the leaves.')],
                 [], false, 'cumulative'));
             outcomes.push(await run('Can you answer?', [say('"'), say('Lorne considers the question and answers plainly.') ]));
@@ -204,9 +213,19 @@ He gives a soft, amused croak.
             const spokenWarning = say('You say: "The bridge is out." Aslan listens.');
             spokenWarning.actions[0].response[0].speech = [{ speaker: 'player', listeners: ['aslan'] }];
             outcomes.push(await run('"The bridge is out."', [spokenWarning]));
+            const speakers = say('Aslan says the path is clear.');
+            speakers.actions[0].response[0].speech = [{ speaker: 'aslan', listeners: ['player'] }];
+            speakers.actions[0].response.push({ text: 'You say you will follow.',
+                speech: [{ speaker: 'player', listeners: ['aslan'] }] });
+            speakers.actions[0].response.push({ text: 'The leaves settle.' });
+            outcomes.push(await run('I ask Aslan about the path.', [speakers]));
             window.fetch = realFetch;
             return { outcomes, npcLocation: sess.entityStates.lorne.location,
-                scheduled: sess.scheduledEvents, history: sess.history.map(message => message.text) };
+                scheduled: sess.scheduledEvents, history: sess.history.map(message => message.text),
+                aslanObservations: sess.entityStates.aslan.observations,
+                lorneObservations: sess.entityStates.lorne.observations,
+                failedFixture,
+                finalFixture: { world: structuredClone(world), session: structuredClone(sess) } };
         });
         assert.deepEqual(errors, [], JSON.stringify(errors));
         for (const [index, turn] of result.outcomes.entries()) {
@@ -218,23 +237,45 @@ He gives a soft, amused croak.
                 continue;
             }
             assert.equal(turn.after.history, turn.before.history + 2, JSON.stringify({ index, turn, logs }));
+            assert.equal(turn.after.receipts, turn.before.receipts + 1);
+            assert.equal(turn.saved.receipts, turn.after.receipts);
             assert.equal(turn.saved.history, turn.after.history);
             assert.equal(turn.saved.time, turn.after.time);
             assert.equal(turn.after.time, turn.before.time + (index === 9 ? 10 : 5));
             assert.equal(turn.receipt.receipt.clock.absolute_minutes, turn.after.time);
             assert(turn.receipt.audit.binding.turnId);
+            assert.equal(turn.sceneMemory.receiptId, turn.receipt.receipt.turn_id);
+            assert.deepEqual(turn.savedSceneMemory, turn.sceneMemory);
         }
         assert.equal(result.outcomes[0].calls, 1);
+        const outfitTurn = result.outcomes[4];
+        assert.equal(outfitTurn.receipt.audit.actions[0].outcome, 'succeeded');
+        assert(outfitTurn.receipt.receipt.events.some(event => event.type === 'outfit'
+            && event.actor_id === 'player' && event.outfit === 'red cloak'
+            && event.action_id === outfitTurn.receipt.audit.actions[0].action_id));
+        assert(outfitTurn.receipt.receipt.confirmed_effects.some(effect => effect.type === 'outfit_set'
+            && effect.result === 'changed' && effect.payload.outfit === 'red cloak'
+            && effect.event_indices.some(index => outfitTurn.receipt.receipt.events[index]?.type === 'outfit')));
+        assert(outfitTurn.sceneMemory.records.some(record => record.kind === 'effect'
+            && record.text.includes('red cloak')));
+        assert.equal(outfitTurn.reply, outfitTurn.receipt.receipt.passages.map(passage => passage.text).join('\n\n'),
+            'the published narration must match the committed linked passages');
+        const autonomousTurn = result.outcomes[3];
+        assert(autonomousTurn.receipt.receipt.events.some(event => event.type === 'movement'
+            && event.actor_id === 'lorne' && event.to_location_id === 'path'
+            && autonomousTurn.receipt.audit.actions.some(action => action.action_id === event.action_id
+                && action.outcome === 'succeeded')),
+        'the independent NPC movement needs its own committed action and event');
         assert.equal(result.outcomes[14].calls, 2,
             'an isolated quote must be repaired before the turn is saved');
         assert(!result.history.includes('"'), 'an isolated quote must not be saved as a reply');
-        assert.equal(result.outcomes.at(-4).calls, 1,
+        assert.equal(result.outcomes.at(-5).calls, 1,
             'a segmented conversation needs no model reconciliation call');
-        assert(result.outcomes.at(-4).receipt.audit.binding.repairs.some(item =>
+        assert(result.outcomes.at(-5).receipt.audit.binding.repairs.some(item =>
             item.type === 'merge_conversational_actions'));
-        assert.equal(result.outcomes.at(-3).calls, 1,
+        assert.equal(result.outcomes.at(-4).calls, 1,
             'an unsupported optional deadline needs no model reconciliation call');
-        assert(result.outcomes.at(-3).receipt.audit.binding.repairs.some(item =>
+        assert(result.outcomes.at(-4).receipt.audit.binding.repairs.some(item =>
             item.type === 'discard_unsupported_new_commitment'));
         assert.equal(result.outcomes[5].calls, 3, JSON.stringify(result.outcomes[5]));
         assert.equal(result.outcomes[5].after.outfit, 'blue coat');
@@ -249,14 +290,94 @@ He gives a soft, amused croak.
         assert.equal(result.outcomes[12].after.outfit, 'blue coat');
         assert(!result.history.some(text => text.includes('Lorne arrives with a black cloak')));
         assert.deepEqual(result.outcomes[12].receipt.audit.actions.map(action => action.outcome), ['failed', 'skipped']);
-        assert.equal(result.outcomes.at(-2).calls, 2,
+        assert.deepEqual(result.outcomes[12].receipt.receipt.confirmed_effects, []);
+        assert(!result.outcomes[12].sceneMemory.records.some(record => record.kind === 'effect'));
+        assert(!result.outcomes[12].receipt.receipt.passages.some(passage =>
+            passage.text.includes('Lorne arrives with a black cloak')),
+        'a skipped dependent action must have no published receipt passage');
+        assert.equal(result.outcomes.at(-3).calls, 2,
             'an unsupported effect on a narrative gesture is removed by repair');
-        assert(result.outcomes.at(-1).receipt.receipt.events.some(event =>
+        assert(result.outcomes.at(-2).receipt.receipt.events.some(event =>
             event.type === 'observation' && event.actor_id === 'aslan'),
         'derived NPC knowledge must reach the persisted linked receipt');
-        assert.equal(bindingCalls, 26, 'every repaired draft is bound and checked again');
+        const finalReceipt = result.outcomes.at(-1).receipt.receipt;
+        assert.deepEqual(finalReceipt.passage_speakers.map(item => item.speaker_id),
+            ['aslan', 'player', null]);
+        assert.deepEqual(finalReceipt.speech_attributions.map(item => item.speaker),
+            ['aslan', 'player']);
+        assert(result.aslanObservations.some(item => item.text === 'You say you will follow.'));
+        assert(!result.lorneObservations.some(item => item.text === 'Aslan says the path is clear.'));
+        assert(!result.lorneObservations.some(item => item.text === 'The leaves settle.'),
+            'unattributed narration must not become personal NPC knowledge');
+        const failedProjection = receiptNarration.project(result.failedFixture.world,
+            result.failedFixture.session);
+        assert(failedProjection.ok, JSON.stringify(failedProjection));
+        assert.deepEqual(failedProjection.input.unconfirmed.map(item => item.outcome),
+            ['failed', 'skipped']);
+        assert.deepEqual(failedProjection.input.confirmed, []);
+        const finalProjection = receiptNarration.project(result.finalFixture.world,
+            result.finalFixture.session);
+        assert(finalProjection.ok, JSON.stringify(finalProjection));
+        assert.deepEqual(finalProjection.input.dialogue.map(item => item.speaker),
+            ['aslan', 'player']);
+        assert.equal(finalProjection.input.narrativeDetails.at(-1).speaker, null);
+        assert(finalProjection.input.npcPerspectives.some(item => item.id === 'aslan'
+            && item.memories.some(memory => memory.text === 'You say you will follow.')));
+        assert(!finalProjection.input.npcPerspectives.some(item => item.id === 'lorne'));
+        assert.equal(result.outcomes.at(-1).reply, finalProjection.input.narrativeDetails
+            .map(item => item.text).join('\n\n'));
+        assert(Object.isFrozen(finalProjection.input)
+            && Object.isFrozen(finalProjection.input.confirmed));
+        const staleFixture = structuredClone(result.finalFixture);
+        staleFixture.session.worldStateVersion++;
+        assert.equal(receiptNarration.project(staleFixture.world, staleFixture.session).reason,
+            'stale_or_uncommitted_receipt');
+        const missingMemory = structuredClone(result.finalFixture);
+        delete missingMemory.session.history.at(-1).sceneMemory;
+        assert.equal(receiptNarration.project(missingMemory.world, missingMemory.session).reason,
+            'matching_scene_memory_required');
+        const wrongSpeaker = structuredClone(result.finalFixture);
+        wrongSpeaker.session.worldTurnReceipts.at(-1).receipt.passage_speakers[0].speaker_id = 'lorne';
+        assert.equal(receiptNarration.project(wrongSpeaker.world, wrongSpeaker.session).reason,
+            'speaker_evidence_mismatch');
+        const inventedEffect = structuredClone(result.finalFixture);
+        inventedEffect.session.worldTurnReceipts.at(-1).receipt.confirmed_effects.push({
+            action_id: 'unexecuted', type: 'outfit_set', payload: { outfit: 'invented' },
+            result: 'changed', event_indices: [] });
+        assert.equal(receiptNarration.project(inventedEffect.world, inventedEffect.session).reason,
+            'effect_trace_mismatch');
+        const separateKnowledge = structuredClone(result.finalFixture);
+        separateKnowledge.session.entityStates.lorne.location = 'stone';
+        separateKnowledge.session.entityStates.lorne.observations = [{
+            text: 'Lorne alone knows the cellar code.', sourceType: 'witnessed', visibility: 'private' }];
+        const knowledgeProjection = receiptNarration.project(separateKnowledge.world,
+            separateKnowledge.session);
+        assert(knowledgeProjection.ok);
+        assert(knowledgeProjection.input.npcPerspectives.find(item => item.id === 'lorne')
+            .memories.some(item => item.text.includes('cellar code')));
+        assert(!knowledgeProjection.input.npcPerspectives.find(item => item.id === 'aslan')
+            .memories.some(item => item.text.includes('cellar code')));
+        if (process.env.HORDE_NARRATION_CAPTURE) fs.writeFileSync(process.env.HORDE_NARRATION_CAPTURE,
+            JSON.stringify({ cases: [
+                { name: 'blocked_chain', baseline: result.outcomes[12].reply,
+                    combinedCalls: result.outcomes[12].calls,
+                    world: result.failedFixture.world, session: result.failedFixture.session },
+                { name: 'multi_speaker', baseline: result.outcomes.at(-1).reply,
+                    combinedCalls: result.outcomes.at(-1).calls,
+                    world: result.finalFixture.world, session: result.finalFixture.session }
+            ] }));
+        assert.equal(bindingCalls, 27, 'every repaired draft is bound and checked again');
         await page.reload();
         await page.waitForFunction(() => state.worldInstances?.bound_test?.sessions?.some(session => session.outfit === 'blue coat'));
-        console.log('PASS browser: server binding worker, Aslan/Lorne, dialogue/gestures, autonomous movement, effect preservation, two truncation retries, exact clock, atomic storage failure and reload');
+        const reloaded = await page.evaluate(() => {
+            const session = state.worldInstances.bound_test.sessions.find(item => item.outfit === 'blue coat');
+            return { receipt: session.worldTurnReceipts?.at(-1)?.receipt,
+                sceneMemory: session.history.at(-1)?.sceneMemory,
+                aslanObservations: session.entityStates.aslan.observations };
+        });
+        assert.deepEqual(reloaded.receipt, finalReceipt);
+        assert.deepEqual(reloaded.sceneMemory, result.outcomes.at(-1).sceneMemory);
+        assert(reloaded.aslanObservations.some(item => item.text === 'You say you will follow.'));
+        console.log('PASS browser: bound receipts, effect trace, speaker evidence, scoped NPC memory, rollback and reload');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -50,4 +50,24 @@ assert(selectedSources.matrix.includes('[LOCAL MEMORY]: A distinct witness said 
 assert.equal(ctx.historySources('', '', 'Older memory format').matrix, 'Older memory format');
 assert.equal(ctx.sourceLinkedRecall(''), '');
 assert(ctx.sourceLinkedRecall('{"sourceMessageId":"old"}').includes('sourceMessageId'));
+if (process.env.HORDE_CONTEXT_PROFILE === '1') {
+    const { performance } = require('node:perf_hooks');
+    for (const length of [40, 1000]) {
+        const entries = Array.from({ length }, (_, index) => ({
+            id: `scene_${index}`, role: 'dm', location: index % 2 ? 'hall' : 'cellar',
+            sceneMemory: { receiptId: `receipt_${index}`, turn: index, records: [{
+                kind: 'event', actor: 'keeper', witnesses: ['keeper'],
+                text: `The keeper filed silver compass record ${index}.`
+            }] }
+        }));
+        const began = performance.now(), cpu = process.cpuUsage();
+        for (let iteration = 0; iteration < 100; iteration++)
+            ctx.recall(entries, 'silver compass', 'hall', 4500, [], { actorIds: ['keeper'] });
+        const spent = process.cpuUsage(cpu);
+        console.log('RECALL_PROFILE', JSON.stringify({ historyLength: length, calls: 100,
+            wallMs: Math.round(performance.now() - began),
+            cpuMs: Math.round((spent.user + spent.system) / 1000),
+            heapUsedBytes: process.memoryUsage().heapUsed }));
+    }
+}
 console.log('PASS context selection, testimony provenance, source deletion and budget');

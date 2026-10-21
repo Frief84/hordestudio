@@ -70,8 +70,8 @@ const hierarchy = {
         { id: 'room', name: 'Private Room', parentLocationId: 'house', exits: [] }
     ], entities: []
 };
-assert.equal(worldContext.findWorldTravelPath(hierarchy, 'house', 'room').join(','), 'house,room');
-record('Containment creates traversable access without any authored exit', 'house -> room');
+assert.equal(worldContext.findWorldTravelPath(hierarchy, 'house', 'room'), null);
+record('Containment alone cannot bypass an authored exit', 'house and room remain disconnected');
 
 const scheduleWorld = {
     id: 'w', startLocationId: 'a',

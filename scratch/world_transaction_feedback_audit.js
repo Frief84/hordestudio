@@ -7,6 +7,7 @@ const reducer = functionSource('processStructuredActions');
 const receipt = functionSource('commitWorldTurnReceipt');
 const turn = functionSource('executeWorldTurn');
 const agent = functionSource('runWorldAgent');
+const agentProposals = functionSource('applyWorldAgentProposals');
 
 assert.match(receipt, /deferFeedback: context\.deferFeedback === true/);
 assert.match(turn, /\{ \.\.\.candidateContext, deferFeedback: true \}/);
@@ -16,7 +17,10 @@ assert(transactionIndex >= 0 && feedbackIndex > transactionIndex,
     'only an accepted transaction may expose pending feedback, including after summary-only salvage');
 assert.match(turn, /const saved = await saveWorldsState\(options\);\s*if \(pendingWorldActionFeedback\)/);
 assert.match(turn, /pendingWorldActionFeedback = null;[\s\S]*?const rollbackSnapshot/);
-assert.match(agent, /processStructuredActions\(actions, world, sess, \{ deferFeedback: true \}\)/);
+assert.match(agentProposals, /processStructuredActions\(actionArgs, world, sess, \{\s*deferFeedback: true/);
+assert.match(agent, /await saveWorldsState\(\{ worldId: world\.id \}\);\s*attempt\.commit\(\);/);
+assert.match(agent, /attempt\.rollback\(\);\s*throw error;/);
+assert.match(agent, /flushWorldActionFeedback\(\{ feedback: attempt\.result\.feedback \}\)/);
 assert.equal((reducer.match(/showToast\(/g) || []).length, 1,
     'the reducer may only invoke showToast in its immediate-feedback adapter');
 assert.equal((reducer.match(/renderWorld(?:Locations|Entities)\(/g) || []).length, 2,

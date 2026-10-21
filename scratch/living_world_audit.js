@@ -713,6 +713,132 @@ test('a mid-turn clock jump fires clock-due events without re-advancing the turn
     assert.equal(context.runLivingWorldTick(world, sess).advanced, false);
 });
 
+test('background clock steps match explicit clock steps and preserve turn-only work', () => {
+    setModules();
+    const worldTime = require('../worlds/world-time.js');
+    require('../worlds/background-sim.js');
+    const sim = globalThis.HordeBackgroundSim;
+    const world = makeWorld({ settings: { timeAdvancesWhenAway: true },
+        hudConfig: { timeStep: 5, startTimeHours: 8, enableSchedules: true } });
+    world.entities[0].goal = 'tend the fire';
+    const sess = makeSession(world, {
+        settings: { timeAdvancesWhenAway: true }, lastBackgroundSeenAt: 1000000,
+        scheduledEvents: [
+            { id: 'once', title: 'Arrival', description: 'A courier arrives.', dueMinute: 600 },
+            { id: 'hourly', title: 'Bell', description: 'A bell rings.', dueMinute: 540,
+                repeatEveryMinutes: 60, factionId: 'f1', influenceChange: 1 },
+            { id: 'turn_only', title: 'Patrol', description: 'Patrol passes.', dueTurn: 2,
+                repeatEveryTurns: 2 }
+        ],
+        factions: [{ id: 'f1', name: 'Guild', influence: 50 }]
+    });
+    sess.entityStates.npc_1.location = 'loc_c';
+    context.normalizeLivingWorldState(world, sess);
+    context.runLivingWorldTick(world, sess);
+    const base = JSON.parse(JSON.stringify(sess));
+    const explicit = JSON.parse(JSON.stringify(base));
+    const factionBefore = base.factions[0].influence;
+    const goalBefore = base.entityStates.npc_1.goalProgress;
+    for (let step = 0; step < 3; step++) {
+        worldTime.advanceMinutes(world, explicit, 60);
+        context.runLivingWorldTick(world, explicit, { clockOnly: true });
+        context.syncNPCSchedules(world, explicit);
+    }
+    const background = sim.catchUp(world, base, 2800000, false, (w, s) => {
+        context.runLivingWorldTick(w, s, { clockOnly: true });
+        context.syncNPCSchedules(w, s);
+        return [];
+    });
+    assert.equal(background.ticks, 3);
+    const project = s => ({
+        minute: context.getWorldTimeData(world, s).currentTotalMinutes,
+        turn: s.turnCount, lastTick: s.lastLivingWorldTick,
+        goal: s.entityStates.npc_1.goalProgress,
+        influence: s.factions[0].influence,
+        events: s.scheduledEvents.map(event => ({ id: event.id, status: event.status,
+            dueTurn: event.dueTurn, dueMinute: event.dueMinute, lastTriggeredTurn: event.lastTriggeredTurn })),
+        news: s.worldNews.map(item => item.id), queued: s.engineEvents,
+        activityEvents: s.livingWorldActivity.events
+    });
+    assert.deepEqual(project(background.session), project(explicit));
+    assert.equal(background.session.turnCount, 1);
+    assert.equal(background.session.lastLivingWorldTick, 1);
+    assert.equal(background.session.entityStates.npc_1.goalProgress, goalBefore);
+    assert.equal(background.session.factions[0].influence, factionBefore + 3);
+    assert.equal(background.session.scheduledEvents.find(event => event.id === 'hourly').dueMinute, 720);
+    assert.equal(background.session.scheduledEvents.find(event => event.id === 'once').status, 'triggered');
+    assert.equal(background.session.scheduledEvents.find(event => event.id === 'turn_only').status, 'scheduled');
+    assert.equal(context.runLivingWorldTick(world, background.session, { clockOnly: true }).advanced, false);
+    assert.deepEqual(project(background.session), project(explicit));
+    for (const next of [background.session, explicit]) {
+        next.turnCount++;
+        assert.equal(context.runLivingWorldTick(world, next).events, 1);
+    }
+    assert.deepEqual(project(background.session), project(explicit));
+    assert.equal(background.session.scheduledEvents.find(event => event.id === 'turn_only').dueTurn, 4);
+});
+
+test('one large explicit skip keeps the existing repeat-from-observation rule', () => {
+    setModules();
+    const world = makeWorld();
+    const sess = makeSession(world, { scheduledEvents: [{ id: 'bell', title: 'Bell',
+        description: 'The bell rings.', dueMinute: 540, repeatEveryMinutes: 60 }] });
+    context.normalizeLivingWorldState(world, sess);
+    context.runLivingWorldTick(world, sess);
+    sess.bonusTimeMinutes += 180;
+    const skipped = context.runLivingWorldTick(world, sess);
+    assert.equal(skipped.events, 1);
+    assert.equal(skipped.clockCatchUpOnly, true);
+    assert.equal(sess.scheduledEvents[0].dueMinute, 720);
+    assert.equal(context.runLivingWorldTick(world, sess).advanced, false);
+});
+
+test('a clock-due route closure blocks the same NPC schedule in a turn and background', () => {
+    setModules();
+    const worldTime = require('../worlds/world-time.js');
+    const world = makeWorld({ hudConfig: { timeStep: 60, startTimeHours: 8, enableSchedules: true } });
+    world.entities[0].schedule = [{ time: '09:00', locationId: 'loc_b', activity: 'working' }];
+    const start = makeSession(world, { scheduledEvents: [{ id: 'close', title: 'Closure',
+        description: 'The entrance closes.', dueMinute: 540,
+        locationId: 'loc_b', conditionOnTrigger: 'impassable' }] });
+    context.normalizeLivingWorldState(world, start);
+    context.getWorldTimeData(world, start);
+    start.lastLivingWorldMinute = 480;
+    start.lastLivingWorldTick = 1;
+    const turn = JSON.parse(JSON.stringify(start));
+    turn.turnCount = 2;
+    context.syncNPCSchedules(world, turn);
+    context.runLivingWorldTick(world, turn);
+    const background = JSON.parse(JSON.stringify(start));
+    worldTime.advanceMinutes(world, background, 60);
+    context.runLivingWorldTick(world, background, { clockOnly: true });
+    context.syncNPCSchedules(world, background);
+    assert.equal(turn.scheduledEvents[0].status, 'triggered');
+    assert.equal(background.scheduledEvents[0].status, 'triggered');
+    assert.equal(turn.entityStates.npc_1.location, background.entityStates.npc_1.location);
+    assert.equal(turn.entityStates.npc_1.journey || null, null);
+});
+
+test('a paused clock waits for an explicit advance before triggering minute-due events', () => {
+    setModules();
+    const world = makeWorld({ hudConfig: { timeStep: 0, startTimeHours: 8, enableSchedules: true } });
+    const sess = makeSession(world, {
+        scheduledEvents: [{ id: 'paused_due', title: 'Signal',
+            description: 'A bell sounds.', dueMinute: 510 }]
+    });
+    context.normalizeLivingWorldState(world, sess);
+    assert.equal(tickTurn(world, sess, 1).events, 0);
+    assert.equal(tickTurn(world, sess, 2).events, 0);
+    assert.equal(context.getWorldTimeData(world, sess).currentTotalMinutes, 480);
+    assert.equal(sess.scheduledEvents[0].status, 'scheduled');
+    sess.bonusTimeMinutes += 30;
+    const jumped = context.runLivingWorldTick(world, sess);
+    assert.equal(jumped.events, 1);
+    assert.equal(jumped.clockCatchUpOnly, true);
+    assert.equal(sess.scheduledEvents[0].status, 'triggered');
+    assert.equal(context.getWorldTimeData(world, sess).currentTotalMinutes, 510);
+});
+
 test('out-of-range times are rejected from world templates, not just overrides', () => {
     setModules();
     const world = makeWorld({ hudConfig: { timeStep: 10, startTimeHours: 3, enableSchedules: true } });
@@ -1557,7 +1683,7 @@ test('a standing the DM declares is mutual, as it is everywhere else', () => {
     // both sides; the tool call was the odd one out.
     const handler = functionSource('processStructuredActions');
     const block = handler.slice(handler.indexOf('Array.isArray(update.relations)'));
-    assert(/adjustFactionRelation\(sess, faction, target/.test(block.slice(0, 900)),
+    assert(/adjustFactionRelation\(sess, faction, target/.test(block),
         'a declared standing is still written to only one side');
 
     // And the helper it now uses really is symmetric.

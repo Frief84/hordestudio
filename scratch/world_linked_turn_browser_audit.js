@@ -1,6 +1,7 @@
 /** Browser-level linked V3 turn: model transport, commit gate and reload. */
 'use strict';
 const assert = require('node:assert/strict');
+const receiptNarration = require('../worlds/receipt-narration');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium, launchOptions } = require('./browser_runtime').browserRuntime();
@@ -107,6 +108,13 @@ const root = path.resolve(__dirname, '..');
                 beforeCommit: firstBeforeCommit, firstState,
                 outfit: sess.outfit, savedOutfit: saved?.outfit,
                 savedAfterFailure: savedAfterFailure?.outfit,
+                receipt: sess.worldTurnReceipts?.at(-1)?.receipt,
+                savedReceipt: saved?.worldTurnReceipts?.at(-1)?.receipt,
+                savedReceiptAfterFailure: savedAfterFailure?.worldTurnReceipts?.at(-1)?.receipt,
+                sceneMemory: sess.history.at(-1)?.sceneMemory,
+                savedSceneMemory: saved?.history?.at(-1)?.sceneMemory,
+                savedSceneMemoryAfterFailure: savedAfterFailure?.history?.at(-1)?.sceneMemory,
+                legacyFixture: { world: structuredClone(world), session: structuredClone(saved) },
                 historyBeforeFailure, historyAfterFailure: sess.history.length,
                 leakedNarrative: visibleAfterFailure.includes('You put on the violet cloak.'),
                 history: sess.history.map(message => ({ role: message.role, text: message.text })),
@@ -124,6 +132,19 @@ const root = path.resolve(__dirname, '..');
         assert.equal(result.outfit, 'red coat', JSON.stringify({ result, logs }));
         assert.equal(result.savedOutfit, 'red coat', JSON.stringify(result));
         assert.equal(result.savedAfterFailure, 'red coat', JSON.stringify(result));
+        assert.deepEqual(result.receipt, result.savedReceipt);
+        assert.deepEqual(result.savedReceiptAfterFailure, result.savedReceipt);
+        assert.deepEqual(result.sceneMemory, result.savedSceneMemory);
+        assert.deepEqual(result.savedSceneMemoryAfterFailure, result.savedSceneMemory);
+        const legacyProjection = receiptNarration.project(result.legacyFixture.world,
+            result.legacyFixture.session);
+        assert(legacyProjection.ok, JSON.stringify(legacyProjection));
+        assert(legacyProjection.input.confirmed.some(action => action.effects.some(effect =>
+            effect.type === 'outfit_set' && effect.payload.outfit === 'red coat')));
+        assert(result.receipt.confirmed_effects.some(effect => effect.type === 'outfit_set'
+            && effect.result === 'changed' && effect.payload.outfit === 'red coat'));
+        assert(result.sceneMemory.records.some(record => record.kind === 'effect'
+            && record.text.includes('red coat')));
         assert.equal(result.historyAfterFailure, result.historyBeforeFailure, JSON.stringify(result));
         assert.equal(result.leakedNarrative, false, JSON.stringify(result));
         assert(result.history.some(message => message.role === 'dm'
@@ -136,6 +157,13 @@ const root = path.resolve(__dirname, '..');
         await page.reload();
         await page.waitForFunction(() => state.worldInstances?.linked_fixture?.sessions
             ?.some(session => session.outfit === 'red coat'));
+        const reloaded = await page.evaluate(() => {
+            const session = state.worldInstances.linked_fixture.sessions.find(item => item.outfit === 'red coat');
+            return { receipt: session.worldTurnReceipts?.at(-1)?.receipt,
+                sceneMemory: session.history.at(-1)?.sceneMemory };
+        });
+        assert.deepEqual(reloaded.receipt, result.savedReceipt);
+        assert.deepEqual(reloaded.sceneMemory, result.savedSceneMemory);
         const continued = await page.evaluate(async () => {
             clearInterval(companionAgencyTimer);
             clearInterval(companionAlwaysOnTimer);
@@ -471,6 +499,44 @@ const root = path.resolve(__dirname, '..');
             assert.equal(item.history, interrupted.historyBefore, JSON.stringify(interrupted));
             assert.equal(item.input, 'I ask Aslan for a story.', JSON.stringify(interrupted));
         }
-        console.log('PASS linked V3 turn, rollback, reload, compound actions, Aslan dialogue and interrupted provider responses');
+        const invalidStat = await page.evaluate(async () => {
+            clearInterval(companionAgencyTimer);
+            clearInterval(companionAlwaysOnTimer);
+            state.apiKey = 'offline';
+            state.globalSettings.apiProvider = 'local';
+            state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
+            state.activeWorldId = 'linked_fixture';
+            const world = state.worlds.find(item => item.id === 'linked_fixture');
+            world.hudConfig.stats = [{ id: 'energy', name: 'Energy', value: 10, min: 0, max: 100 }];
+            const sess = getCurrentWorldSession();
+            const direct = processStructuredActions({ stat_changes: { energy: 2000000000 } },
+                world, structuredClone(sess), { deferFeedback: true });
+            const before = sess.history.length;
+            const realFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                const draft = { protocol: 'scene_draft_v3',
+                    narrative: [{ id: 'p_bad', action_id: 'bad_stat', text: 'Your energy surges.' }],
+                    actions: [{ action_id: 'bad_stat', kind: 'other', status: 'resolved',
+                        request: 'I focus.', response_id: 'p_bad',
+                        action_effects: { stat_changes: { energy: 2000000000 } } }],
+                    events: [], effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{
+                    delta: { content: JSON.stringify(draft) }, finish_reason: 'stop'
+                }] })}\n\ndata: [DONE]\n\n`,
+                { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value = 'I focus.';
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            return { directReason: direct.statResult?.rejected?.[0]?.reason,
+                committed: sess.history.length > before,
+                falseSuccess: sess.history.some(message => message.role === 'dm'
+                    && message.text?.includes('Your energy surges.')) };
+        });
+        assert.equal(invalidStat.directReason, 'invalid_amount', JSON.stringify(invalidStat));
+        assert.equal(invalidStat.committed, false, JSON.stringify(invalidStat));
+        assert.equal(invalidStat.falseSuccess, false, JSON.stringify(invalidStat));
+        console.log('PASS linked V3 receipt, scene memory, rollback, reload, compound actions and interrupted responses');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

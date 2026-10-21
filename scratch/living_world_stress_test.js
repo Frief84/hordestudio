@@ -3,6 +3,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 const { performance } = require('node:perf_hooks');
+const HordeEffectRegistry = require('../worlds/effect-registry');
 
 const appPath = path.join(__dirname, '..', 'app.js');
 const source = fs.readFileSync(appPath, 'utf8');
@@ -14,6 +15,7 @@ assert(helperStart >= 0 && helperEnd > helperStart, 'Living-world helper block n
 assert(actionsStart >= 0 && actionsEnd > actionsStart, 'Structured-action block not found');
 
 const context = {
+    HordeEffectRegistry,
     console: { log() {}, warn() {}, error: console.error },
     Math,
     Date,
@@ -414,7 +416,9 @@ function json(value) {
             autonomy: 'high',
             deadline_in_turns: 8
         }]
-    });
+    }, world, sess, { relationshipEvents: [{ type: 'relationship', status: 'completed',
+        actor_id: 'npc_0', target_id: 'npc_1', change: -25,
+        cause: 'They competed for the same post.' }] });
     assert.equal(sess.questEvaluationPasses, 1, 'Structured actions must finish with one quest evaluation pass');
     assert.equal(sess.factions.length, 2);
     assert.equal(sess.locationStates.loc_0.controlFactionId, 'guild');
@@ -450,6 +454,64 @@ function json(value) {
     });
     assert.equal(sess.npcScheduleOverrides.npc_0.length, 2,
         'same-time routines on different days must not overwrite one another');
+}
+
+// The exact-limit fixture uses the real resolver; earlier focused cases keep
+// their established lightweight stubs.
+const stressProfile = process.env.HORDE_STRESS_PROFILE === '1';
+const stressTimes = { references: 0, referenceMs: 0, normalizations: 0, normalizeMs: 0 };
+const resolverStart = source.indexOf('function getLocationRef(world, ref)');
+const resolverEnd = source.indexOf('function getWorldTimeData(world, sess)', resolverStart);
+assert(resolverStart >= 0 && resolverEnd > resolverStart);
+vm.runInContext(source.slice(resolverStart, resolverEnd), context);
+{
+    const world = makeWorld(4, 1), sess = makeSession(world);
+    world.locations[1].name = 'Shared';
+    world.locations[2].name = 'Shared';
+    world.locations[3].name = 'loc_0';
+    sess.scheduledEvents = [
+        { id: 'by_id', title: 'ID', locationId: 'loc_0' },
+        { id: 'ambiguous', title: 'Ambiguous', locationId: 'Shared' }
+    ];
+    context.normalizeLivingWorldState(world, sess);
+    assert.equal(sess.scheduledEvents[0].locationId, 'loc_0', 'ID wins over a matching name');
+    assert.equal(sess.scheduledEvents[1].locationId, null, 'ambiguous names do not bind');
+    world.locations[2].name = 'New place';
+    sess.scheduledEvents[1].locationId = 'New place';
+    context.normalizeLivingWorldState(world, sess);
+    assert.equal(sess.scheduledEvents[1].locationId, 'loc_2', 'edited Worlds rebuild the lookup');
+}
+if (stressProfile) {
+    const resolve = context.getLocationRef;
+    context.getLocationRef = (...args) => {
+        const began = performance.now();
+        const result = resolve(...args);
+        stressTimes.references++;
+        stressTimes.referenceMs += performance.now() - began;
+        return result;
+    };
+    const normalize = context.normalizeLivingWorldState;
+    context.normalizeLivingWorldState = (...args) => {
+        const began = performance.now();
+        const result = normalize(...args);
+        stressTimes.normalizations++;
+        stressTimes.normalizeMs += performance.now() - began;
+        return result;
+    };
+    const world = makeWorld(4, 8), sess = makeSession(world);
+    const began = performance.now();
+    const cpu = process.cpuUsage();
+    context.normalizeLivingWorldState(world, sess);
+    for (let turn = 1; turn <= 120; turn++) {
+        sess.turnCount = turn;
+        context.runLivingWorldTick(world, sess);
+    }
+    console.log('STRESS_PROFILE', JSON.stringify({ size: 'small',
+        elapsedMs: Math.round(performance.now() - began),
+        cpuMs: Math.round((({ user, system }) => (user + system) / 1000)(process.cpuUsage(cpu))),
+        heapUsedBytes: process.memoryUsage().heapUsed,
+        ...stressTimes }));
+    Object.keys(stressTimes).forEach(key => { stressTimes[key] = 0; });
 }
 
 // Exact documented world limits: 2,000 locations, 5,000 NPCs, 500 events.
@@ -491,6 +553,7 @@ function json(value) {
         };
     }
     const start = performance.now();
+    const cpu = process.cpuUsage();
     context.normalizeLivingWorldState(world, sess);
     for (let turn = 1; turn <= 120; turn++) {
         sess.turnCount = turn;
@@ -500,7 +563,15 @@ function json(value) {
     assert.equal(sess.lastLivingWorldTick, 120);
     assert.equal(sess.scheduledEvents.length, 500);
     assert.equal(sess.factions.length, 200);
-    assert(elapsedMs < 15000, `Exact-limit simulation took too long: ${elapsedMs.toFixed(0)}ms`);
+    if (stressProfile) console.log('STRESS_PROFILE', JSON.stringify({ size: 'limit',
+        elapsedMs: Math.round(elapsedMs),
+        cpuMs: Math.round((({ user, system }) => (user + system) / 1000)(process.cpuUsage(cpu))),
+        heapUsedBytes: process.memoryUsage().heapUsed,
+        ...stressTimes }));
+    // This now exercises the full ID/name ambiguity checks. The former stub
+    // benchmark used a cheaper first-match lookup, so retain a bounded 20 s
+    // guard for the actual resolver across noisy desktop CI hosts.
+    assert(elapsedMs < 20000, `Exact-limit simulation took too long: ${elapsedMs.toFixed(0)}ms`);
     console.log(`PASS exact-limit stress: 2,000 locations, 5,000 NPCs, 500 events, 200 factions, 120 turns in ${elapsedMs.toFixed(0)}ms`);
 }
 
