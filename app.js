@@ -11731,9 +11731,12 @@ function recordWorldTurnCommit(world, sess, validation, actionResult, source = '
     sess.turnEvents = sess.turnEvents.slice(-1200);
     if (!Array.isArray(sess.playerKnownEvents)) sess.playerKnownEvents = [];
     committedEvents.forEach(event => {
+        // The V2 observation was already written by processStructuredActions
+        // with its told/believed provenance. Do not re-record it as witnessed.
+        if (event.type === 'observation') return;
         const fact = String(event.evidence || event.cause || validation.receipt.summary || '').trim();
         if (!fact) return;
-        event.witnessed_by.forEach(witnessId => {
+        HordeWorldTurnContext.eventAudience(event).forEach(witnessId => {
             if (witnessId === 'player') {
                 if (!sess.playerKnownEvents.includes(event.id)) sess.playerKnownEvents.push(event.id);
                 return;
@@ -33390,6 +33393,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     const prepared = working.prepare();
                     const committedPassages = compiled.linkedPlan.narrative.filter(passage =>
                         linked.outcomes.get(passage.action_id) !== 'skipped');
+                    const confirmedEvents = linked.events.map(event => ({ ...event,
+                        evidence: event.evidence || committedPassages.find(passage =>
+                            passage.id === event.passage_id
+                            && passage.action_id === event.action_id)?.text || '' }));
                     const committedSpeech = compiled.speech.flatMap((speech, index) => {
                         const link = compiled.linkedPlan.speech[index];
                         if (link && linked.outcomes.get(link.action_id) === 'skipped') return [];
@@ -33406,7 +33413,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         scene: { player_location_id: prepared.session.playerLocation,
                             player_location_changed: prepared.session.playerLocation !== receiptPlayerStart,
                             present_character_ids: buildWorldSceneFrame(prepared.world, prepared.session)
-                                .present_character_ids }, events: linked.events,
+                                .present_character_ids }, events: confirmedEvents,
                         action_results: [...linked.outcomes].map(([action_id, outcome]) =>
                             ({ action_id, outcome })),
                         confirmed_effects: linked.confirmedEffects,
@@ -33457,6 +33464,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     working.writeSession('worldTurnReceipts', field => {
                         field.value = [...(field.value || []), { receipt, audit }].slice(-120);
                     });
+                    const receiptEventId = receipt.turn_id || `${canonicalSess.id}_${nextVersion}`;
                     working.applyDetached((candidateWorld, candidateSession) => {
                         const witnesses = [];
                         const message = addWorldMessage('dm', linked.narrative, {
@@ -33471,24 +33479,46 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                                 calls: turnCallDetails.slice(0, 20) },
                             isReroll, deferPersist: true, deferEmbedding: true
                         }, candidateSession, candidateWorld);
-                        linked.events.forEach((event, index) => {
+                        const livingWorldEnabled = normalizeWorldGameRules(candidateWorld).modules.livingWorld;
+                        confirmedEvents.forEach((event, index) => {
                             if (event.status !== 'completed'
                                 || linked.outcomes.get(event.action_id) !== 'succeeded') return;
                             const fact = String(event.type === 'observation'
                                 ? event.observation || event.evidence || '' : event.evidence || '').trim();
                             if (!fact) return;
-                            const recipients = event.type === 'observation' ? [event.actor_id]
-                                : Array.isArray(event.witnessed_by) ? event.witnessed_by : [];
-                            for (const npcId of new Set(recipients)) if (npcId !== 'player')
-                                addNpcKnowledge(candidateWorld, candidateSession, npcId, {
-                                    id: `obs_${receipt.turn_id}_${index}_${npcId}`,
-                                    eventId: `${receipt.turn_id}_${index}`,
-                                    text: fact, sourceType: event.source_type === 'told' ? 'told' : 'witnessed',
+                            const recipients = HordeWorldTurnContext.eventAudience(event);
+                            const informedNpcs = [];
+                            for (const npcId of recipients) if (npcId !== 'player') {
+                                const knowledge = addNpcKnowledge(candidateWorld, candidateSession, npcId, {
+                                    id: `obs_${receiptEventId}_${index}_${npcId}`,
+                                    eventId: `${receiptEventId}_${index}`,
+                                    text: fact, sourceType: event.source_type || 'witnessed',
                                     sourceNpcId: event.source_npc_id || '',
-                                    confidence: event.source_type === 'told' ? 0.72 : 1,
-                                    visibility: 'private', turn: candidateSession.turnCount,
+                                    confidence: event.confidence,
+                                    allowedToShare: event.allowed_to_share !== false,
+                                    visibility: event.visibility === 'public' ? 'public' : 'private',
+                                    turn: candidateSession.turnCount,
                                     absoluteMinute: candidateSession.worldClock?.absoluteMinutes || 0
                                 });
+                                if (knowledge) informedNpcs.push(npcId);
+                            }
+                            // Only confirmed, shareable events enter the existing
+                            // world-news circulation. Testimony and beliefs remain personal
+                            // knowledge rather than becoming objective world facts.
+                            if (livingWorldEnabled
+                                && HordeWorldTurnContext.circulatesAsWorldFact(event)) {
+                                const knownBy = informedNpcs;
+                                if (knownBy.length) {
+                                    const news = addWorldNews(candidateSession, fact, {
+                                        id: `${receiptEventId}_${index}`,
+                                        locationId: candidateSession.entityStates?.[event.actor_id]?.location
+                                            || candidateSession.playerLocation,
+                                        type: event.type, playerVisible: false,
+                                        playerWitnessed: recipients.includes('player'), knownBy
+                                    });
+                                    news.knownBy = [...new Set([...(news.knownBy || []), ...knownBy])].slice(0, 40);
+                                }
+                            }
                         });
                         if (message) {
                             message.versionSnapshots = Array.isArray(message.versionSnapshots)
@@ -40622,7 +40652,12 @@ function buildWorldAgentDigest(world, sess) {
         .map(([id, s]) => `- ${locName(id)} [${id}]: danger ${s.danger}, prosperity ${s.prosperity}${(s.conditions || []).length ? `, ${s.conditions.map(c => c.label).join('/')}` : ''}`);
     if (notable.length) lines.push(`LOCATION STATES:\n${notable.join('\n')}`);
 
-    const news = (sess.worldNews || []).slice(-12).map(item => `- ${item.text}`);
+    const news = (sess.worldNews || []).slice(-12).map(item => {
+        const audience = item.knownBy == null ? 'common talk (legacy)'
+            : Array.isArray(item.knownBy) && item.knownBy.length
+                ? `known by ${item.knownBy.join(', ')}` : 'not known by any NPC';
+        return `- ${item.text} [${audience}]`;
+    });
     if (news.length) lines.push(`RECENT DEVELOPMENTS:\n${news.join('\n')}`);
 
     const acted = (sess.history || []).filter(m => m.role === 'user').slice(-5).map(m => `- ${String(m.text || '').slice(0, 160)}`);
@@ -40789,6 +40824,7 @@ async function runWorldAgent(world, sess) {
 
 Your job is CONSEQUENCE and MOMENTUM, not spectacle:
 - Advance what is already in motion. Every development must follow from an existing agenda, faction, tension, or recent event in the digest.
+- An NPC may react to a recent event only if its listed knowledge includes that NPC, or the event reaches them through confirmed later transmission. Do not turn a private fact into common knowledge.
 - Prefer the small and concrete over the world-shaking: a debt called in, a door found open, a rumour reaching the wrong ear, a routine quietly changed.
 - Let consequences land off-screen. People react to what has happened; they do not wait politely for the player.
 - Do not repeat anything under ALREADY SCHEDULED.

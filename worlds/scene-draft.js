@@ -26,7 +26,12 @@ function closeDeclaredObjectFields(node) {
 function stripDescriptions(node) {
     if (!node || typeof node !== 'object') return;
     delete node.description;
-    Object.values(node).forEach(stripDescriptions);
+    for (const [key, value] of Object.entries(node)) {
+        // properties is a map of field names, not itself a schema node.
+        // A field named "description" must remain part of the contract.
+        if (key === 'properties' && object(value)) Object.values(value).forEach(stripDescriptions);
+        else stripDescriptions(value);
+    }
 }
 function rejectUnknownFields(value, spec, path, fail) {
     if (!spec || typeof spec !== 'object') return;

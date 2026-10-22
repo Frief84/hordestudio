@@ -174,12 +174,14 @@ function createEffectRegistry() {
     };
     const run = (initial, workingState, context = {}) => {
         if (!Array.isArray(initial) || initial.length > 32) throw new Error('invalid_effect_queue');
-        const queue = initial.map(effect => ({ effect, ancestry: [] }));
+        const queue = initial.map(effect => ({ effect, ancestry: [], parentIndex: null }));
         const applied = [];
         const changes = [];
+        const parents = [];
+        const seenFollowUps = new Set();
         let followUps = 0;
         while (queue.length) {
-            const { effect, ancestry } = queue.shift();
+            const { effect, ancestry, parentIndex } = queue.shift();
             const entry = reducers.get(effect?.type);
             if (!entry) throw capabilityError('unknown_technical_effect', {
                 effect: String(effect?.type || ''), protocol: context.protocol,
@@ -197,6 +199,11 @@ function createEffectRegistry() {
                     cause: 'Payload does not match the registry schema.' });
             const signature = JSON.stringify(effect);
             if (ancestry.includes(signature)) throw new Error('cyclic_follow_up_effect');
+            if (parentIndex !== null) {
+                const followUpKey = JSON.stringify([parentIndex, signature]);
+                if (seenFollowUps.has(followUpKey)) throw new Error('duplicate_follow_up_effect');
+                seenFollowUps.add(followUpKey);
+            }
             if (!entry.validate(effect.payload, workingState, context))
                 throw new Error(`invalid_technical_effect:${effect.type}`);
             const before = workingState.prepare();
@@ -204,6 +211,7 @@ function createEffectRegistry() {
             const emitted = entry.reduce(effect.payload, workingState, context) || [];
             if (!Array.isArray(emitted)) throw new Error(`invalid_follow_up_effects:${effect.type}`);
             applied.push(effect);
+            parents.push(parentIndex);
             const after = workingState.prepare();
             changes.push(JSON.stringify(before.world) !== JSON.stringify(after.world)
                 || JSON.stringify(before.session) !== JSON.stringify(after.session)
@@ -211,10 +219,11 @@ function createEffectRegistry() {
             for (const next of emitted) {
                 followUps++;
                 if (followUps > MAX_FOLLOW_UP_EFFECTS) throw new Error('follow_up_effect_budget_exceeded');
-                queue.push({ effect: next, ancestry: [...ancestry, signature] });
+                queue.push({ effect: next, ancestry: [...ancestry, signature],
+                    parentIndex: applied.length - 1 });
             }
         }
-        return { applied, changes, followUps };
+        return { applied, changes, parents, followUps };
     };
     return { register, run, has: type => reducers.has(type), types: () => [...reducers.keys()] };
 }

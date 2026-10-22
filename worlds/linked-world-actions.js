@@ -390,7 +390,14 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         && typeof value?.type === 'string' && typeof value?.description === 'string',
     (value, working, context) => {
         working.writeEvent('engineEvents', field => { field.value ||= []; field.value.push(copy(value)); });
-        return typeof context.onEvent === 'function' ? context.onEvent(value, working) : [];
+        if (typeof context.onEvent !== 'function') return [];
+        const beforeHook = working.prepare();
+        const emitted = context.onEvent(value, working);
+        const afterHook = working.prepare();
+        if (JSON.stringify(beforeHook.world) !== JSON.stringify(afterHook.world)
+            || JSON.stringify(beforeHook.session) !== JSON.stringify(afterHook.session))
+            throw new Error('untracked_event_hook_mutation');
+        return emitted;
     });
     registerNative('time_advance', value => Number.isInteger(value?.minutes)
         && value.minutes > 0 && value.minutes <= 10080, (value, working, context) => {
@@ -440,6 +447,10 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
     const working = context.workingState || workingApi.createWorkingState(world, session);
+    // Authored consequences are optional World definition data. Keep generated
+    // proof events local until the same Working State transaction commits.
+    const authoredRules = world?.eventRules;
+    if (authoredRules !== undefined) plan = { ...plan, events: copy(plan.events || []) };
     const capability = context.capability || registryApi.capabilities({
         protocol: 'scene_draft_v3', executionMode: 'linked',
         legacySchemas: Object.fromEntries((context.legacyEffectKeys || []).map(key =>
@@ -455,6 +466,56 @@ function executeLinkedActions(plan, world, session, context = {}) {
     const verifiedEffects = [];
     const verifiedEvents = [];
     const confirmedEffects = [];
+    const generatedProofIds = new Set();
+    const firedRules = new Set();
+    const ruleCauses = new Set();
+    const eventMatchKeys = new Set(['type', 'actor_id', 'target_id', 'condition',
+        'action', 'from_location_id', 'to_location_id', 'item', 'outfit', 'next_status']);
+    const eventBinding = value => value && typeof value === 'object'
+        && !Array.isArray(value) && Object.keys(value).length === 1
+        && eventMatchKeys.has(value.event_field);
+    const ruleValue = value => value !== null && ['string', 'number', 'boolean'].includes(typeof value)
+        || eventBinding(value);
+    const resolveRuleFields = (fields, cause) => Object.fromEntries(Object.entries(fields)
+        .map(([key, value]) => {
+            if (!eventBinding(value)) return [key, copy(value)];
+            const resolved = cause[value.event_field];
+            if (typeof resolved !== 'string' || !resolved)
+                throw new Error('invalid_event_rule_binding');
+            return [key, resolved];
+        }));
+    const validRule = rule => safeId(rule?.id) && rule.on
+        && typeof rule.on === 'object' && !Array.isArray(rule.on)
+        && Object.keys(rule.on).length > 1
+        && typeof rule.on.type === 'string'
+        && Object.entries(rule.on).every(([key, value]) => eventMatchKeys.has(key)
+            && typeof value === 'string' && !!value)
+        && Array.isArray(rule.when) && rule.when.length <= 8
+        && rule.when.every(item => item && facts.names().includes(item.fact)
+            && safeId(item.subject_id) && ['equals', 'not_equals', 'exists'].includes(item.operator)
+            && (item.operator === 'exists' || typeof item.value === 'string')
+            && (item.fact !== 'relation' || safeId(item.target_id)))
+        && registryApi.technicalEffects.has(rule.effect?.type)
+        && rule.effect.type !== 'event_emit'
+        && rule.effect.payload && typeof rule.effect.payload === 'object'
+        && !Array.isArray(rule.effect.payload)
+        && Object.values(rule.effect.payload).every(ruleValue)
+        && rule.result_event && typeof rule.result_event === 'object'
+        && !Array.isArray(rule.result_event)
+        && typeof rule.result_event.type === 'string'
+        && (safeId(rule.result_event.actor_id) || eventBinding(rule.result_event.actor_id))
+        && !['id', 'action_id', 'status', 'passage_id', 'evidence', 'cause', 'observation']
+            .some(key => own(rule.result_event, key))
+        && Object.keys(rule.result_event).every(key => eventMatchKeys.has(key))
+        && Object.values(rule.result_event).every(ruleValue);
+    if (authoredRules !== undefined && (!Array.isArray(authoredRules)
+        || authoredRules.length > 16 || authoredRules.some(rule => !validRule(rule))
+        || new Set(authoredRules.map(rule => rule.id)).size !== authoredRules.length
+        || authoredRules.length && context.onEvent)) {
+        working.rollback();
+        return { ok: false, errors: [{ reason: 'invalid_event_rules', stage: 'event_rule_validation' }],
+            outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [] };
+    }
     const eventTypes = { actor_move: ['movement'], interactable_transition: ['environment'],
         item_transfer: ['inventory'], item_introduce: ['inventory'],
         entity_introduce: ['environment'], location_introduce: ['environment'],
@@ -497,6 +558,41 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     && move.to === event.to_location_id))) return false;
         return true;
     });
+    const applyAuthoredRules = (cause, state, actionId) => {
+        const next = [];
+        for (const rule of authoredRules || []) {
+            if (!Object.entries(rule.on).every(([key, value]) => cause[key] === value)) continue;
+            for (const condition of rule.when) {
+                const factions = state.getSession('factions') || state.getWorld('factions') || [];
+                const actor = id => id === 'player'
+                    || state.getEntity(id).definition?.type === 'npc';
+                const faction = id => factions.some(item => item.id === id);
+                const known = condition.fact === 'interactable_state'
+                    ? !!state.getEntity(condition.subject_id).definition
+                    : condition.fact === 'relation'
+                        ? actor(condition.subject_id) || faction(condition.subject_id)
+                        : actor(condition.subject_id);
+                if (!known || condition.fact === 'relation'
+                    && !actor(condition.target_id) && !faction(condition.target_id))
+                    throw new Error('unknown_event_rule_reference');
+            }
+            if (rule.when.some(condition => !facts.test(condition, state))) continue;
+            const firing = `${actionId}:${cause.id}:${rule.id}`;
+            if (firedRules.has(firing)) throw new Error('duplicate_event_rule_trigger');
+            firedRules.add(firing);
+            ruleCauses.add(`${actionId}:${cause.id}`);
+            const id = `${cause.id}_${rule.id}`;
+            if (!safeId(id) || plan.events.some(event => event.id === id))
+                throw new Error('invalid_event_rule_result_id');
+            plan.events.push({ ...resolveRuleFields(rule.result_event, cause), id,
+                action_id: actionId, status: 'completed' });
+            generatedProofIds.add(id);
+            next.push({ type: rule.effect.type,
+                payload: resolveRuleFields(rule.effect.payload, cause),
+                proof_event_id: id });
+        }
+        return next;
+    };
     const turnTimeBudget = { remaining: Math.max(0, Number(context.includedTurnMinutes) || 0) };
     const travelSpent = new Map();
     for (const action of plan.actions) {
@@ -587,15 +683,49 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     predictedLocations.set(actor, operation.payload.to_location_id);
                 }
             actionMoves = moveTransitions;
+            const proposedEvents = plan.events.filter(event => event.action_id === action.action_id);
             const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
                 travelSpent,
                 actionEvents: plan.events.filter(event => event.action_id === action.action_id),
                 consumedRelationEvents: new Set(),
                 protocol: capability.protocol, executionMode: capability.executionMode,
-                actionId: action.action_id, sessionId: session.id });
+                actionId: action.action_id, sessionId: session.id,
+                onEvent: authoredRules?.length ? (emitted, state) => {
+                    const causes = proposedEvents.filter(event => event.action_id === action.action_id
+                        && event.id === emitted.id && event.type === emitted.type
+                        && event.status === 'completed');
+                    if (causes.length !== 1) throw new Error('unwitnessed_event_rule_cause');
+                    return applyAuthoredRules(causes[0], state, action.action_id);
+                } : context.onEvent });
             executedOperations = applied.applied.map((operation, index) => ({
                 ...copy(operation), origin: index < operations.length ? 'proposal' : 'reducer',
-                result: applied.changes[index] ? 'changed' : 'no_change' }));
+                result: applied.changes[index] ? 'changed' : 'no_change',
+                parentIndex: applied.parents[index] }));
+            if (authoredRules?.length) {
+                for (const cause of proposedEvents.filter(event => event.status === 'completed'
+                    && authoredRules.some(rule => Object.entries(rule.on).every(([key, value]) =>
+                        event[key] === value))
+                    && !ruleCauses.has(`${action.action_id}:${event.id}`))) {
+                    const parents = executedOperations.flatMap((operation, index) =>
+                        operation.origin === 'proposal' && operation.type !== 'event_emit'
+                        && operation.result === 'changed'
+                        && witnessed(operation, [cause], moveTransitions) ? [index] : []);
+                    if (!safeId(cause.id) || proposedEvents.filter(event => event.id === cause.id).length !== 1
+                        || parents.length !== 1) throw new Error('unverified_event_rule_cause');
+                    const generated = applyAuthoredRules(cause, working, action.action_id);
+                    if (!generated.length) continue;
+                    const follow = effects.run(generated, working, { ...context, capability,
+                        turnTimeBudget, travelSpent, protocol: capability.protocol,
+                        executionMode: capability.executionMode, actionId: action.action_id,
+                        sessionId: session.id, onEvent: undefined });
+                    const offset = executedOperations.length;
+                    executedOperations.push(...follow.applied.map((operation, index) => ({
+                        ...copy(operation), origin: 'reducer',
+                        result: follow.changes[index] ? 'changed' : 'no_change',
+                        parentIndex: follow.parents[index] === null ? parents[0]
+                            : offset + follow.parents[index] })));
+                }
+            }
             // Follow-up reducer effects are consequences, not model proposals
             // that a later draft must repeat verbatim.
             appliedOperations = operations.filter((_operation, index) => applied.changes[index]);
@@ -650,7 +780,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
                         time: ['time_advance', 'time_skip_minutes'],
                         status: ['npc_status_changes']
                     }[event.type];
-                    if (requiredEffects && !operations.some(operation =>
+                    if (requiredEffects && !executedOperations.some(operation =>
                         requiredEffects.includes(operation.type))) {
                         const error = new Error('uncommitted_completed_event');
                         Object.assign(error, { effect: event.type, event_index: eventIndex,
@@ -678,6 +808,49 @@ function executeLinkedActions(plan, world, session, context = {}) {
             }
             const worldReaction = (context.worldActionIds || []).includes(action.action_id);
             const actionEvents = plan.events.filter(event => event.action_id === action.action_id);
+            for (const event of actionEvents.filter(item =>
+                ruleCauses.has(`${action.action_id}:${item.id}`))) {
+                if (!executedOperations.some(operation => operation.origin === 'proposal'
+                    && operation.type !== 'event_emit' && operation.result === 'changed'
+                    && witnessed(operation, [event], moveTransitions)))
+                    throw new Error('unverified_event_rule_cause');
+            }
+            const confirmedFollowUps = new Set();
+            for (const operation of executedOperations.filter(effect => effect.origin === 'reducer')) {
+                const parent = executedOperations[operation.parentIndex];
+                const parentProofs = actionEvents.filter(event => String(event.id || '').trim()
+                    && witnessed(parent, [event], moveTransitions)
+                    && (parent.type !== 'event_emit' || event.id === parent.payload?.id));
+                if (parentProofs.length !== 1 || actionEvents.filter(event =>
+                    event.id === parentProofs[0]?.id).length !== 1) {
+                    const error = new Error('unwitnessed_follow_up_cause');
+                    error.effect = operation.type;
+                    throw error;
+                }
+                const causeId = parentProofs[0].id;
+                const proofs = actionEvents.filter(event => String(event.id || '').trim()
+                    && event.id !== causeId && witnessed(operation, [event], moveTransitions));
+                const relevantProofs = operation.proof_event_id
+                    ? proofs.filter(event => event.id === operation.proof_event_id) : proofs;
+                if (relevantProofs.length !== 1 || actionEvents.filter(event =>
+                    event.id === relevantProofs[0]?.id).length !== 1) {
+                    const error = new Error('unwitnessed_follow_up_effect');
+                    error.effect = operation.type;
+                    throw error;
+                }
+                operation.cause_event_id = causeId;
+                operation.proof_event_id = relevantProofs[0].id;
+                if (generatedProofIds.has(operation.proof_event_id)
+                    && operation.result !== 'changed')
+                    throw new Error('unconfirmed_event_rule_effect');
+                const signature = JSON.stringify([causeId, operation.type, operation.payload]);
+                if (confirmedFollowUps.has(signature)) {
+                    const error = new Error('duplicate_follow_up_effect');
+                    error.effect = operation.type;
+                    throw error;
+                }
+                confirmedFollowUps.add(signature);
+            }
             const unwitnessed = operations.find(operation => {
                 // Server-bound player proposals need the same structural proof
                 // as NPC reactions. Time advances are checked against the turn
@@ -724,11 +897,13 @@ function executeLinkedActions(plan, world, session, context = {}) {
             .map(copy));
         if (actual === 'succeeded') for (const operation of executedOperations) {
             const eventIndices = events.flatMap((event, index) => event.action_id === action.action_id
+                && (operation.origin !== 'reducer' || event.id === operation.proof_event_id)
                 && witnessed(operation, [event], actionMoves) ? [index] : []);
             confirmedEffects.push({ action_id: action.action_id,
                 source: (context.worldActionIds || []).includes(action.action_id) ? 'reaction' : 'player',
                 type: operation.type, payload: copy(operation.payload), origin: operation.origin,
-                result: operation.result, event_indices: eventIndices });
+                result: operation.result, event_indices: eventIndices,
+                ...(operation.cause_event_id ? { cause_event_id: operation.cause_event_id } : {}) });
         }
         if (actual === 'succeeded' && appliedOperations.length) {
             const actionEvents = plan.events.filter(event => event.action_id === action.action_id);

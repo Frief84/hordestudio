@@ -243,6 +243,8 @@ STATIC_FILES = {
     "/worlds/scene-draft.js": ("worlds/scene-draft.js", "text/javascript"),
     "/worlds/turn-binding.js": ("worlds/turn-binding.js", "text/javascript"),
     "/worlds/turn-context.js": ("worlds/turn-context.js", "text/javascript"),
+    "/worlds/world-time.js": ("worlds/world-time.js", "text/javascript"),
+    "/worlds/background-sim.js": ("worlds/background-sim.js", "text/javascript"),
     "/worlds/bgm-player.js": ("worlds/bgm-player.js", "text/javascript"),
     "/large-archive.js": ("large-archive.js", "text/javascript"),
     "/bundled-humans.js": ("bundled-humans.js", "text/javascript"),

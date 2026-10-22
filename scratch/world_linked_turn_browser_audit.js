@@ -537,6 +537,278 @@ const root = path.resolve(__dirname, '..');
         assert.equal(invalidStat.directReason, 'invalid_amount', JSON.stringify(invalidStat));
         assert.equal(invalidStat.committed, false, JSON.stringify(invalidStat));
         assert.equal(invalidStat.falseSuccess, false, JSON.stringify(invalidStat));
-        console.log('PASS linked V3 receipt, scene memory, rollback, reload, compound actions and interrupted responses');
+        const eventBridge = await page.evaluate(async () => {
+            clearInterval(companionAgencyTimer);
+            clearInterval(companionAlwaysOnTimer);
+            state.apiKey = 'offline';
+            state.globalSettings.apiProvider = 'local';
+            state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
+            state.activeWorldId = 'linked_fixture';
+            const world = state.worlds.find(item => item.id === 'linked_fixture');
+            const sess = getCurrentWorldSession();
+            world.locations.push({ id: 'elsewhere', name: 'Elsewhere', exits: [] });
+            for (const id of ['actor', 'witness', 'listener', 'remote']) {
+                world.entities.push({ id, name: id, type: 'npc', startLocation: 'room' });
+                sess.entityStates[id] = { location: id === 'remote' ? 'elsewhere' : 'room',
+                    observations: [], goal: 'Continue existing work', goalStatus: 'active',
+                    goalAutonomy: 'paused', goalProgress: 12 };
+            }
+            const realFetch = window.fetch;
+            let eventCalls = 0;
+            let nextCondition = 'bandaged';
+            let nextEvidence = 'Actor applies a fresh bandage.';
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                eventCalls++;
+                const draft = { protocol: 'scene_draft_v3', narrative: [
+                    { id: 'coat', action_id: 'wear', text: 'You put on the green coat.' },
+                    { id: 'care', action_id: 'treat', text: nextEvidence }
+                ], actions: [
+                    { action_id: 'wear', request: 'I put on the green coat.', kind: 'physical',
+                        status: 'resolved', response_id: 'coat', action_effects: {
+                            outfit_set: [{ actor_id: 'player', outfit: 'green coat' }] } },
+                    { action_id: 'treat', request: 'I ask Actor to treat themselves.',
+                        kind: 'physical', status: 'resolved',
+                        response_id: 'care', action_effects: { condition_change: [
+                            { target_id: 'actor', condition: nextCondition, action: 'add' }] } }
+                ], events: [{ action_id: 'treat', type: 'condition', actor_id: 'actor',
+                    status: 'completed', condition: nextCondition, action: 'add',
+                    passage_id: 'care', witnessed_by: ['witness'] }],
+                effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{
+                    delta: { content: JSON.stringify(draft) }, finish_reason: 'stop'
+                }] })}\n\ndata: [DONE]\n\n`,
+                { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value =
+                'I put on the green coat. I ask Actor to treat themselves.';
+            await executeWorldTurn();
+            const beforeFailure = { receipts: sess.worldTurnReceipts.length,
+                news: sess.worldNews.length, observations: sess.entityStates.actor.observations.length };
+            nextCondition = 'rested';
+            nextEvidence = 'Actor settles to rest.';
+            const realSetMultiple = HordeDB.setMultiple;
+            HordeDB.setMultiple = async () => { throw new Error('simulated_storage_failure'); };
+            document.getElementById('world-user-input').value =
+                'I put on the green coat. I ask Actor to treat themselves.';
+            await executeWorldTurn();
+            HordeDB.setMultiple = realSetMultiple;
+            const rollback = { receipts: sess.worldTurnReceipts.length === beforeFailure.receipts,
+                news: sess.worldNews.length === beforeFailure.news,
+                observations: sess.entityStates.actor.observations.length === beforeFailure.observations,
+                condition: !sess.entityStates.actor.conditions?.includes('rested'),
+                input: document.getElementById('world-user-input').value };
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get('worldInstance:linked_fixture'))?.sessions
+                ?.find(item => item.id === sess.id);
+            const news = sess.worldNews?.find(item => item.text === 'Actor applies a fresh bandage.');
+            const beforeGossip = Object.fromEntries(['actor', 'witness', 'listener', 'remote']
+                .map(id => [id, (sess.entityStates[id].observations || []).map(item => item.text)]));
+            const digest = buildWorldAgentDigest(world, sess);
+            const index = new Map([['room', ['actor', 'witness', 'listener']]]);
+            for (let turn = 1; turn <= 20 && !news?.knownBy.includes('listener'); turn++)
+                spreadWorldKnowledge(world, index, sess, turn);
+            return { audit: sess.lastTurnAudit, news, beforeGossip, eventCalls, rollback,
+                savedNews: saved?.worldNews?.find(item => item.text === news?.text),
+                savedActor: saved?.entityStates?.actor?.observations,
+                savedGoal: saved?.entityStates?.actor?.goal,
+                condition: sess.entityStates.actor.conditions,
+                digestHasEvent: digest.includes('Actor applies a fresh bandage.'),
+                digestHasAudience: digest.includes('known by actor, witness'),
+                listener: sess.entityStates.listener.observations,
+                remote: sess.entityStates.remote.observations,
+                sceneWitnesses: sess.history.at(-1)?.sceneMemory?.records
+                    ?.find(item => item.kind === 'event' && item.actor === 'actor')?.witnesses };
+        });
+        assert(eventBridge.audit?.actions?.some(item => item.action_id === 'treat'
+            && item.outcome === 'succeeded'), JSON.stringify({ eventBridge, logs: logs.slice(-8) }));
+        assert.equal(eventBridge.eventCalls, 2, JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.rollback, { receipts: true, news: true,
+            observations: true, condition: true,
+            input: 'I put on the green coat. I ask Actor to treat themselves.' },
+        JSON.stringify(eventBridge));
+        assert(eventBridge.condition?.includes('bandaged'), JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.sceneWitnesses, ['actor', 'witness'], JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.news?.knownBy?.sort(), ['actor', 'listener', 'witness'], JSON.stringify(eventBridge));
+        assert(eventBridge.beforeGossip.actor.includes('Actor applies a fresh bandage.'), JSON.stringify(eventBridge));
+        assert(eventBridge.beforeGossip.witness.includes('Actor applies a fresh bandage.'), JSON.stringify(eventBridge));
+        assert(!eventBridge.beforeGossip.listener.includes('Actor applies a fresh bandage.'),
+            JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.beforeGossip.remote, [], JSON.stringify(eventBridge));
+        assert(eventBridge.listener?.some(item => item.sourceType === 'told'
+            && item.sourceNpcId), JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.remote, [], JSON.stringify(eventBridge));
+        assert(eventBridge.digestHasEvent, JSON.stringify(eventBridge));
+        assert(eventBridge.digestHasAudience, JSON.stringify(eventBridge));
+        assert.deepEqual(eventBridge.savedNews?.knownBy?.sort(), ['actor', 'witness'], JSON.stringify(eventBridge));
+        assert(eventBridge.savedActor?.some(item => item.eventId === eventBridge.news.id),
+            JSON.stringify(eventBridge));
+        assert.equal(eventBridge.savedGoal, 'Continue existing work', JSON.stringify(eventBridge));
+        await page.reload();
+        await page.waitForFunction(() => state.worldInstances?.linked_fixture?.sessions?.length);
+        const eventReload = await page.evaluate(() => {
+            const session = state.worldInstances.linked_fixture.sessions.at(-1);
+            return { actor: session.entityStates?.actor?.observations,
+                witness: session.entityStates?.witness?.observations,
+                listener: session.entityStates?.listener?.observations,
+                remote: session.entityStates?.remote?.observations,
+                news: session.worldNews?.find(item => item.text === 'Actor applies a fresh bandage.'),
+                condition: session.entityStates?.actor?.conditions,
+                goal: session.entityStates?.actor?.goal };
+        });
+        assert(eventReload.actor?.some(item => item.eventId === eventBridge.news.id),
+            JSON.stringify(eventReload));
+        assert(eventReload.witness?.some(item => item.eventId === eventBridge.news.id),
+            JSON.stringify(eventReload));
+        assert(!eventReload.listener?.some(item => item.eventId === eventBridge.news.id),
+            JSON.stringify(eventReload));
+        assert(!eventReload.remote?.some(item => item.eventId === eventBridge.news.id),
+            JSON.stringify(eventReload));
+        assert.deepEqual(eventReload.news?.knownBy?.sort(), ['actor', 'witness'],
+            JSON.stringify(eventReload));
+        assert(eventReload.condition?.includes('bandaged'), JSON.stringify(eventReload));
+        assert.equal(eventReload.goal, 'Continue existing work', JSON.stringify(eventReload));
+        const authoredRuleTurn = await page.evaluate(async () => {
+            clearInterval(companionAgencyTimer);
+            clearInterval(companionAlwaysOnTimer);
+            state.apiKey = 'offline';
+            state.globalSettings.apiProvider = 'local';
+            state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
+            const world = { id: 'event_rule_fixture', name: 'Signal sash',
+                model: 'fixture/model', contextSize: 32768, maxTokens: 2048,
+                dmPrompt: 'Two guards stand in a room.', intro: '',
+                startLocationId: 'room', locations: [{ id: 'room', name: 'Room', exits: [] }],
+                entities: [{ id: 'guide_1', name: 'Guide', type: 'npc', startLocation: 'room' },
+                    { id: 'watcher_1', name: 'Watcher', type: 'npc', startLocation: 'room' }],
+                eventRules: [{ id: 'raise_alert', on: { type: 'outfit', outfit: 'signal sash' },
+                    when: [{ fact: 'actor_at', subject_id: 'player',
+                        operator: 'equals', value: 'room' }],
+                    effect: { type: 'condition_change', payload: {
+                        target_id: { event_field: 'actor_id' }, condition: 'alerted', action: 'add' } },
+                    result_event: { type: 'condition', actor_id: { event_field: 'actor_id' },
+                        condition: 'alerted', action: 'add' } }],
+                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                    serverBindings: false, sceneDraftProtocol: 'scene_draft_v3' },
+                hudConfig: { startTimeHours: 8, startTimeMinutes: 0, timeStep: 5 } };
+            state.worlds.push(world);
+            state.worldInstances[world.id] = { sessions: [], activeSessionId: null };
+            state.activeWorldId = world.id;
+            const sess = prepareCurrentWorldSession();
+            sess.setupComplete = true;
+            sess.entityStates.guide_1 ||= { location: 'room', observations: [] };
+            sess.entityStates.watcher_1 ||= { location: 'room', observations: [] };
+            switchView('worldPlay'); renderWorldPlayState();
+            await saveWorldsState({ worldId: world.id });
+            const realFetch = window.fetch;
+            let calls = 0;
+            let eventDescriptionSupported = false;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                calls++;
+                const outgoing = JSON.parse(options.body);
+                const contract = outgoing.response_format?.json_schema?.schema
+                    || outgoing.tools?.find(tool => tool.function?.name === 'commit_world_turn')
+                        ?.function?.parameters;
+                eventDescriptionSupported ||= !!contract?.properties?.actions?.items?.properties
+                    ?.action_effects?.properties?.event_emit?.items?.properties?.description;
+                const draft = { protocol: 'scene_draft_v3', narrative: [{ id: 'signal_passage',
+                    action_id: 'signal', text: 'Guide puts on the signal sash.' }],
+                    actions: [{ action_id: 'signal', request: 'I ask Guide to put on the signal sash.',
+                        kind: 'physical', status: 'resolved', response_id: 'signal_passage',
+                        action_effects: { outfit_set: [{ actor_id: 'guide_1', outfit: 'signal sash' }] } }],
+                    events: [{ id: 'notice_1', action_id: 'signal', type: 'outfit',
+                        actor_id: 'guide_1', outfit: 'signal sash', status: 'completed',
+                        passage_id: 'signal_passage' }],
+                    effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta: {
+                    content: JSON.stringify(draft) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value =
+                'I ask Guide to put on the signal sash.';
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions
+                ?.find(item => item.id === sess.id);
+            const receipt = sess.worldTurnReceipts?.at(-1)?.receipt;
+            return { calls, eventDescriptionSupported, audit: sess.lastTurnAudit,
+                guide: sess.entityStates.guide_1,
+                watcher: sess.entityStates.watcher_1,
+                effect: receipt?.confirmed_effects?.find(item => item.type === 'condition_change'),
+                proofEvent: receipt?.events?.find(item => item.id === 'notice_1_raise_alert'),
+                emittedByModel: receipt?.confirmed_effects?.some(item => item.type === 'event_emit'),
+                savedGuide: saved?.entityStates?.guide_1,
+                worldRules: state.worlds.find(item => item.id === world.id)?.eventRules?.length };
+        });
+        assert(authoredRuleTurn.audit?.actions?.some(item => item.action_id === 'signal'
+            && item.outcome === 'succeeded'), JSON.stringify({ authoredRuleTurn, logs: logs.slice(-8) }));
+        assert(authoredRuleTurn.calls <= 2 && authoredRuleTurn.audit.repairCount === 0,
+            JSON.stringify(authoredRuleTurn));
+        assert(authoredRuleTurn.eventDescriptionSupported, JSON.stringify(authoredRuleTurn));
+        assert(authoredRuleTurn.guide?.conditions?.includes('alerted'), JSON.stringify(authoredRuleTurn));
+        assert(!authoredRuleTurn.watcher?.conditions?.includes('alerted'), JSON.stringify(authoredRuleTurn));
+        assert.equal(authoredRuleTurn.effect?.cause_event_id, 'notice_1',
+            JSON.stringify(authoredRuleTurn));
+        assert.equal(authoredRuleTurn.proofEvent?.type, 'condition',
+            JSON.stringify(authoredRuleTurn));
+        assert.equal(authoredRuleTurn.emittedByModel, false, JSON.stringify(authoredRuleTurn));
+        assert(authoredRuleTurn.savedGuide?.conditions?.includes('alerted'),
+            JSON.stringify(authoredRuleTurn));
+        assert.equal(authoredRuleTurn.worldRules, 1, JSON.stringify(authoredRuleTurn));
+        const secondRuleTurn = await page.evaluate(async () => {
+            const sess = state.worldInstances.event_rule_fixture.sessions.at(-1);
+            const realFetch = window.fetch;
+            window.fetch = async (url, options = {}) => {
+                if (!String(url).includes('/chat/completions')) return realFetch(url, options);
+                const draft = { protocol: 'scene_draft_v3', narrative: [{ id: 'watcher_passage',
+                    action_id: 'watcher_signal', text: 'Watcher puts on the signal sash.' }],
+                    actions: [{ action_id: 'watcher_signal',
+                        request: 'I ask Watcher to put on the signal sash.',
+                        kind: 'physical', status: 'resolved', response_id: 'watcher_passage',
+                        action_effects: { outfit_set: [{ actor_id: 'watcher_1', outfit: 'signal sash' }] } }],
+                    events: [{ id: 'notice_2', action_id: 'watcher_signal', type: 'outfit',
+                        actor_id: 'watcher_1', outfit: 'signal sash', status: 'completed',
+                        passage_id: 'watcher_passage' }],
+                    effects: {}, speech: [], commitments: [] };
+                return new Response(`data: ${JSON.stringify({ choices: [{ delta: {
+                    content: JSON.stringify(draft) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+                    { headers: { 'Content-Type': 'text/event-stream' } });
+            };
+            document.getElementById('world-user-input').value =
+                'I ask Watcher to put on the signal sash.';
+            await executeWorldTurn();
+            window.fetch = realFetch;
+            const saved = (await HordeDB.get('worldInstance:event_rule_fixture'))?.sessions
+                ?.find(item => item.id === sess.id);
+            const receipts = sess.worldTurnReceipts?.slice(-2).map(item => item.receipt);
+            return { audit: sess.lastTurnAudit,
+                causes: receipts?.map(receipt => receipt.confirmed_effects
+                    ?.find(item => item.type === 'condition_change')?.cause_event_id),
+                proofs: receipts?.map(receipt => receipt.events
+                    ?.find(event => String(event.id || '').endsWith('_raise_alert'))?.id),
+                guide: sess.entityStates.guide_1?.conditions,
+                watcher: sess.entityStates.watcher_1?.conditions,
+                savedWatcher: saved?.entityStates?.watcher_1?.conditions };
+        });
+        assert(secondRuleTurn.audit?.actions?.some(item => item.action_id === 'watcher_signal'
+            && item.outcome === 'succeeded'), JSON.stringify(secondRuleTurn));
+        assert.deepEqual(secondRuleTurn.causes, ['notice_1', 'notice_2'],
+            JSON.stringify(secondRuleTurn));
+        assert.deepEqual(secondRuleTurn.proofs, ['notice_1_raise_alert', 'notice_2_raise_alert'],
+            JSON.stringify(secondRuleTurn));
+        assert(secondRuleTurn.guide?.includes('alerted') && secondRuleTurn.watcher?.includes('alerted')
+            && secondRuleTurn.savedWatcher?.includes('alerted'), JSON.stringify(secondRuleTurn));
+        await page.reload();
+        await page.waitForFunction(() => state.worldInstances?.event_rule_fixture?.sessions?.length);
+        const authoredRuleReload = await page.evaluate(() => ({
+            guide: state.worldInstances.event_rule_fixture.sessions.at(-1)
+                ?.entityStates?.guide_1?.conditions,
+            watcher: state.worldInstances.event_rule_fixture.sessions.at(-1)
+                ?.entityStates?.watcher_1?.conditions,
+            rules: state.worlds.find(item => item.id === 'event_rule_fixture')?.eventRules?.length }));
+        assert(authoredRuleReload.guide?.includes('alerted'), JSON.stringify(authoredRuleReload));
+        assert(authoredRuleReload.watcher?.includes('alerted'), JSON.stringify(authoredRuleReload));
+        assert.equal(authoredRuleReload.rules, 1, JSON.stringify(authoredRuleReload));
+        console.log('PASS linked V3 receipt, two NPC event-rule turns, scene memory, rollback and reload');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

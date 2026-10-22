@@ -13,6 +13,23 @@ const contract = scene.schema({ events: { type: 'array', items: { type: 'object'
     properties: { type: { type: 'string' }, actor_id: { type: 'string' },
         status: { type: 'string' } } } }, ...legacySchemas },
 'scene_draft_v3', { linkedRequired: true, capability });
+const expandedContract = scene.schema({ events: { type: 'array', items: { type: 'object',
+    properties: { type: { type: 'string' }, actor_id: { type: 'string' },
+        status: { type: 'string' } } } }, ...legacySchemas },
+'scene_draft_v3', { linkedRequired: false, capability });
+const withoutSchemaDescriptions = node => Array.isArray(node)
+    ? node.map(withoutSchemaDescriptions) : node && typeof node === 'object'
+        ? Object.fromEntries(Object.entries(node).filter(([key]) => key !== 'description')
+            .map(([key, value]) => [key, key === 'properties' && value
+                ? Object.fromEntries(Object.entries(value).map(([field, spec]) =>
+                    [field, withoutSchemaDescriptions(spec)]))
+                : withoutSchemaDescriptions(value)])) : node;
+const compactEffects = contract.properties.actions.items.properties.action_effects;
+assert.deepEqual(compactEffects, withoutSchemaDescriptions(
+    expandedContract.properties.actions.items.properties.action_effects),
+    'compact V3 may remove schema descriptions only, never fields, bounds or requirements');
+assert.equal(compactEffects.properties.event_emit.items.properties.description.type, 'string');
+assert(compactEffects.properties.event_emit.items.required.includes('description'));
 assert.deepEqual(Object.keys(contract.properties.actions.items.properties.action_effects.properties).sort(),
     capability.names.slice().sort());
 assert.deepEqual(linked.createWorldEffectRegistry(capability.legacyNames).types().sort(),
@@ -329,6 +346,183 @@ try {
     assert.equal(result.errors[0].code, 'unknown_technical_effect');
     assert.equal(state.auditProbe, undefined);
 } finally { undoFollowUp(); }
+// Follow-up effects need both the triggering event and their own completed
+// event. The callback is test-only; authored rules are not connected here.
+const eventFollowUpPlan = { actions: [action('signal', 'resolved', {
+    outfit_set: [{ actor_id: 'player', outfit: 'blue coat' }],
+    event_emit: [{ id: 'signal', type: 'environment', description: 'A signal sounds.' }]
+})], events: [
+    { action_id: 'signal', type: 'outfit', actor_id: 'player', status: 'completed',
+        outfit: 'blue coat' },
+    { id: 'signal', action_id: 'signal', type: 'environment', actor_id: 'player', status: 'completed' }
+], narrative: [{ action_id: 'signal', text: 'A signal sounds.' }] };
+const emittedCondition = target_id => [{ type: 'condition_change',
+    payload: { target_id, condition: 'alerted', action: 'add' } }];
+const eventFollowUp = linked.executeLinkedActions(eventFollowUpPlan,
+world, structuredClone(initial), { onEvent: () => emittedCondition('guide_1') });
+assert.equal(eventFollowUp.ok, false, 'missing follow-up event evidence must remain detectable');
+assert.equal(eventFollowUp.errors[0].reason, 'unwitnessed_follow_up_effect');
+assert.deepEqual(eventFollowUp.confirmedEffects, []);
+const withFollowUpEvents = structuredClone(eventFollowUpPlan);
+withFollowUpEvents.events.push({ id: 'guide_alerted', action_id: 'signal', type: 'condition',
+    actor_id: 'guide_1', status: 'completed', condition: 'alerted', action: 'add' });
+const confirmedFollowUp = linked.executeLinkedActions(withFollowUpEvents,
+world, structuredClone(initial), { onEvent: () => emittedCondition('guide_1') });
+assert(confirmedFollowUp.ok, JSON.stringify(confirmedFollowUp.errors));
+assert(confirmedFollowUp.working.getEntity('guide_1').state.conditions.includes('alerted'));
+const confirmedCondition = confirmedFollowUp.confirmedEffects.find(effect =>
+    effect.type === 'condition_change');
+assert.equal(confirmedCondition.cause_event_id, 'signal');
+assert.deepEqual(confirmedCondition.event_indices, [2]);
+assert.deepEqual(confirmedCondition.payload,
+    { target_id: 'guide_1', condition: 'alerted', action: 'add' });
+const missingCause = structuredClone(withFollowUpEvents);
+delete missingCause.events[1].id;
+const rejectedCause = linked.executeLinkedActions(missingCause,
+world, structuredClone(initial), { onEvent: () => emittedCondition('guide_1') });
+assert.equal(rejectedCause.errors[0].reason, 'unwitnessed_follow_up_cause');
+const wrongEffectProof = structuredClone(withFollowUpEvents);
+wrongEffectProof.events[2].condition = 'unrelated';
+const rejectedProof = linked.executeLinkedActions(wrongEffectProof,
+world, structuredClone(initial), { onEvent: () => emittedCondition('guide_1') });
+assert.equal(rejectedProof.errors[0].reason, 'unwitnessed_follow_up_effect');
+const repeatedEventId = structuredClone(withFollowUpEvents);
+repeatedEventId.events[2].id = 'signal';
+const rejectedAmbiguity = linked.executeLinkedActions(repeatedEventId,
+world, structuredClone(initial), { onEvent: () => emittedCondition('guide_1') });
+assert.equal(rejectedAmbiguity.errors[0].reason, 'unwitnessed_follow_up_cause');
+const multiplePlan = structuredClone(withFollowUpEvents);
+multiplePlan.events.push({ id: 'guide_ready', action_id: 'signal', type: 'condition',
+    actor_id: 'guide_1', status: 'completed', condition: 'ready', action: 'add' });
+const multiple = linked.executeLinkedActions(multiplePlan, world, structuredClone(initial),
+    { onEvent: () => [...emittedCondition('guide_1'), { type: 'condition_change',
+        payload: { target_id: 'guide_1', condition: 'ready', action: 'add' } }] });
+assert(multiple.ok, JSON.stringify(multiple.errors));
+assert.deepEqual(multiple.confirmedEffects.filter(effect => effect.origin === 'reducer')
+    .map(effect => effect.event_indices[0]), [2, 3]);
+const duplicate = linked.executeLinkedActions(withFollowUpEvents, world, structuredClone(initial),
+    { onEvent: () => [...emittedCondition('guide_1'), ...emittedCondition('guide_1')] });
+assert.equal(duplicate.errors[0].reason, 'duplicate_follow_up_effect');
+const directHookWrite = linked.executeLinkedActions(withFollowUpEvents, world,
+    structuredClone(initial), { onEvent: (_event, working) => {
+        working.writeEntity('guide_1', holder => { holder.state.conditions = ['alerted']; });
+        return [];
+    } });
+assert.equal(directHookWrite.errors[0].reason, 'untracked_event_hook_mutation');
+assert.deepEqual(directHookWrite.confirmedEffects, []);
+const blockedFollowUp = linked.executeLinkedActions({ actions: [
+    action('gate', 'blocked', { actor_move: [{ actor_id: 'player',
+        to_location_id: 'archive' }] }), { ...withFollowUpEvents.actions[0], depends_on: [
+        { action_id: 'gate', outcome: 'succeeded' }] }], events: withFollowUpEvents.events,
+    narrative: withFollowUpEvents.narrative }, world, structuredClone(initial),
+{ onEvent: () => emittedCondition('guide_1'), canMove: () => ({ ok: false, reason: 'locked_exit' }) });
+assert(blockedFollowUp.ok, JSON.stringify(blockedFollowUp.errors));
+assert.equal(blockedFollowUp.outcomes.get('signal'), 'skipped');
+assert.equal(blockedFollowUp.working.getEntity('guide_1').state.conditions, undefined);
+// Optional authored rule: a completed, actor-scoped signal alerts its exact
+// target. The target comes from structured event data, never from prose.
+const playWorld = structuredClone(world);
+playWorld.entities.push({ id: 'watcher_1', name: 'Watcher', type: 'npc' });
+playWorld.eventRules = [{ id: 'raise_alert', on: { type: 'outfit', outfit: 'signal sash' },
+    when: [{ fact: 'actor_at', subject_id: 'player', operator: 'equals', value: 'foyer' }],
+    effect: { type: 'condition_change', payload: {
+        target_id: { event_field: 'actor_id' }, condition: 'alerted', action: 'add' } },
+    result_event: { type: 'condition', actor_id: { event_field: 'actor_id' },
+        condition: 'alerted', action: 'add' } }];
+const playInitial = structuredClone(initial);
+playInitial.entityStates.watcher_1 = { location: 'foyer', observations: [] };
+const npcSignal = { worldActionIds: ['signal'] };
+const signalPlan = (targets, status = 'resolved', emit = true) => ({ actions: [action('signal', status,
+    { outfit_set: targets.map(actor_id => ({ actor_id, outfit: 'signal sash' })),
+        ...(emit ? { event_emit: targets.map((_, index) => ({ id: `notice_${index + 1}`,
+            type: 'outfit', description: 'A signal sash is donned.' })) } : {}) })],
+    events: status === 'resolved' ? targets.map((target_id, index) => ({
+        id: `notice_${index + 1}`, action_id: 'signal', type: 'outfit',
+        actor_id: target_id, outfit: 'signal sash', status: 'completed' })) : [],
+    narrative: [{ action_id: 'signal', text: 'The signal sash is donned.' }] });
+const playable = linked.executeLinkedActions(signalPlan(['guide_1']), playWorld,
+    structuredClone(playInitial), npcSignal);
+assert(playable.ok, JSON.stringify(playable.errors));
+assert(playable.working.getEntity('guide_1').state.conditions.includes('alerted'));
+assert.equal(playable.working.getEntity('watcher_1').state.conditions, undefined);
+assert.equal(playable.confirmedEffects.find(effect => effect.type === 'condition_change')
+    .cause_event_id, 'notice_1');
+assert(playable.events.some(event => event.id === 'notice_1_raise_alert'
+    && event.actor_id === 'guide_1'));
+const twoSignals = linked.executeLinkedActions(signalPlan(['guide_1', 'watcher_1']),
+    playWorld, structuredClone(playInitial), npcSignal);
+assert(twoSignals.ok, JSON.stringify(twoSignals.errors));
+assert(twoSignals.working.getEntity('guide_1').state.conditions.includes('alerted'));
+assert(twoSignals.working.getEntity('watcher_1').state.conditions.includes('alerted'));
+assert.deepEqual(twoSignals.confirmedEffects.filter(effect => effect.type === 'condition_change')
+    .map(effect => effect.cause_event_id), ['notice_1', 'notice_2']);
+const independentSignals = linked.executeLinkedActions(
+    signalPlan(['guide_1', 'watcher_1'], 'resolved', false),
+    playWorld, structuredClone(playInitial), npcSignal);
+assert(independentSignals.ok, JSON.stringify(independentSignals.errors));
+assert(independentSignals.working.getEntity('guide_1').state.conditions.includes('alerted'));
+assert(independentSignals.working.getEntity('watcher_1').state.conditions.includes('alerted'));
+assert.deepEqual(independentSignals.confirmedEffects
+    .filter(effect => effect.type === 'condition_change')
+    .map(effect => [effect.cause_event_id, independentSignals.events[effect.event_indices[0]].id]),
+    [['notice_1', 'notice_1_raise_alert'], ['notice_2', 'notice_2_raise_alert']]);
+const unprovedIndependent = signalPlan(['guide_1'], 'resolved', false);
+unprovedIndependent.events = [];
+const missingIndependentProof = linked.executeLinkedActions(unprovedIndependent,
+    playWorld, structuredClone(playInitial), npcSignal);
+assert.equal(missingIndependentProof.ok, false);
+assert.deepEqual(missingIndependentProof.confirmedEffects, []);
+const brokenRuleWorld = structuredClone(playWorld);
+brokenRuleWorld.eventRules[0].effect.payload.target_id = 'missing_npc';
+const invalidRuleTarget = linked.executeLinkedActions(signalPlan(['guide_1']),
+    brokenRuleWorld, structuredClone(playInitial), npcSignal);
+assert.equal(invalidRuleTarget.ok, false);
+assert.deepEqual(invalidRuleTarget.confirmedEffects, []);
+const forgedCause = signalPlan(['guide_1']);
+delete forgedCause.actions[0].action_effects.outfit_set;
+const rejectedCauseRule = linked.executeLinkedActions(forgedCause, playWorld,
+    structuredClone(playInitial), npcSignal);
+assert.equal(rejectedCauseRule.errors[0].reason, 'uncommitted_completed_event');
+const blockedRulePlan = signalPlan(['guide_1'], 'blocked', false);
+blockedRulePlan.actions[0].state_conditions = [
+    { fact: 'actor_at', subject_id: 'player', operator: 'equals', value: 'archive' }];
+const blockedRule = linked.executeLinkedActions(blockedRulePlan, playWorld,
+    structuredClone(playInitial), npcSignal);
+assert(blockedRule.ok, JSON.stringify(blockedRule.errors));
+assert.equal(blockedRule.outcomes.get('signal'), 'blocked');
+assert.equal(blockedRule.working.getEntity('guide_1').state.conditions, undefined);
+const unmetRuleSession = structuredClone(playInitial);
+unmetRuleSession.playerLocation = 'archive';
+unmetRuleSession.entityStates.player.location = 'archive';
+const unmetRule = linked.executeLinkedActions(signalPlan(['guide_1']), playWorld,
+    unmetRuleSession, npcSignal);
+assert(unmetRule.ok, JSON.stringify(unmetRule.errors));
+assert.equal(unmetRule.working.getEntity('guide_1').state.conditions, undefined);
+const wrongRuleProofWorld = structuredClone(playWorld);
+wrongRuleProofWorld.eventRules[0].result_event.condition = 'unrelated';
+const wrongRuleProof = linked.executeLinkedActions(signalPlan(['guide_1'], 'resolved', false),
+    wrongRuleProofWorld, structuredClone(playInitial), npcSignal);
+assert.equal(wrongRuleProof.errors[0].reason, 'unwitnessed_follow_up_effect');
+const duplicateSignal = signalPlan(['guide_1']);
+duplicateSignal.actions[0].action_effects.event_emit.push(
+    structuredClone(duplicateSignal.actions[0].action_effects.event_emit[0]));
+const duplicateRule = linked.executeLinkedActions(duplicateSignal, playWorld,
+    structuredClone(playInitial), npcSignal);
+assert.equal(duplicateRule.errors[0].reason, 'duplicate_event_rule_trigger');
+const noRuleWorld = structuredClone(playWorld);
+delete noRuleWorld.eventRules;
+const noRule = linked.executeLinkedActions(signalPlan(['guide_1']), noRuleWorld,
+    structuredClone(playInitial), npcSignal);
+assert(noRule.ok, JSON.stringify(noRule.errors));
+assert.equal(noRule.working.getEntity('guide_1').state.conditions, undefined);
+for (const options of [{ worldModules: { conditions: false }, onEvent: () => emittedCondition('guide_1') },
+    { onEvent: () => emittedCondition('missing_npc') }]) {
+    const source = structuredClone(initial);
+    const rejected = linked.executeLinkedActions(withFollowUpEvents, world, source, options);
+    assert.equal(rejected.ok, false, JSON.stringify(rejected.errors));
+    assert.equal(source.outfit, undefined, 'a rejected follow-up rolls the whole plan back');
+    assert.equal(source.entityStates.guide_1.conditions, undefined);
+}
 const partial = run([
     action('dress', 'resolved', { outfit_set: [{ actor_id: 'player', outfit: 'blue coat' }] }),
     action('enter', 'blocked', { actor_move: [{ actor_id: 'player', to_location_id: 'archive' }] })
@@ -414,6 +608,59 @@ const golden = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
 assert.deepEqual(normalizeSnapshot(snapshot), normalizeSnapshot(golden));
 
 (async () => {
+    const playSave = structuredClone(playInitial);
+    const firstTurn = linked.executeLinkedActions(signalPlan(['guide_1']),
+        playWorld, playSave, npcSignal);
+    assert(firstTurn.ok, JSON.stringify(firstTurn.errors));
+    let playDurable;
+    await firstTurn.working.commit(async candidate => {
+        playDurable = structuredClone(candidate.session);
+    }, 1);
+    const reloadedWorld = JSON.parse(JSON.stringify(playWorld));
+    const reloadedSession = JSON.parse(JSON.stringify(playDurable));
+    const nextTurn = linked.executeLinkedActions({ actions: [{
+        ...action('respond', 'resolved', { outfit_set: [
+            { actor_id: 'player', outfit: 'alert patrol coat' }] }),
+        state_conditions: [{ fact: 'condition', subject_id: 'guide_1',
+            operator: 'exists', value: 'alerted' }] }], events: [
+        { action_id: 'respond', type: 'outfit', actor_id: 'player',
+            status: 'completed', outfit: 'alert patrol coat' }], narrative: [] },
+    reloadedWorld, reloadedSession);
+    assert(nextTurn.ok, JSON.stringify(nextTurn.errors));
+    assert.equal(nextTurn.outcomes.get('respond'), 'succeeded');
+    assert.equal(nextTurn.working.getEntity('watcher_1').state.conditions, undefined);
+    const failedPlaySave = structuredClone(playInitial);
+    const failedPlay = linked.executeLinkedActions(signalPlan(['guide_1'], 'resolved', false),
+        playWorld, failedPlaySave, npcSignal);
+    await assert.rejects(failedPlay.working.commit(async () => {
+        throw new Error('storage_boom');
+    }, 1), /storage_boom/);
+    assert.deepEqual(failedPlaySave, playInitial);
+    const saved = structuredClone(initial);
+    const committedFollowUp = linked.executeLinkedActions(withFollowUpEvents, world, saved,
+        { onEvent: () => emittedCondition('guide_1') });
+    let durable;
+    await committedFollowUp.working.commit(async candidate => {
+        durable = structuredClone(candidate.session);
+    }, 1);
+    assert.deepEqual(saved, durable);
+    assert(saved.entityStates.guide_1.conditions.includes('alerted'));
+    assert.equal(saved.engineEvents.length, 1);
+    const reloaded = structuredClone(durable);
+    const continued = linked.executeLinkedActions({ actions: [action('continue', 'resolved',
+        { outfit_set: [{ actor_id: 'player', outfit: 'traveler coat' }] })], events: [
+        { action_id: 'continue', type: 'outfit', actor_id: 'player', status: 'completed',
+            outfit: 'traveler coat' }], narrative: [] }, world, reloaded);
+    assert(continued.ok, JSON.stringify(continued.errors));
+    assert.equal(continued.working.prepare().session.engineEvents.length, 1);
+    assert(continued.working.prepare().session.entityStates.guide_1.conditions.includes('alerted'));
+    const rejectedSave = structuredClone(initial);
+    const preparedFollowUp = linked.executeLinkedActions(withFollowUpEvents, world,
+        rejectedSave, { onEvent: () => emittedCondition('guide_1') });
+    await assert.rejects(preparedFollowUp.working.commit(async () => {
+        throw new Error('storage_boom');
+    }, 1), /storage_boom/);
+    assert.deepEqual(rejectedSave, initial);
     await assert.rejects(result.working.commit(async () => {
         throw new Error('storage_boom');
     }, 1), /storage_boom/);

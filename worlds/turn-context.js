@@ -102,6 +102,17 @@ function recentHistory(options) {
 // Extractive scene memory: reuse accepted statements, never ask a second model
 // to reinterpret state. Records live on the originating take, not in a second
 // mutable archive, so rerolls/deletion cannot leave orphaned canon behind.
+function eventAudience(event) {
+    const witnesses = event?.type === 'observation' ? []
+        : Array.isArray(event?.witnessed_by) ? event.witnessed_by : [];
+    return [...new Set([event?.actor_id, ...witnesses].filter(Boolean))];
+}
+function circulatesAsWorldFact(event) {
+    return event?.status === 'completed' && !['observation', 'dialogue'].includes(event.type)
+        && event.allowed_to_share !== false
+        && !['told', 'suspected', 'believed'].includes(event.source_type)
+        && !!String(event.evidence || '').trim();
+}
 function sceneMemory(draft, receiptId, location, turn) {
     if (Array.isArray(draft?.action_results) && Array.isArray(draft?.confirmed_effects)) {
         const outcomes = new Map(draft.action_results.map(item => [item.action_id, item.outcome]));
@@ -112,9 +123,9 @@ function sceneMemory(draft, receiptId, location, turn) {
             const text = String(event.type === 'observation'
                 ? event.observation || event.evidence || '' : event.evidence || '').trim();
             if (!text) return;
-            const witnesses = event.type === 'observation' ? [event.actor_id]
-                : Array.isArray(event.witnessed_by) ? event.witnessed_by : [];
-            records.push({ kind: event.source_type === 'told' ? 'testimony' : 'event',
+            const witnesses = eventAudience(event);
+            records.push({ kind: ['told', 'suspected', 'believed'].includes(event.source_type)
+                ? 'testimony' : 'event',
                 actor: event.actor_id, text: text.slice(0, 700), actionId: event.action_id,
                 eventIndex, witnesses, effects: draft.confirmed_effects.filter(effect =>
                     effect.result === 'changed' && effect.event_indices.includes(eventIndex))
@@ -128,8 +139,8 @@ function sceneMemory(draft, receiptId, location, turn) {
         for (const effect of draft.confirmed_effects) if (outcomes.get(effect?.action_id) === 'succeeded')
             records.push({ kind: 'effect', actor: effect.payload?.actor_id
                 || effect.payload?.subject_id || '', actionId: effect.action_id,
-                eventIndices: effect.event_indices, witnesses: effect.event_indices.flatMap(index =>
-                    Array.isArray(events[index]?.witnessed_by) ? events[index].witnessed_by : []),
+                eventIndices: effect.event_indices, witnesses: [...new Set(effect.event_indices.flatMap(index =>
+                    eventAudience(events[index])))],
                 result: effect.result,
                 text: JSON.stringify({ type: effect.type, payload: effect.payload,
                     result: effect.result }).slice(0, 700) });
@@ -140,7 +151,8 @@ function sceneMemory(draft, receiptId, location, turn) {
     const records = [];
     for (const event of draft.receipt.events || []) {
         if (event.status !== 'completed' || !event.evidence) continue;
-        records.push({ kind: event.source_type === 'told' ? 'testimony' : 'event',
+        records.push({ kind: ['told', 'suspected', 'believed'].includes(event.source_type)
+            ? 'testimony' : 'event',
             actor: event.actor_id, text: String(event.evidence).slice(0, 700) });
     }
     for (const speech of draft.speech || []) records.push({ kind: 'testimony', actor: speech.speaker,
@@ -272,7 +284,8 @@ function recall(history, query, location, limit = 4500, excludedIds = [], option
     }
     return selected.sort((a,b) => a.index - b.index).map(item => item.text).join('\n');
 }
-root.HordeWorldTurnContext = { history, sceneMemory, recall, loreForPrompt,
+root.HordeWorldTurnContext = { history, sceneMemory, eventAudience, circulatesAsWorldFact,
+    recall, loreForPrompt,
     historySources, sourceLinkedRecall };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldTurnContext;
 })(globalThis);
