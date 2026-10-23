@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import base64
 import copy
+from datetime import datetime
 import errno
 from functools import lru_cache
 import hashlib
@@ -155,6 +156,7 @@ STATIC_FILES = {
     "/style.css": ("style.css", "text/css"),
     "/app.js": ("app.js", "text/javascript"),
     "/worlds/model-client.js": ("worlds/model-client.js", "text/javascript"),
+    "/worlds/scene-ledger.js": ("worlds/scene-ledger.js", "text/javascript"),
     "/worlds/scene-draft.js": ("worlds/scene-draft.js", "text/javascript"),
     "/worlds/turn-context.js": ("worlds/turn-context.js", "text/javascript"),
     "/large-archive.js": ("large-archive.js", "text/javascript"),
@@ -196,6 +198,22 @@ STATIC_FILES = {
 }
 
 # Public Virtual Humans assets; legacy URLs route to the same relocated files.
+# Worlds modules must be reachable through the bridge, not only a file server.
+STATIC_FILES.update({'/assets/worlds/bundled-content.js': ('assets/worlds/bundled-content.js', 'text/javascript'),
+ '/assets/worlds/world-lore.js': ('assets/worlds/world-lore.js', 'text/javascript'),
+ '/assets/worlds/world-lore-ui.js': ('assets/worlds/world-lore-ui.js', 'text/javascript'),
+ '/worlds/model-client.js': ('worlds/model-client.js', 'text/javascript'),
+ '/worlds/working-state.js': ('worlds/working-state.js', 'text/javascript'),
+ '/worlds/effect-registry.js': ('worlds/effect-registry.js', 'text/javascript'),
+ '/worlds/linked-world-actions.js': ('worlds/linked-world-actions.js', 'text/javascript'),
+ '/worlds/scene-ledger.js': ('worlds/scene-ledger.js', 'text/javascript'),
+ '/worlds/scene-draft.js': ('worlds/scene-draft.js', 'text/javascript'),
+ '/worlds/turn-context.js': ('worlds/turn-context.js', 'text/javascript'),
+ '/worlds/horde-client.js': ('worlds/horde-client.js', 'text/javascript'),
+ '/worlds/background-sim.js': ('worlds/background-sim.js', 'text/javascript'),
+ '/assets/worlds/map-editor.js': ('assets/worlds/map-editor.js', 'text/javascript'),
+ '/worlds/bgm-player.js': ('worlds/bgm-player.js', 'text/javascript')})
+
 STATIC_FILES.update({
     '/virtual_humans/engine/vh-activity-engine.js': ('virtual_humans/engine/vh-activity-engine.js', 'text/javascript'),
     '/vh-activity-engine.js': ('virtual_humans/engine/vh-activity-engine.js', 'text/javascript'),
@@ -297,7 +315,17 @@ STATIC_MEDIA_ROOTS = (
     ("/assets/manual/", APP_DIR / "assets" / "manual"),
     ("/assets/bundled/", APP_DIR / "assets" / "bundled"),
     ("/assets/worlds/", APP_DIR / "assets" / "worlds"),
+    ("/assets/bgm/", APP_DIR / "assets" / "bgm"),
 )
+
+BGM_ASSET_DIR = APP_DIR / "assets" / "bgm"
+
+
+def bgm_asset_name(path: str, prefix: str) -> str:
+    name = urllib.parse.unquote(path.removeprefix(prefix))
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,180}\.(?:ogg|mp3|wav|flac)", name, re.I):
+        raise ValueError("Choose an .ogg, .mp3, .wav or .flac file with a safe filename.")
+    return name
 
 if os.environ.get("HORDE_CONFIG_DIR"):
     CONFIG_DIR = Path(os.environ["HORDE_CONFIG_DIR"]).resolve()
@@ -3497,6 +3525,360 @@ def detect_workflow_input(workflow: dict[str, Any], class_names: set[str], input
     return "", ""
 
 
+def log_comfy_submission(workflow: dict[str, Any]) -> None:
+    """Best-effort human-readable record of the exact graph sent to ComfyUI."""
+    try:
+        configured_dir = os.environ.get("HORDE_COMFY_PROMPT_LOG_DIR", "").strip()
+        if not configured_dir:
+            return
+        output_dir = Path(configured_dir).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now().astimezone()
+        base = now.strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3]
+        encoders: list[tuple[str, str, str]] = []
+        checkpoint = "Not available"
+        for node_id, node in workflow.items():
+            if not isinstance(node, dict):
+                continue
+            class_type = str(node.get("class_type") or "")
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            if class_type in {"CheckpointLoaderSimple", "CheckpointLoader"}:
+                value = inputs.get("ckpt_name") or inputs.get("checkpoint")
+                if value:
+                    checkpoint = str(value)
+            if class_type in {"CLIPTextEncode", "CLIPTextEncodeSDXL"}:
+                text = inputs.get("text")
+                if isinstance(text, str):
+                    title = str((node.get("_meta") or {}).get("title") or "")
+                    encoders.append((str(node_id), title, text))
+
+        def node_type(node_id: Any) -> str:
+            node = workflow.get(str(node_id))
+            return str(node.get("class_type") or "Unknown node") if isinstance(node, dict) else "Unknown node"
+
+        def links(value: Any) -> list[str]:
+            """Return API-format links only; never infer edges from node order."""
+            if isinstance(value, list) and len(value) >= 2 and isinstance(value[0], (str, int)):
+                return [str(value[0])] if str(value[0]) in workflow else [f"{value[0]} (missing node)"]
+            return []
+
+        def upstream(node_id: str, input_name: str) -> list[str]:
+            node = workflow.get(str(node_id))
+            inputs = node.get("inputs") if isinstance(node, dict) else None
+            return links(inputs.get(input_name)) if isinstance(inputs, dict) else []
+
+        def describe_node(node_id: str) -> str:
+            node = workflow.get(str(node_id))
+            title = (node.get("_meta") or {}).get("title") if isinstance(node, dict) else ""
+            return f"Node {node_id} ({node_type(node_id)}{f' — {title}' if title else ''})"
+
+        def trace_input(node_id: str, input_name: str) -> tuple[list[str], list[str]]:
+            """Trace a linked branch upstream; return readable nodes and missing IDs."""
+            immediate = upstream(node_id, input_name)
+            if not immediate:
+                node = workflow.get(str(node_id), {})
+                inputs = node.get("inputs", {}) if isinstance(node, dict) else {}
+                return ([f"Node {node_id}.{input_name} is not connected"], []) if input_name not in inputs else ([f"Node {node_id}.{input_name} has no node link"], [])
+            ordered: list[str] = []
+            missing: list[str] = []
+            visited: set[str] = set()
+            stack = list(reversed(immediate))
+            while stack:
+                current = stack.pop()
+                if current.endswith(" (missing node)"):
+                    missing.append(current)
+                    continue
+                if current in visited:
+                    continue
+                visited.add(current)
+                ordered.append(current)
+                current_node = workflow.get(current)
+                current_inputs = current_node.get("inputs") if isinstance(current_node, dict) else None
+                if not isinstance(current_inputs, dict):
+                    continue
+                for value in current_inputs.values():
+                    stack.extend(reversed(links(value)))
+            return [describe_node(value) for value in ordered], missing
+
+        def display_trace(node_id: str, input_name: str) -> str:
+            path, missing = trace_input(node_id, input_name)
+            result = " → ".join(path)
+            if missing:
+                result += "; unresolved link(s): " + ", ".join(missing)
+            return result
+
+        def display_model_trace(node_id: str) -> str:
+            """Follow model-bearing sockets only, excluding image/CLIP side branches."""
+            result: list[str] = []
+            missing: list[str] = []
+            visited: set[str] = set()
+
+            def walk(current: str) -> None:
+                if current.endswith(" (missing node)"):
+                    missing.append(current)
+                    return
+                if current in visited:
+                    return
+                visited.add(current)
+                result.append(describe_node(current))
+                node = workflow.get(current)
+                inputs = node.get("inputs") if isinstance(node, dict) else None
+                if not isinstance(inputs, dict):
+                    return
+                # `model` is the actual sampler/model chain; include linked IPAdapter
+                # model inputs while avoiding image and vision side branches.
+                for input_name in ("model", "ipadapter"):
+                    for source in upstream(current, input_name):
+                        walk(source)
+
+            for source in upstream(node_id, "model"):
+                walk(source)
+            if not result:
+                result.append(f"Node {node_id}.model has no node link")
+            if missing:
+                result.append("unresolved link(s): " + ", ".join(missing))
+            return " → ".join(result)
+
+        def is_sampler(node: Any) -> bool:
+            if not isinstance(node, dict):
+                return False
+            inputs = node.get("inputs") if isinstance(node.get("inputs"), dict) else {}
+            return "positive" in inputs and "negative" in inputs and "model" in inputs and (
+                "seed" in inputs or "noise_seed" in inputs or "steps" in inputs
+            )
+
+        samplers = [(str(i), n) for i, n in workflow.items() if is_sampler(n)]
+        model_path_nodes: set[str] = set()
+        relevant_adapter_nodes: set[str] = set()
+        ref_path_lines: list[str] = []
+        for sampler_id, sampler in samplers:
+            stack = list(upstream(sampler_id, "model"))
+            visited: set[str] = set()
+            while stack:
+                current = stack.pop()
+                if current in visited or current.endswith(" (missing node)"):
+                    continue
+                visited.add(current)
+                model_path_nodes.add(current)
+                if any(tag in node_type(current).lower() for tag in ("ipadapter", "faceid", "face_id", "lora")):
+                    relevant_adapter_nodes.add(current)
+                current_node = workflow.get(current)
+                inputs = current_node.get("inputs") if isinstance(current_node, dict) else None
+                if isinstance(inputs, dict):
+                    stack.extend(source for name, value in inputs.items() if name.lower() in {"model", "ipadapter", "lora", "clip_vision", "insightface"} for source in links(value))
+            # Include both direct and chained image inputs on adapter/FaceID nodes.
+            for adapter_id in list(model_path_nodes):
+                adapter = workflow.get(adapter_id)
+                inputs = adapter.get("inputs") if isinstance(adapter, dict) else None
+                if not isinstance(inputs, dict) or not any(tag in node_type(adapter_id).lower() for tag in ("ipadapter", "faceid", "face_id")):
+                    continue
+                for input_name, value in inputs.items():
+                    if any(key in input_name.lower() for key in ("image", "face", "attn_mask", "mask")):
+                        sources = links(value)
+                        if sources:
+                            path, missing = trace_input(adapter_id, input_name)
+                            ref_path_lines.append(f"{describe_node(adapter_id)} input `{input_name}`: " + " → ".join(path) + ("; unresolved: " + ", ".join(missing) if missing else ""))
+                            image_sources: set[str] = set()
+                            pending = list(sources)
+                            seen_images: set[str] = set()
+                            while pending:
+                                current = pending.pop()
+                                if current.endswith(" (missing node)") or current in seen_images:
+                                    continue
+                                seen_images.add(current)
+                                if "loadimage" in node_type(current).lower():
+                                    image_sources.add(current)
+                                current_node = workflow.get(current)
+                                current_inputs = current_node.get("inputs") if isinstance(current_node, dict) else None
+                                if isinstance(current_inputs, dict):
+                                    pending.extend(source for key, linked in current_inputs.items() if any(tag in key.lower() for tag in ("image", "face", "mask")) for source in links(linked))
+                            if image_sources:
+                                ref_path_lines.append(f"{describe_node(adapter_id)} reference-image count: {len(image_sources)} linked LoadImage node(s).")
+
+        checkpoint_nodes = [node_id for node_id in model_path_nodes if any(tag in node_type(node_id).lower() for tag in ("checkpointloader", "checkpoint_loader"))]
+
+        def safe_value(value: Any) -> str:
+            if isinstance(value, list) and len(value) >= 2 and isinstance(value[0], (str, int)) and isinstance(value[1], int):
+                return f"connection to node {value[0]} (output {value[1]})"
+            def redact(item: Any) -> Any:
+                if isinstance(item, str) and item.startswith("data:") and ";base64," in item:
+                    return "[image data omitted]"
+                if isinstance(item, dict):
+                    return {str(key): ("[omitted]" if any(secret in str(key).lower() for secret in ("token", "password", "credential", "api_key", "apikey")) else redact(child)) for key, child in item.items()}
+                if isinstance(item, (list, tuple)):
+                    return [redact(child) for child in item]
+                return item
+            cleaned = redact(value)
+            if isinstance(cleaned, (dict, list, tuple)):
+                return json.dumps(cleaned, ensure_ascii=False, default=str)
+            return str(cleaned)
+
+        def node_parameters(node_id: str, include_all: bool = False) -> list[str]:
+            node = workflow.get(node_id)
+            inputs = node.get("inputs") if isinstance(node, dict) else None
+            if not isinstance(inputs, dict):
+                return []
+            params: list[str] = []
+            for key, value in inputs.items():
+                if any(secret_word in key.lower() for secret_word in ("token", "password", "credential", "api_key", "apikey")):
+                    params.append(f"`{key}`: [omitted]")
+                    continue
+                if not include_all and isinstance(value, list) and len(value) >= 2 and isinstance(value[0], (str, int)) and isinstance(value[1], int):
+                    continue
+                params.append(f"`{key}`: {safe_value(value)}")
+            return params
+
+        def is_negative(item: tuple[str, str, str]) -> bool:
+            return "negative" in item[1].lower()
+
+        def conditioning_text_nodes(sampler_id: str, socket: str) -> list[str]:
+            found: list[str] = []
+            visited: set[str] = set()
+            stack = list(upstream(sampler_id, socket))
+            while stack:
+                current = stack.pop()
+                if current.endswith(" (missing node)") or current in visited:
+                    continue
+                visited.add(current)
+                kind = node_type(current).lower()
+                if "cliptextencode" in kind or kind == "primitivestring":
+                    found.append(current)
+                node = workflow.get(current)
+                inputs = node.get("inputs") if isinstance(node, dict) else None
+                if isinstance(inputs, dict):
+                    for value in inputs.values():
+                        stack.extend(links(value))
+            return found
+
+        # Resolve the prompt headings from sampler socket ancestry where possible;
+        # retain the historical title/order fallback for graphs without samplers.
+        positive_ids: set[str] = set()
+        negative_ids: set[str] = set()
+        for sampler_id, sampler in workflow.items():
+            sampler_inputs = sampler.get("inputs") if isinstance(sampler, dict) else None
+            if isinstance(sampler_inputs, dict) and {"positive", "negative", "model"}.issubset(sampler_inputs):
+                positive_ids.update(conditioning_text_nodes(str(sampler_id), "positive"))
+                negative_ids.update(conditioning_text_nodes(str(sampler_id), "negative"))
+        positive = next((item for item in encoders if item[0] in positive_ids), None)
+        negative = next((item for item in encoders if item[0] in negative_ids and item != positive), None)
+        positive = positive or next((item for item in encoders if not is_negative(item)), None)
+        negative = negative or next((item for item in encoders if is_negative(item)), None)
+        # Preserve all encoder text even when the graph has no useful titles.
+        if positive is None and encoders:
+            positive = encoders[0]
+        if negative is None and len(encoders) > 1:
+            negative = next((item for item in encoders[1:] if item != positive), None)
+
+        lines = [
+            "# HORDE STUDIO — COMFYUI PROMPT INTERCEPTOR",
+            "",
+            f"Timestamp: {now.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} {now.strftime('%Z')}",
+            "",
+            f"Checkpoint: {checkpoint}",
+            "",
+            "## POSITIVE PROMPT" + (f" (node {positive[0]})" if positive else ""),
+            positive[2] if positive else "Not available",
+            "",
+            "## NEGATIVE PROMPT" + (f" (node {negative[0]})" if negative else ""),
+            negative[2] if negative else "Not available",
+            "",
+            "## ADDITIONAL TEXT-CONDITIONING NODES",
+        ]
+        additional = [item for item in encoders if item != positive and item != negative]
+        if additional:
+            for node_id, title, text in additional:
+                lines.extend([f"### Node {node_id}" + (f" — {title}" if title else ""), text, ""])
+        else:
+            lines.append("None")
+        lines.extend(["", "### WORKFLOW CONNECTION TRACE", "", "**Positive conditioning:**"])
+        if samplers:
+            for sampler_id, _ in samplers:
+                lines.append(f"- Sampler {sampler_id}: {display_trace(sampler_id, 'positive')}")
+        else:
+            lines.append("Could not resolve: no sampler node with positive, negative, and model inputs was found.")
+        lines.extend(["", "**Negative conditioning:**"])
+        if samplers:
+            for sampler_id, _ in samplers:
+                lines.append(f"- Sampler {sampler_id}: {display_trace(sampler_id, 'negative')}")
+        else:
+            lines.append("Could not resolve: no sampler node was found.")
+        lines.extend(["", "**Model path:**"])
+        if samplers:
+            for sampler_id, _ in samplers:
+                lines.append(f"- Sampler {sampler_id}: {display_model_trace(sampler_id)}")
+        else:
+            lines.append("Could not resolve: no sampler node was found.")
+        lines.extend(["", "**Reference-image path:**"])
+        lines.extend(f"- {line}" for line in dict.fromkeys(ref_path_lines))
+        if not ref_path_lines:
+            lines.append("No linked image or mask input was found on a FaceID/IPAdapter node on a sampler model path.")
+        lines.extend(["", "### FACEID / IPADAPTER SETTINGS", ""])
+        if relevant_adapter_nodes:
+            for node_id in sorted(relevant_adapter_nodes, key=lambda value: (not value.isdigit(), int(value) if value.isdigit() else value)):
+                lines.append(f"- {describe_node(node_id)}")
+                params = node_parameters(node_id, include_all=True)
+                lines.extend(f"  - {param}" for param in params)
+                if not params:
+                    lines.append("  - No submitted inputs available.")
+        else:
+            lines.append("No FaceID or IPAdapter nodes were found on a sampler model path.")
+        lines.extend(["", "### SAMPLER SETTINGS", ""])
+        if samplers:
+            for sampler_id, sampler in samplers:
+                inputs = sampler.get("inputs", {})
+                lines.append(f"#### {describe_node(sampler_id)}")
+                aliases = [("Seed", ("seed", "noise_seed")), ("Steps", ("steps",)), ("CFG", ("cfg", "cfg_scale")), ("Sampler name", ("sampler_name",)), ("Scheduler", ("scheduler",)), ("Denoise", ("denoise",))]
+                for label, names in aliases:
+                    found = next((name for name in names if name in inputs), None)
+                    if found:
+                        lines.append(f"- {label}: {safe_value(inputs[found])}")
+                for input_name in ("positive", "negative", "model"):
+                    source_trace = display_model_trace(sampler_id) if input_name == "model" else display_trace(sampler_id, input_name)
+                    lines.append(f"- {input_name.title()} source: {source_trace}")
+                for input_name in ("latent_image", "samples"):
+                    if input_name in inputs:
+                        lines.append(f"- Image dimensions source: {display_trace(sampler_id, input_name)}")
+                        latent_sources = upstream(sampler_id, input_name)
+                        for source in latent_sources:
+                            source_node = workflow.get(source)
+                            source_inputs = source_node.get("inputs", {}) if isinstance(source_node, dict) else {}
+                            for dim in ("width", "height", "batch_size"):
+                                if dim in source_inputs:
+                                    lines.append(f"- {dim.title()}: {safe_value(source_inputs[dim])} (node {source})")
+                lines.append("")
+        else:
+            lines.append("Could not resolve sampler settings: no sampler node found.")
+        lines.extend(["### DIAGNOSTIC OBSERVATIONS", ""])
+        if samplers:
+            for sampler_id, _ in samplers:
+                lines.append(f"- Sampler {sampler_id} positive conditioning is {'connected' if upstream(sampler_id, 'positive') else 'not connected'}.")
+                lines.append(f"- Sampler {sampler_id} negative conditioning is {'connected' if upstream(sampler_id, 'negative') else 'not connected'}.")
+                if "has no node link" in display_model_trace(sampler_id) or "unresolved link(s)" in display_model_trace(sampler_id):
+                    lines.append(f"- Sampler {sampler_id} model path could not be resolved.")
+            if any("faceid" in node_type(node_id).lower() or "face_id" in node_type(node_id).lower() for node_id in relevant_adapter_nodes):
+                lines.append("- FaceID is present on a sampler model path.")
+            if any("ipadapter" in node_type(node_id).lower() for node_id in relevant_adapter_nodes):
+                lines.append("- IPAdapter is present on a sampler model path.")
+            if any("lora" in node_type(node_id).lower() for node_id in model_path_nodes):
+                lines.append("- LoRA is present on a sampler model path.")
+        else:
+            lines.append("- Sampler connections could not be resolved because no sampler node was found.")
+        if checkpoint_nodes:
+            lines.append("- Checkpoint loader is present on the sampler model path.")
+        elif samplers:
+            lines.append("- Checkpoint loader could not be resolved on the sampler model path.")
+        content = "\n".join(lines).rstrip() + "\n"
+        path = output_dir / f"{base}_ComfyUI.md"
+        suffix = 1
+        while path.exists():
+            path = output_dir / f"{base}-{suffix}_ComfyUI.md"
+            suffix += 1
+        path.write_text(content, encoding="utf-8", newline="\n")
+    except Exception:
+        # Prompt logging must never block image generation.
+        pass
+
+
 def comfy_generate(body: dict[str, Any]) -> str:
     base = loopback_base_url(body.get("baseUrl"), 8188)
     workflow = body.get("workflow")
@@ -3557,6 +3939,7 @@ def comfy_generate(body: dict[str, Any]) -> str:
         filename='/'.join(part for part in [uploaded.get('subfolder',''),uploaded['name']] if part)
         set_workflow_input(workflow,node,reference_input,filename)
 
+    log_comfy_submission(workflow)
     status, _, result = json_request(base + "/prompt", "POST", payload={"prompt": workflow}, timeout=60)
     if not 200 <= status < 300 or not result.get("prompt_id"):
         detail = result.get("error") or result.get("node_errors") or result
@@ -3692,7 +4075,8 @@ class MultiplayerHandler(BaseHTTPRequestHandler):
             self.respond(404, {"error": "Application asset not found."})
             return True
         self.send_response(200)
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Type", content_type if content_type == "application/zip"
+                         else f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
@@ -3921,7 +4305,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if not_modified:
             self.end_headers()
             return
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Content-Type", content_type if content_type == "application/zip"
+                         else f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(metadata.st_size))
         self.end_headers()
         try:
@@ -4218,6 +4603,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
             parsed_path = urllib.parse.urlparse(self.path).path
             if not self.remote_surface_allowed(parsed_path):
                 return
+            if parsed_path.startswith("/world-bgm/assets/") or parsed_path.startswith("/world-bgm/delete/"):
+                if not self.client_is_loopback():
+                    return self.respond(403, {"error": "BGM files can be changed only on this device."})
+                origin = self.headers.get("Origin", "")
+                if origin and urllib.parse.urlparse(origin).netloc != self.headers.get("Host", ""):
+                    return self.respond(403, {"error": "BGM changes require the local app origin."})
+                saving = parsed_path.startswith("/world-bgm/assets/")
+                prefix = "/world-bgm/assets/" if saving else "/world-bgm/delete/"
+                name = bgm_asset_name(parsed_path, prefix)
+                target = BGM_ASSET_DIR / name
+                if saving:
+                    length = int(self.headers.get("Content-Length", "0"))
+                    if not 0 < length <= 100 * 1024 * 1024:
+                        raise ValueError("Choose an audio file smaller than 100 MB.")
+                    audio = self.rfile.read(length)
+                    if len(audio) != length:
+                        raise ValueError("The audio upload was incomplete.")
+                    BGM_ASSET_DIR.mkdir(parents=True, exist_ok=True)
+                    try:
+                        with target.open("xb") as output:
+                            output.write(audio)
+                    except FileExistsError:
+                        return self.respond(409, {"error": "A BGM file with this name already exists."})
+                    except Exception:
+                        target.unlink(missing_ok=True)
+                        raise
+                    return self.respond(201, {"src": f"assets/bgm/{name}"})
+                try:
+                    target.unlink()
+                except FileNotFoundError:
+                    return self.respond(404, {"error": "BGM file not found."})
+                return self.respond(200, {"deleted": f"assets/bgm/{name}"})
             if parsed_path == "/vh2/mirror":
                 if REMOTE_VH2_MODE or not self.client_is_loopback():
                     return self.respond(403,{"error":"Local mirrors can be updated only on this device."})

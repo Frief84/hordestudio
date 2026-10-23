@@ -4,6 +4,8 @@ import sys, tempfile, unittest, uuid, json, threading, sqlite3
 from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0,str(Path(__file__).resolve().parent))
+from test_runtime import node_executable
 from virtual_humans.backend.vh2_runtime import WorldService, Conflict, encode, QUANTUM
 from virtual_humans.backend.vh2_dialogue import LEASE_MS
 from virtual_humans.backend import vh2_workers
@@ -122,10 +124,10 @@ class Dialogue(unittest.TestCase):
         entry=self.state()['truth']['companion']['vh2Assets']['entries'][0]
         self.cmd('review_bible_asset',entryId=entry['id'],status='approved')
         vh2_workers.settings(self.s,dict(scope='horde:alex',provider='magnific',tool='fixture.generate',
-            enabled=True,model='fixture/image',dailyLimit=2,maxReferences=10))
+            enabled=True,model='fixture/image',dailyLimit=100,explicitDailyLimit=100,maxReferences=10))
 
     def test_photo_action_queues_real_image_and_delivers_after_provider_result(self):
-        self.enable_dialogue_photos();self.queue();job=self.s.dialogue.claim()
+        self.enable_dialogue_photos();self.cmd('set_running',running=True);self.queue();job=self.s.dialogue.claim()
         self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['enabled'])
         output=json.dumps({'reply':'One sec—I’ll take one now.','photoAction':{
             'decision':'send','scene':'A casual front-camera selfie at the recorded location.',
@@ -136,7 +138,7 @@ class Dialogue(unittest.TestCase):
         self.assertEqual(state['communication']['messages'][-1]['text'],'One sec—I’ll take one now.')
         with self.s.connect() as db:
             queued=json.loads(db.execute('SELECT snapshot FROM vh2_provider_jobs WHERE id=?',('image:'+photo['id'],)).fetchone()[0])
-        self.assertEqual((queued['automatic'],queued['purpose']),(True,'dialogue'))
+        self.assertEqual((queued['automatic'],queued['explicitRequest'],queued['purpose']),(True,False,'dialogue'))
         self.s.image_executor=lambda *args:PNG;self.cmd('set_running',running=True)
         for _ in range(20):
             vh2_workers.poll(self.s)
@@ -149,11 +151,167 @@ class Dialogue(unittest.TestCase):
         self.queue();job=self.s.dialogue.claim()
         self.assertFalse(job['snapshot']['context']['mediaActions']['photo']['enabled'])
         output=json.dumps({'reply':'Sent it.','photoAction':{'decision':'send','scene':'A selfie','captureType':'front_camera_selfie'}})
-        self.assertFalse(self.s.dialogue.finish(job['id'],job['token'],output))
-        self.assertEqual(self.status(),'failed')
-        self.assertFalse(any(message.get('role')=='assistant' for message in self.state()['communication']['messages']))
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],output))
+        self.assertEqual(self.status(),'delivered')
+        self.assertTrue(any(message.get('role')=='assistant' for message in self.state()['communication']['messages']))
         self.assertEqual([],vh2_workers.status(self.s,self.w))
 
+
+    def test_explicit_requests_are_queued_independently_of_model_action(self):
+        self.enable_dialogue_photos();self.cmd('receive_message',text='Send me a selfie.');self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['explicitRequest'])
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],json.dumps({'reply':'Sure, give me a second.'})))
+        state=self.state();photo=state['photos'][-1]
+        with self.s.connect() as db:queued=json.loads(db.execute('SELECT snapshot FROM vh2_provider_jobs WHERE id=?',('image:'+photo['id'],)).fetchone()[0])
+        self.assertEqual((queued['automatic'],queued['explicitRequest']), (False,True))
+        self.assertEqual(state['communication']['messages'][-1]['text'],'Sure, give me a second.')
+
+    def test_explicit_scene_text_wins_over_model_rewritten_photo_action(self):
+        # Resolve the setup message so the request scene contains only this
+        # turn, as it would in an already-established chat.
+        self.queue();setup_job=self.s.dialogue.claim()
+        self.assertTrue(self.s.dialogue.finish(setup_job['id'],setup_job['token'],json.dumps({'reply':'Nice.'})))
+        self.enable_dialogue_photos()
+        scene=('Sammie, send me a natural, photorealistic picture of yourself sitting on the edge '
+               'of your bed, topless, with your chest completely bare. No shirt, no bra, no clothing '
+               'covering your upper body. Frame the photo from your head to your waist, with soft '
+               'natural bedroom lighting.')
+        self.cmd('receive_message',text=scene);self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        action={'reply':'Sure, give me a second.','photoAction':{
+            'decision':'send','scene':'A tasteful bedroom selfie wearing a white camisole.',
+            'captureType':'front_camera_selfie'}}
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],json.dumps(action)))
+        photo=self.state()['photos'][-1]
+        with self.s.connect() as db:
+            snapshot=json.loads(db.execute('SELECT snapshot FROM photo_jobs WHERE id=?',(photo['id'],)).fetchone()[0])
+            queued=json.loads(db.execute('SELECT snapshot FROM vh2_provider_jobs WHERE id=?',('image:'+photo['id'],)).fetchone()[0])
+        self.assertEqual(snapshot['scene'],scene)
+        self.assertIn(scene,queued['request']['prompt'])
+        self.assertNotIn('white camisole',queued['request']['prompt'])
+
+    def test_request_only_keeps_explicit_requests_and_blocks_unsolicited_actions(self):
+        self.enable_dialogue_photos();c=self.state()['truth']['companion'];self.cmd('configure_expression_profile',fields={'photoBehaviorMode':'request_only'})
+        self.queue();job=self.s.dialogue.claim();self.assertFalse(job['snapshot']['context']['mediaActions']['photo']['spontaneousEnabled'])
+        output=json.dumps({'reply':'Just chatting.','photoAction':{'decision':'send','scene':'At home','captureType':'front_camera_selfie'}})
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],output));self.assertFalse(self.state().get('photos',[]))
+        self.cmd('receive_message',text='Send me another photo.');self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['explicitRequest'])
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],json.dumps({'reply':'Of course.'})))
+
+    def test_photo_intent_avoids_discussion_and_negation(self):
+        from virtual_humans.backend.vh2_photo_intent import classify
+        self.assertEqual(classify('Send me a selfie.'),'explicit')
+        self.assertEqual(classify("Show me what you're wearing."),'explicit')
+        self.assertEqual(classify('Take a picture of yourself sitting on the couch.'),'explicit')
+        self.assertEqual(classify('Do you take photos?'),'none')
+        self.assertEqual(classify("Don't send me a photo."),'none')
+        self.assertEqual(classify('Photos are nice.'),'ambiguous')
+        self.assertEqual(classify('Can I see another angle?',True),'explicit')
+        request=('Sammie, send me a natural, photorealistic picture of yourself sitting on the edge '
+                 'of your bed, topless, with your chest completely bare. No shirt, no bra, no clothing '
+                 'covering your upper body. Frame the photo from your head to your waist, with soft '
+                 'natural bedroom lighting.')
+        self.assertEqual(classify(request),'explicit')
+
+    def test_photo_allowances_default_to_100_and_explicit_budget_is_separate(self):
+        self.enable_dialogue_photos()
+        with self.s.connect() as db:
+            config=json.loads(vh2_workers.current(db,'horde:alex')['config'])
+            self.assertEqual((config['dailyLimit'],config['explicitDailyLimit']),(100,100))
+            self.assertEqual(vh2_workers.autonomous_budget(db,'horde:alex',config,self.now)['remaining'],100)
+            self.assertEqual(vh2_workers.explicit_budget(db,'horde:alex',config,self.now)['remaining'],100)
+
+    def test_older_settings_client_preserves_both_saved_caps(self):
+        self.enable_dialogue_photos()
+        vh2_workers.settings(self.s,dict(scope='horde:alex',enabled=True,model='fixture/image',apiKey='OFFLINE_TEST_KEY',dailyLimit=3,explicitDailyLimit=7))
+        saved=vh2_workers.settings(self.s,dict(scope='horde:alex',enabled=False,model='fixture/image'))
+        self.assertEqual((saved['dailyLimit'],saved['explicitDailyLimit']),(3,7))
+        self.assertTrue(saved['hasKey'])
+
+    def test_photo_queue_race_cannot_deliver_a_false_promise(self):
+        from unittest import mock
+        self.enable_dialogue_photos()
+        self.cmd('receive_message',text='Send me a photo.')
+        self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        before=self.state().get('photos',[])
+        with mock.patch.object(vh2_workers,'queue_image',side_effect=ValueError('Settings changed')):
+            accepted=self.s.dialogue.finish(job['id'],job['token'],json.dumps({'reply':"I will send it now."}))
+        self.assertFalse(accepted)
+        self.assertEqual(self.state().get('photos',[]),before)
+        self.assertNotIn('I will send it now.',str(self.state()['communication']['messages']))
+
+    def test_wide_chat_photo_uses_personal_photograph_end_to_end(self):
+        self.enable_dialogue_photos()
+        self.cmd('receive_message',text='Send me a wide candid photo in the garden wearing a red coat.')
+        self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],json.dumps({'reply':'Give me a moment.'})))
+        self.assertEqual(self.state()['photos'][-1]['captureType'],'personal_photograph')
+        with self.s.connect() as db:
+            frozen=json.loads(db.execute("SELECT snapshot FROM vh2_provider_jobs WHERE kind='image' ORDER BY rowid DESC LIMIT 1").fetchone()[0])
+        self.assertTrue(frozen['explicitRequest']);self.assertFalse(frozen['automatic'])
+        self.assertNotIn('arm length',frozen['request']['prompt'])
+
+    def test_quota_exhaustion_keeps_explicit_chat_reply_and_resets_at_midnight(self):
+        self.enable_dialogue_photos();self.cmd('receive_message',text='Send me a selfie.');self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        with self.s.connect() as db:
+            db.execute('BEGIN IMMEDIATE');revision,state=self.s.read(db,self.w);before=json.loads(encode(state));photo=state.setdefault('photos',[])
+            # Reserve the configured allowance using already-attempted isolated jobs.
+            cfg=json.loads(vh2_workers.current(db,'horde:alex')['config']);day=self.now//86400000*86400000
+            for i in range(cfg['explicitDailyLimit']):
+                db.execute('INSERT INTO vh2_provider_jobs VALUES (?,?,?,?,?,?,?,?,?,?)',(f'quota:{i}',self.w,'image','failed',encode({'scope':'horde:alex','explicitRequest':True,'automatic':False}),None,'mock failure',day+i,None,day+i))
+            self.s.commit_event(db,self.w,revision,before,state,'TEST_QUOTA_EXHAUSTED')
+        # Rebuild the snapshot after the isolated quota reservations.
+        self.s.dialogue.finish(job['id'],job['token'],'{"reply":"I can’t send one right now, but we can keep talking."}')
+        self.assertTrue(any(m.get('role')=='assistant' and 'keep talking' in m.get('text','') for m in self.state()['communication']['messages']))
+        with self.s.connect() as db:
+            cfg=json.loads(vh2_workers.current(db,'horde:alex')['config']);self.now=(self.now//86400000+1)*86400000
+            self.assertEqual(vh2_workers.explicit_budget(db,'horde:alex',cfg,self.now)['remaining'],cfg['explicitDailyLimit'])
+
+    def test_five_and_ten_repeated_explicit_requests_stay_queueable(self):
+        self.enable_dialogue_photos()
+        for total in (5,10):
+            for i in range(total):
+                self.cmd('receive_message',text=f'Send me a selfie, attempt {total}-{i}.');self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+                self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['explicitAvailable'])
+                self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],json.dumps({'reply':'Sure.'})))
+                with self.s.connect() as db:
+                    row=db.execute("SELECT snapshot FROM vh2_provider_jobs WHERE kind='image' AND json_extract(snapshot,'$.explicitRequest')=1 ORDER BY created_at DESC LIMIT 1").fetchone()
+                    if row:
+                        sid=json.loads(row['snapshot'])['photoId'];db.execute("UPDATE vh2_provider_jobs SET status='failed',error='fixture result' WHERE id=?",('image:'+sid,))
+                # Close terminal test captures so the next chat request can proceed.
+                with self.s.connect() as db:
+                    db.execute('BEGIN IMMEDIATE');revision,state=self.s.read(db,self.w);before=json.loads(encode(state))
+                    for p in state.get('photos',[]):
+                        if p.get('status')=='submitted':p['status']='failed'
+                    self.s.commit_event(db,self.w,revision,before,state,'TEST_TERMINAL_PHOTO')
+            if total==5:continue
+        self.assertEqual(len([p for p in self.state().get('photos',[]) if p.get('status')=='failed']),15)
+
+    def test_natural_mode_allows_spontaneous_and_persists(self):
+        self.enable_dialogue_photos()
+        self.cmd('configure_expression_profile',fields={'photoBehaviorMode':'natural'})
+        self.assertEqual(self.state()['truth']['companion']['photoBehaviorMode'],'natural')
+        self.queue();job=self.s.dialogue.claim()
+        self.assertEqual(job['snapshot']['context']['mediaActions']['photo']['mode'],'natural')
+        self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['spontaneousEnabled'])
+        output=json.dumps({'reply':'I caught the sunset.','photoAction':{'decision':'send','scene':'A casual view of the sunset.','captureType':'front_camera_selfie'}})
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],output))
+        self.assertEqual(self.state()['communication']['messages'][-1]['text'],'I caught the sunset.')
+        self.s.close();self.s=self.open()
+        self.assertEqual(self.state()['truth']['companion']['photoBehaviorMode'],'natural')
+
+    def test_photo_friendly_allows_spontaneous_and_request_only_ignores_them(self):
+        self.enable_dialogue_photos();self.cmd('configure_expression_profile',fields={'photoBehaviorMode':'photo_friendly'})
+        self.queue();job=self.s.dialogue.claim();self.assertTrue(job['snapshot']['context']['mediaActions']['photo']['spontaneousEnabled'])
+        output=json.dumps({'reply':'I have a nice view from here.','photoAction':{'decision':'send','scene':'The character shares the view from the window.','captureType':'front_camera_selfie'}})
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],output));self.assertEqual(len(self.state().get('photos',[])),1)
+        with self.s.connect() as db:
+            row=db.execute("SELECT id FROM vh2_provider_jobs WHERE kind='image' ORDER BY created_at DESC LIMIT 1").fetchone();db.execute("UPDATE vh2_provider_jobs SET status='failed' WHERE id=?",(row['id'],))
+            db.commit();db.execute('BEGIN IMMEDIATE');revision,state=self.s.read(db,self.w);before=json.loads(encode(state));state['photos'][-1]['status']='failed';self.s.commit_event(db,self.w,revision,before,state,'TEST_TERMINAL')
+        self.cmd('configure_expression_profile',fields={'photoBehaviorMode':'request_only'});self.cmd('receive_message',text='Tell me what you think of this weather.');self.cmd('advance',steps=1);self.queue();job=self.s.dialogue.claim()
+        self.assertFalse(job['snapshot']['context']['mediaActions']['photo']['spontaneousEnabled'])
+        out=json.dumps({'reply':'Just a little cloudy.','photoAction':{'decision':'send','scene':'Unsolicited image.','captureType':'front_camera_selfie'}})
+        self.assertTrue(self.s.dialogue.finish(job['id'],job['token'],out));self.assertEqual(len(self.state().get('photos',[])),1)
     def test_wrapped_json_with_trailing_text_is_rejected(self):
         self.queue();job=self.s.dialogue.claim()
         output='```json\n'+json.dumps({'reply':'Yep.','appraisals':[]})+'\n```\nExtra commentary'

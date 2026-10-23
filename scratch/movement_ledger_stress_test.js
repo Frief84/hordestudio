@@ -118,7 +118,7 @@ const composedSource = [
     functionNames.map(name => `this.${name} = ${name};`).join('\n')
 ].join('\n');
 try {
-    vm.runInContext(composedSource, context);
+    require('./app_source').buildContext(vm, functionNames, context);
 } catch (error) {
     const line = Number(String(error.stack || '').match(/evalmachine.<anonymous>:(\d+)/)?.[1]) || 1;
     console.error(composedSource.split('\n').slice(Math.max(0, line - 8), line + 5).join('\n'));

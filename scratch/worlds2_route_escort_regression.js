@@ -7,6 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { app, buildContext } = require('./app_source.js');
+const worldLore = require('../assets/worlds/world-lore.js');
 
 const world = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
     'worlds2-rpg-live.horde_world'), 'utf8'));
@@ -22,6 +23,11 @@ reverseExit.allowCheckUnlock = true;
 const ctx = buildContext(vm, [
     'extractUserMovementTarget', 'resolveWorldMovementTarget',
     'worldExitRequirement', 'findWorldTravelPath', 'movePlayerAlongWorldPath',
+    'requestedWorldTravelCompanionIds', 'userRequestsWorldDoorRelock',
+    'worldDraggedCompanionIntent', 'worldPlayerWithCompanionIntent',
+    'applyPlayerKeyDoorOpening', 'applyPlayerKeyDoorAction', 'worldDoorOpeningContext',
+    'sessionLocations',
+    'worldActionResolutionFailures',
     'applyWorldExitUnlocks',
     'validateWorldTurnReceipt', 'applyWorldEntityPatches'
 ], {
@@ -50,6 +56,98 @@ for (const [from, input, expected] of phrases) {
 }
 assert.equal(ctx.extractUserMovementTarget('I tell Tomas to follow the mapped causeway.'), '',
     'ordering someone else to move must not move the player');
+const directEscortInput = 'You take Cassy with you into the round room, unlock the door, and lock it again behind you';
+const directEscortTarget = ctx.extractUserMovementTarget(directEscortInput);
+assert.equal(directEscortTarget, 'the round room',
+    'a direct second-person player action must identify the mapped destination');
+assert.equal(ctx.extractUserMovementTarget('You take Cassy with you.'), '',
+    'taking somebody along without a destination must not authorize a move');
+assert.equal(ctx.extractUserMovementTarget('"You take Cassy with you into the round room," she says.'), '',
+    'quoted dialogue must not become player movement');
+assert.equal(ctx.userRequestsWorldDoorRelock(directEscortInput), true);
+assert.equal(ctx.userRequestsWorldDoorRelock('You take Cassy into the round room and unlock the door.'), false);
+assert.equal(ctx.userRequestsWorldDoorRelock('You do not lock it again behind you.'), false);
+assert.equal(ctx.extractUserMovementTarget('YouYou grab Linda and drag her to the Round Room'), 'the Round Room',
+    'dragging a named companion to a mapped room is a player movement intent');
+assert.equal(ctx.extractUserMovementTarget('YouYou gab Linda and drag her to the round room'), 'the round room');
+assert.equal(ctx.extractUserMovementTarget('YYouYou gab Linda and drag her to the round room'), 'the round room',
+    'an accidental doubled player pronoun must not hide an otherwise explicit move');
+assert.equal(ctx.extractUserMovementTarget('You take Linda by the arm and drag her to the Round Room'), 'the Round Room',
+    'taking a companion by the arm before dragging must resolve to the destination');
+const grabLeadInput = '**Youyou grab Linda by the arm and lead her to the Hexagonal Room**';
+assert.equal(ctx.extractUserMovementTarget(grabLeadInput), 'the Hexagonal Room',
+    'grabbing a companion by the arm and leading her must resolve to the destination');
+const grabLeadIntent = ctx.worldDraggedCompanionIntent(grabLeadInput);
+assert.equal(grabLeadIntent?.index, 0);
+assert.equal(grabLeadIntent?.person, 'Linda');
+assert.equal(grabLeadIntent?.target, 'the Hexagonal Room');
+assert.equal(ctx.extractUserMovementTarget('You grab Linda by the arm and lead her'), '',
+    'leading a companion without an explicit destination must not authorize movement');
+assert.equal(ctx.extractUserMovementTarget('YYouyou go with Linda to the Round room'), 'the Round room',
+    'going with a named companion must identify the destination');
+assert.equal(ctx.extractUserMovementTarget('You\nyou take linda to the round room'), 'the round room',
+    'a line-broken repeated pronoun and direct take command must move toward the named room');
+assert.equal(ctx.extractUserMovementTarget('You take Linda to the Round Room'), 'the Round Room');
+assert.equal(ctx.extractUserMovementTarget('I take the key through the Round Room'), 'the Round Room',
+    'carrying an item must still allow the player to travel alone');
+assert.equal(ctx.extractUserMovementTarget('I go into Cell 2'), 'Cell 2');
+assert.equal(ctx.extractUserMovementTarget('YouI go into Cell 2'), 'Cell 2',
+    'a concatenated story speaker label must not hide a first-person travel command');
+const numberedRooms = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [{ targetLocationId: 'cell_2', travelTime: 1 }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [{ targetLocationId: 'corridor', travelTime: 1 }] }
+], entities: [] };
+const numberedSession = { playerLocation: 'corridor', inventory: [], entityStates: {} };
+const numberedPhrase = ctx.extractUserMovementTarget('I go into Cell 2');
+const numberedTarget = ctx.resolveWorldMovementTarget(numberedRooms, 'corridor', numberedPhrase, true, numberedSession);
+assert.equal(numberedTarget?.id, 'cell_2');
+assert.equal(ctx.movePlayerAlongWorldPath(numberedRooms, numberedSession, numberedTarget).ok, true);
+assert.equal(numberedSession.playerLocation, 'cell_2');
+const asymmetricDoor = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [
+        { targetLocationId: 'cell_2', lockState: 'locked', travelTime: 1 }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [
+        { targetLocationId: 'corridor', requiredItem: 'Cell key', lockState: 'locked', travelTime: 1 }] }
+], entities: [] };
+const keyedSession = { id: 'keyed_route', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {} };
+const projected = { ...asymmetricDoor, locations: ctx.sessionLocations(asymmetricDoor, keyedSession) };
+assert.equal(asymmetricDoor.locations[0].exits[0].requiredItem, 'Cell key',
+    'legacy one-sided key metadata is reconciled on the authored doorway');
+assert.equal(projected.locations[0].exits[0], asymmetricDoor.locations[0].exits[0],
+    'a session view must reuse the authored exit object');
+assert.equal(asymmetricDoor.locations[0].exits[0].doorId,
+    asymmetricDoor.locations[1].exits[0].doorId,
+    'both directions must point to one door id');
+const noKeySession = { id: 'no_key', playerLocation: 'corridor', inventory: [], entityStates: {} };
+assert.equal(ctx.resolveWorldMovementTarget(projected, 'corridor', 'Cell 2', true, noKeySession), null,
+    'the reciprocal key projection must not grant access without the item');
+assert.equal(ctx.resolveWorldMovementTarget(projected, 'corridor', 'Cell 2', true, keyedSession)?.id, 'cell_2');
+assert.equal(ctx.movePlayerAlongWorldPath(projected, keyedSession, projected.locations[1]).ok, true);
+assert.equal(keyedSession.playerLocation, 'cell_2');
+const companionPhrases = [
+    ['I go with Linda to the Round Room', 'the Round Room'],
+    ['I go with Linda by the hand into the Round Room', 'the Round Room'],
+    ['I take Linda by the hand and walk to the Round Room', 'the Round Room'],
+    ['Linda follows me into the Round Room', 'the Round Room'],
+    ['I go to the Round Room and Linda follows me', 'the Round Room'],
+    ['I go to the Round Room. Linda follows me.', 'the Round Room'],
+    ['Ich gehe mit Linda in den Round Room', 'den Round Room'],
+    ['Ich gehe mit Linda an der Hand in den Round Room', 'den Round Room'],
+    ['Ich nehme Linda an der Hand und gehe in den Round Room', 'den Round Room'],
+    ['Linda folgt mir in den Round Room', 'den Round Room']
+];
+for (const [input, target] of companionPhrases) {
+    assert.equal(ctx.extractUserMovementTarget(input), target, input);
+    assert.equal(ctx.worldPlayerWithCompanionIntent(input)?.target, target, input);
+}
+assert.equal(ctx.extractUserMovementTarget('Linda follows me.'), '',
+    'following without a named destination does not invent a room change');
+assert.equal(ctx.worldPlayerWithCompanionIntent('Linda follows Cassy into the Round Room'), null,
+    'one NPC following another must not move the player');
+assert.equal(ctx.extractUserMovementTarget('I drag Linda into the Round Room'), 'the Round Room');
+assert.equal(ctx.worldDraggedCompanionIntent('Linda drags Cassy to the Round Room'), null,
+    'an NPC action must not be misread as player movement');
 
 const session = { id: 'route_test', playerLocation: 'gate', inventory: [],
     entityStates: { tomas: { location: 'gate', followingPlayer: true } }, turnCount: 8 };
@@ -93,6 +191,220 @@ assert.equal(ctx.worldExitRequirement(keyOnlySession, guardedExit, 'gate').ok, f
 keyOnlySession.inventory.push({ name: 'brass tower key', quantity: 1 });
 assert.equal(ctx.worldExitRequirement(keyOnlySession, guardedExit, 'gate').ok, true,
     'the explicitly authored key still permits travel');
+const accompaniedWorld = structuredClone(world);
+accompaniedWorld.locations.find(location => location.id === 'cellar').name = 'Round Room';
+accompaniedWorld.entities.push({ id: 'cassy', type: 'npc', name: 'Cassy' });
+accompaniedWorld.entities.push({ id: 'linda', type: 'npc', name: 'Linda' });
+const unkeyedCompanionSession = { id: 'unkeyed_companion', playerLocation: 'gate', inventory: [],
+    entityStates: { cassy: { location: 'gate' } }, turnCount: 8 };
+assert.equal(ctx.movePlayerAlongWorldPath(accompaniedWorld, unkeyedCompanionSession,
+    accompaniedWorld.locations.find(location => location.id === 'cellar'),
+    { companionIds: ['cassy'] }).ok, false,
+    'taking a companion must not bypass the locked route when the player lacks its key');
+assert.equal(unkeyedCompanionSession.entityStates.cassy.location, 'gate');
+const accompaniedSession = { id: 'keyed_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { cassy: { location: 'gate', followingPlayer: false } }, turnCount: 8 };
+const accompaniedIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, accompaniedSession, directEscortInput);
+assert.deepEqual(Array.from(accompaniedIds), ['cassy']);
+const accompaniedTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate', directEscortTarget, true, accompaniedSession);
+assert.equal(accompaniedTarget?.id, 'cellar');
+ctx.globalThis.HordeWorldLore = {
+    access: () => ({ ok: false, reason: 'authored denial' }),
+    placeAwareness: () => ({ known: false }),
+    rememberPlace: () => {}
+};
+const accompaniedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, accompaniedSession, accompaniedTarget,
+    { companionIds: accompaniedIds, relockLastDoor: ctx.userRequestsWorldDoorRelock(directEscortInput) });
+assert.equal(accompaniedMove.ok, true);
+assert.equal(accompaniedMove.relocked, true, 'the explicitly requested final step re-locks the door');
+assert.deepEqual(Array.from(accompaniedMove.doorChanges, change => change.action), ['unlocked', 'relocked']);
+assert.equal(accompaniedSession.unlockedExits?.['gate::cellar'], undefined);
+assert.equal(accompaniedSession.unlockedExits?.['cellar::gate'], undefined);
+assert.equal(worldLore.exitLock(guardedExit, accompaniedSession, 'gate', 'cellar').currentState, 'locked',
+    'World Lore must show the final closed state after re-locking');
+assert.equal(accompaniedSession.playerLocation, 'cellar');
+assert.equal(accompaniedSession.entityStates.cassy.location, 'cellar',
+    'a named companion passes through the door opened by the player key');
+assert.equal(accompaniedSession.entityStates.cassy.followingPlayer, false,
+    'one escorted move does not silently create a durable escort agreement');
+const openDoorSession = { id: 'door_left_open', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { cassy: { location: 'gate' } }, turnCount: 8 };
+const openDoorMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, openDoorSession, accompaniedTarget,
+    { companionIds: ['cassy'] });
+assert.equal(openDoorMove.ok, true);
+assert.equal(openDoorMove.relocked, false);
+assert.deepEqual(Array.from(openDoorMove.doorChanges, change => change.action), ['unlocked']);
+assert.equal(openDoorSession.unlockedExits['gate::cellar'], true,
+    'without a re-lock instruction, the traversed keyed door remains open');
+assert.equal(openDoorSession.unlockedExits['cellar::gate'], true,
+    'the two directions of one physical door have the same state');
+assert.equal(worldLore.exitLock(guardedExit, openDoorSession, 'gate', 'cellar').currentState, 'unlocked',
+    'World Lore must show a key-opened door when the player omits re-locking');
+openDoorSession.inventory = [];
+assert.equal(ctx.worldExitRequirement(openDoorSession, reverseExit, 'cellar').ok, true,
+    'an opened key-only door can be used without a second key until it is re-locked');
+const keyDoorSession = { id: 'door_only', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }], entityStates: {}, turnCount: 8 };
+const keyDoor = ctx.applyPlayerKeyDoorOpening(accompaniedWorld, keyDoorSession,
+    'YouYou open the door to the ROund room');
+assert.equal(keyDoor.committed, true);
+assert.equal(keyDoor.changed, true);
+assert.equal(keyDoorSession.playerLocation, 'gate', 'opening the door alone must not move the player');
+assert.equal(keyDoorSession.unlockedExits['gate::cellar'], true);
+assert.equal(keyDoorSession.unlockedExits['cellar::gate'], true);
+assert.match(ctx.worldDoorOpeningContext(keyDoor), /player remains at gate/i);
+const lockFromOutside = ctx.applyPlayerKeyDoorAction(accompaniedWorld, keyDoorSession,
+    'YouYou lock the door of the Round Room');
+assert.equal(lockFromOutside.committed, true);
+assert.equal(lockFromOutside.changed, true);
+assert.equal(keyDoorSession.unlockedExits['gate::cellar'], undefined);
+assert.equal(keyDoorSession.unlockedExits['cellar::gate'], undefined);
+assert.equal(ctx.worldExitRequirement(keyDoorSession, guardedExit, 'gate').unlocked, false,
+    'a carried key grants passage but does not make a relocked door appear open');
+assert.match(ctx.worldDoorOpeningContext(lockFromOutside), /player locked the mapped door/i);
+const lockFromInsideSession = { id: 'lock_inside', playerLocation: 'cellar',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    unlockedExits: { 'gate::cellar': true, 'cellar::gate': true } };
+const lockFromInside = ctx.applyPlayerKeyDoorAction(accompaniedWorld, lockFromInsideSession,
+    'Youyou lock the door of the Round Room');
+assert.equal(lockFromInside.committed, true,
+    'the current room name can identify its single lockable doorway');
+assert.equal(lockFromInsideSession.unlockedExits['gate::cellar'], undefined);
+assert.equal(lockFromInsideSession.unlockedExits['cellar::gate'], undefined);
+assert.equal(lockFromInsideSession.playerLocation, 'cellar');
+const noKeyRelock = { id: 'lock_no_key', playerLocation: 'gate', inventory: [],
+    unlockedExits: { 'gate::cellar': true, 'cellar::gate': true } };
+assert.equal(ctx.applyPlayerKeyDoorAction(accompaniedWorld, noKeyRelock,
+    'You lock the door of the Round Room').reason, 'required_item');
+assert.equal(noKeyRelock.unlockedExits['gate::cellar'], true,
+    'a failed lock request cannot silently close the door');
+assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, keyDoorSession,
+    'You use the brass tower key to open the door to the Round Room').committed, true);
+assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, keyDoorSession,
+    'You open the door to the Round Room if Linda agrees'), null,
+    'conditional language must not precommit a door opening');
+assert.equal(ctx.worldActionResolutionFailures({ action_resolution: {
+    kind: 'physical', status: 'resolved', outcome: 'The key opens the Round Room door.'
+}, events: [], state_updates: {} }, 'You open the door to the Round Room',
+{ precommittedAction: true }).length, 0,
+'a locally committed key-door action needs no invented receipt event');
+const noKeyDoorSession = { id: 'door_no_key', playerLocation: 'gate', inventory: [], entityStates: {} };
+assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, noKeyDoorSession,
+    'You open the door to the Round Room').reason, 'required_item');
+assert.equal(noKeyDoorSession.unlockedExits?.['gate::cellar'], undefined);
+const sealedDoorSession = { id: 'door_sealed', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }], entityStates: {},
+    locationStates: { cellar: { conditions: [{ label: 'sealed' }] } } };
+assert.equal(ctx.applyPlayerKeyDoorOpening(accompaniedWorld, sealedDoorSession,
+    'You open the door to the Round Room').reason, 'sealed_route',
+    'a key must not silently remove an independently sealed route');
+const dragSession = { id: 'dragged_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const dragInput = 'YouYou grab Linda and drag her to the Round Room';
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession, dragInput)), ['linda']);
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession,
+    'You take Linda by the arm and drag her to the Round Room')), ['linda']);
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, dragSession,
+    grabLeadInput)), ['linda']);
+const grabLeadSession = { id: 'grab_lead_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const grabLeadCompanionIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld,
+    grabLeadSession, '**Youyou grab Linda by the arm and lead her to the Round Room**');
+assert.deepEqual(Array.from(grabLeadCompanionIds), ['linda']);
+const grabLeadTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget('**Youyou grab Linda by the arm and lead her to the Round Room**'), true, grabLeadSession);
+assert.equal(grabLeadTarget?.id, 'cellar');
+const grabLeadMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, grabLeadSession, grabLeadTarget,
+    { companionIds: grabLeadCompanionIds });
+assert.equal(grabLeadMove.ok, true);
+assert.equal(grabLeadSession.playerLocation, 'cellar');
+assert.equal(grabLeadSession.entityStates.linda.location, 'cellar');
+const absentLindaSession = { id: 'lead_absent_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }], entityStates: {}, turnCount: 8 };
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld, absentLindaSession,
+    '**Youyou grab Linda by the arm and lead her to the Round Room**')), []);
+assert.equal(absentLindaSession.playerLocation, 'gate');
+const blockedLeadSession = { id: 'lead_blocked_route', playerLocation: 'gate', inventory: [],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const blockedLeadTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget('**Youyou grab Linda by the arm and lead her to the Round Room**'),
+    true, blockedLeadSession);
+assert.equal(blockedLeadTarget, null);
+assert.equal(blockedLeadSession.playerLocation, 'gate');
+assert.equal(blockedLeadSession.entityStates.linda.location, 'gate');
+const draggedTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget(dragInput), true, dragSession);
+const draggedMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, dragSession, draggedTarget,
+    { companionIds: ['linda'] });
+assert.equal(draggedMove.ok, true);
+assert.equal(dragSession.playerLocation, 'cellar');
+assert.equal(dragSession.entityStates.linda.location, 'cellar');
+const togetherSession = { id: 'with_companion', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const togetherInput = 'YYouyou go with Linda to the Round room';
+const togetherIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, togetherSession, togetherInput);
+assert.deepEqual(Array.from(togetherIds), ['linda']);
+const togetherTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget(togetherInput), true, togetherSession);
+assert.equal(togetherTarget?.id, 'cellar');
+const togetherMove = ctx.movePlayerAlongWorldPath(accompaniedWorld, togetherSession, togetherTarget,
+    { companionIds: togetherIds });
+assert.equal(togetherMove.ok, true);
+assert.equal(togetherSession.playerLocation, 'cellar');
+assert.equal(togetherSession.entityStates.linda.location, 'cellar');
+const directTakeInput = 'You\nyou take linda to the round room';
+const directTakeSession = { id: 'direct_take', playerLocation: 'gate',
+    inventory: [{ name: 'brass tower key', quantity: 1 }],
+    entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+const directTakeIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, directTakeSession,
+    directTakeInput);
+assert.deepEqual(Array.from(directTakeIds), ['linda']);
+const directTakeTarget = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+    ctx.extractUserMovementTarget(directTakeInput), true, directTakeSession);
+assert.equal(directTakeTarget?.id, 'cellar');
+assert.equal(ctx.movePlayerAlongWorldPath(accompaniedWorld, directTakeSession, directTakeTarget,
+    { companionIds: directTakeIds }).ok, true);
+assert.equal(directTakeSession.playerLocation, 'cellar');
+assert.equal(directTakeSession.entityStates.linda.location, 'cellar');
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld,
+    { playerLocation: 'gate', entityStates: { linda: { location: 'gate' } } },
+    'Ich gehe mit Linde in den Round Room')), ['linda'],
+    'a unique one-letter name slip may identify a present companion');
+assert.deepEqual(Array.from(ctx.requestedWorldTravelCompanionIds(accompaniedWorld,
+    { playerLocation: 'gate', entityStates: { linda: { location: 'cellar' } } },
+    'Ich gehe mit Linde in den Round Room')), [],
+    'a fuzzy name must never pull a distant companion into the move');
+for (const [input] of companionPhrases) {
+    const companionSession = { id: 'wording_' + input.length, playerLocation: 'gate',
+        inventory: [{ name: 'brass tower key', quantity: 1 }],
+        entityStates: { linda: { location: 'gate' } }, turnCount: 8 };
+    const personIds = ctx.requestedWorldTravelCompanionIds(accompaniedWorld, companionSession, input);
+    assert.deepEqual(Array.from(personIds), ['linda'], input);
+    const destination = ctx.resolveWorldMovementTarget(accompaniedWorld, 'gate',
+        ctx.extractUserMovementTarget(input), true, companionSession);
+    assert.equal(destination?.id, 'cellar', input);
+    assert.equal(ctx.movePlayerAlongWorldPath(accompaniedWorld, companionSession, destination,
+        { companionIds: personIds }).ok, true, input);
+    assert.equal(companionSession.playerLocation, 'cellar', input);
+    assert.equal(companionSession.entityStates.linda.location, 'cellar', input);
+}
+ctx.globalThis.HordeWorldLore = undefined;
+const echoedMove = ctx.validateWorldTurnReceipt(accompaniedWorld, accompaniedSession, {
+    scene: { player_location_id: 'cellar', player_location_changed: true,
+        present_character_ids: ['cassy'] },
+    events: [{ type: 'movement', actor_id: 'player', status: 'completed',
+        from_location_id: 'gate', to_location_id: 'cellar', movement_mode: 'voluntary',
+        evidence: 'You take Cassy with you into the round room.' }],
+    entity_updates: [], state_updates: {}
+}, { playerStartLocationId: 'gate', committedPlayerDestinationId: 'cellar',
+    playerMovementAuthorized: true, authorizedPlayerDestinationId: 'cellar' });
+assert(!echoedMove.rejectedEvents.some(item => item.reason === 'player_movement_not_authorized'),
+    'the precommitted player move must remain authorized in the receipt');
 guardedExit.allowCheckUnlock = true;
 
 const checkOnly = { targetLocationId: 'cellar', text: 'down to Tower Cellar', allowCheckUnlock: true };
@@ -148,4 +460,140 @@ assert.match(app, /btn\.disabled = true;\s*btn\.title = requirement\.requiredIte
     'the play UI must show why a guarded exit is unavailable');
 assert.match(app, /authorizedCheckOutcome: result\.success === true/,
     'check outcomes must distinguish successful from failed or direct updates');
+const projectedWorld = { locations: [
+    { id: 'corridor', name: 'The Cell Corridor', exits: [{
+        text: 'into Cell 2', targetLocationId: 'cell_2', lockState: 'locked', travelTime: 2
+    }] },
+    { id: 'cell_2', name: 'Cell 2', exits: [{
+        text: 'out to The Cell Corridor', targetLocationId: 'corridor',
+        lockState: 'locked', requiredItem: 'Cell key', travelTime: 2
+    }] }
+] };
+const reciprocalOneWayLabels = { locations: [
+    { id: 'cell', name: 'Cell', exits: [{ targetLocationId: 'ante', isOneWay: true,
+        lockState: 'locked', requiredItem: 'Cell key' }] },
+    { id: 'ante', name: 'Antechamber', exits: [{ targetLocationId: 'cell', isOneWay: true,
+        lockState: 'locked', requiredItem: 'Cell key' }] }
+] };
+ctx.sessionLocations(reciprocalOneWayLabels, { unlockedExits: {} });
+assert.equal(reciprocalOneWayLabels.locations[0].exits[0].doorId,
+    reciprocalOneWayLabels.locations[1].exits[0].doorId,
+    'reciprocal exits share the physical lock even when travel metadata is directional');
+for (const [phrase, action] of [
+    ['I unlock the iron door with the Cell key.', 'opened'],
+    ['I use the Cell key to unlock the door.', 'opened'],
+    ['I insert the key and turn it to lock the door.', 'locked'],
+    ['I close the door and lock it behind me.', 'locked'],
+    ['I turn the key in the lock.', 'locked'],
+    ['The Master locks the door to the Antechamber with the Cell key.', 'locked']
+]) {
+    const doorSession = { playerLocation: 'cell', inventory: ['Cell key'],
+        playerIdentity: { personaName: 'Master' }, entityStates: {},
+        unlockedExits: action === 'locked' ? { [reciprocalOneWayLabels.locations[0].exits[0].doorId]: true } : {} };
+    assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, doorSession, phrase)?.action
+        || 'opened', action, phrase);
+    assert.equal(doorSession.unlockedExits[reciprocalOneWayLabels.locations[0].exits[0].doorId] === true,
+        action === 'opened', phrase);
+}
+const sharedDirectionalDoorId = reciprocalOneWayLabels.locations[0].exits[0].doorId;
+const reverseDoorSession = { playerLocation: 'ante', inventory: ['Cell key'], entityStates: {},
+    unlockedExits: { [sharedDirectionalDoorId]: true } };
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, reverseDoorSession,
+    'I lock the door to the Cell with the Cell key.')?.committed, true);
+assert.equal(reverseDoorSession.unlockedExits[sharedDirectionalDoorId], undefined);
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, reverseDoorSession,
+    'I unlock the door to the Cell with the Cell key.')?.committed, true);
+assert.equal(reverseDoorSession.unlockedExits[sharedDirectionalDoorId], true);
+for (const phrase of ['"I unlock the door," I tell Linda.', 'I ask Linda to unlock the door.',
+    'I do not unlock the door.', 'If I had the key, I would unlock the door.']) {
+    const inert = { playerLocation: 'cell', inventory: ['Cell key'], entityStates: {}, unlockedExits: {} };
+    assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, inert, phrase), null, phrase);
+    assert.deepEqual(inert.unlockedExits, {}, phrase);
+}
+const wrongNamedKey = { playerLocation: 'cell', inventory: ['Cell key'], entityStates: {},
+    unlockedExits: {} };
+assert.equal(ctx.applyPlayerKeyDoorAction(reciprocalOneWayLabels, wrongNamedKey,
+    'I unlock the door with the Wooden key.')?.reason, 'wrong_key',
+    'naming a different key must not silently use the held correct key');
+assert.deepEqual(wrongNamedKey.unlockedExits, {});
+const projectedSession = { id: 'projected', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {}, turnCount: 1 };
+const previousWorldForSession = ctx.worldForSession;
+ctx.worldForSession = (value, session) => ({ ...value, locations: ctx.sessionLocations(value, session) });
+const displayedExit = ctx.worldForSession(projectedWorld, projectedSession).locations[0].exits[0];
+assert.equal(displayedExit.requiredItem, 'Cell key',
+    'the reciprocal key is reconciled onto the shared doorway');
+assert.equal(displayedExit, projectedWorld.locations[0].exits[0],
+    'view construction must not clone a keyed exit');
+assert.equal(displayedExit.doorId, projectedWorld.locations[1].exits[0].doorId);
+const generatedDoors = worldLore.generate(projectedWorld).nodes
+    .filter(node => node.kind === 'location').flatMap(node => node.exits.map(exit => exit.doorId));
+assert.deepEqual(generatedDoors, [displayedExit.doorId, displayedExit.doorId],
+    'generated World Lore must publish the same door id in both directions');
+assert.equal(ctx.movePlayerAlongWorldPath(projectedWorld, projectedSession,
+    projectedWorld.locations[1], { exit: { ...displayedExit, targetLocationId: 'forged' } }).reason,
+    'invalid_exit', 'a forged destination must still be rejected');
+const projectedMove = ctx.movePlayerAlongWorldPath(projectedWorld, projectedSession,
+    projectedWorld.locations[1], { exit: displayedExit });
+assert.equal(projectedMove.ok, true,
+    'clicking a projected keyed exit must survive a fresh session-view build');
+assert.equal(projectedMove.travelMinutes, 2);
+assert.equal(projectedSession.playerLocation, 'cell_2');
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], true);
+assert.equal(projectedSession.unlockedExits['corridor::cell_2'], undefined);
+assert.equal(projectedSession.unlockedExits['cell_2::corridor'], undefined);
+assert.equal(worldLore.exitLock(projectedWorld.locations[1].exits[0], projectedSession,
+    'cell_2', 'corridor').currentState, 'unlocked',
+    'the reverse World Lore route sees the same open door');
+const relockedDoor = ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You lock the door to The Cell Corridor with the Cell key');
+assert.equal(relockedDoor?.committed, true);
+const missingCellKey = { id: 'missing_cell_key', playerLocation: 'cell_2', inventory: [], entityStates: {} };
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, missingCellKey,
+    'You lock the door to The Cell Corridor with the Cell key')?.reason, 'required_item',
+    'the key phrase must not grant a key absent from the recorded inventory');
+assert.equal(missingCellKey.unlockedExits, undefined);
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], undefined);
+assert.equal(worldLore.exitLock(displayedExit, projectedSession,
+    'corridor', 'cell_2').currentState, 'locked',
+    'locking from the other side closes both directions');
+const lockedFromCorridor = ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You unlock the door to The Cell Corridor');
+assert.equal(lockedFromCorridor?.committed, true);
+projectedSession.playerLocation = 'corridor';
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You lock the door to Cell 2 with the Cell key')?.committed, true,
+    'the same mapped lock can be secured from either side');
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], undefined);
+projectedSession.playerLocation = 'cell_2';
+assert.equal(ctx.applyPlayerKeyDoorAction(projectedWorld, projectedSession,
+    'You unlock the door to The Cell Corridor')?.committed, true);
+assert.equal(projectedSession.unlockedExits[displayedExit.doorId], true);
+const legacyDoorSession = { id: 'legacy_door', playerLocation: 'corridor',
+    inventory: [{ name: 'Cell key', quantity: 1 }], entityStates: {},
+    unlockedExits: { 'cell_2::corridor': true } };
+ctx.sessionLocations(projectedWorld, legacyDoorSession);
+assert.equal(legacyDoorSession.unlockedExits[displayedExit.doorId], true,
+    'an old directional unlock migrates to the shared door state');
+assert.equal(legacyDoorSession.unlockedExits['cell_2::corridor'], undefined);
+assert.equal(ctx.worldExitRequirement(legacyDoorSession, displayedExit, 'corridor').unlocked, true);
+const otherTimeline = { id: 'other_door', playerLocation: 'corridor', inventory: [], entityStates: {} };
+ctx.sessionLocations(projectedWorld, otherTimeline);
+assert.equal(ctx.worldExitRequirement(otherTimeline, displayedExit, 'corridor').unlocked, false,
+    'a door opened in one timeline stays locked in another');
+const mismatchedIds = { locations: [
+    { id: 'outside', name: 'Outside', exits: [{ targetLocationId: 'inside',
+        doorId: 'old_outer_door', lockState: 'locked' }] },
+    { id: 'inside', name: 'Inside', exits: [{ targetLocationId: 'outside',
+        doorId: 'old_inner_door', lockState: 'unlocked' }] }
+] };
+const mismatchedSession = { unlockedExits: { old_inner_door: true } };
+ctx.sessionLocations(mismatchedIds, mismatchedSession);
+assert.equal(mismatchedIds.locations[0].exits[0].doorId,
+    mismatchedIds.locations[1].exits[0].doorId);
+assert.equal(mismatchedSession.unlockedExits[mismatchedIds.locations[0].exits[0].doorId], true,
+    'merging old door ids keeps an existing open state');
+assert.equal(mismatchedIds.locations[1].exits[0].lockState, 'locked',
+    'an explicitly locked side cannot become freely passable from the reverse side');
+ctx.worldForSession = previousWorldForSession;
 console.log('✓ movement intent, item/check-gated exits, and NPC escort continuity');

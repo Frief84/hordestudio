@@ -10,8 +10,8 @@ const WORLD_SHARD_FORMAT = 'gzip-json-v1';
 const SETTINGS_MIRROR_KEY = 'horde_settings_mirror_v1';
 // Bump this when publishing a GitHub Release. The checker accepts tags such as
 // v10.1.0, 10.1 or Horde-Studio-10.1.0.
-const HORDE_STUDIO_VERSION = '18.3.6';
-const HORDE_STUDIO_RELEASED_AT = '2026-10-09T18:47:15Z';
+const HORDE_STUDIO_VERSION = '18.3.7';
+const HORDE_STUDIO_RELEASED_AT = '2026-10-23T21:32:10Z';
 const HORDE_STUDIO_RELEASE_API = 'https://api.github.com/repos/ddkhan24/hordestudio/releases/latest';
 const HORDE_STUDIO_RELEASES_URL = 'https://github.com/ddkhan24/hordestudio/releases/latest';
 let worldMediaDirty = false;
@@ -604,6 +604,9 @@ function memoryDedupeKey(memory) {
 let generationController = null;
 let chatTurnInProgress = false;
 let worldTurnInProgress = false; // re-entry guard for executeWorldTurn
+let worldPendingTurnUI = null; // Presentation only; never saved as world state.
+const WORLD_PLAYER_INPUT_FIDELITY = '[PLAYER WORDING AND INTENT]\nRespond to the player\'s words; do not rewrite their dialogue as a new speech. If quoting them, preserve the original wording. An established delivery style or tone may continue when consistent with the current input; it must not change what the player says or intends. Do not invent motives, threats, promises, permissions, refusals or actions for the player. Minor typo interpretation must preserve meaning, negation, actor, target and scope. If unclear wording would change an action or its consequences, ask a brief in-character clarification and leave that part unresolved; never replace it with a plausible new meaning.';
+const WORLD_PLAYER_INPUT_NOTATION = '[OPTIONAL PLAYER NOTATION]\nText the player puts in quotation marks ("..." or “...”) is spoken aloud by the player. Text the player puts between asterisks (*...*) describes an action the player attempts. The player may mix both in one message. Plain unmarked text remains fully valid: classify its meaning from context. A spoken request for an NPC to act does not mean the player performed that physical action. Keep the player’s exact words and intent.';
 const WORLD_HOSTED_TURN_DEADLINE_MS = 150000;
 let worldMutationInProgress = false; // short, persisted non-generation commands
 let worldTurnPersistenceFence = null;
@@ -926,11 +929,12 @@ function apiBase() {
     if (isNanoGPTProvider()) return 'https://nano-gpt.com/api/v1';
     if (isNvidiaProvider()) return 'https://integrate.api.nvidia.com/v1';
     if (isBedrockProvider()) return bedrockApiBase();
+    if (normalizedProviderId() === 'horde') return 'https://aihorde.net/api/v2';
     if (isCustomProvider()) return customApiBase();
     return 'https://openrouter.ai/api/v1';
 }
 
-const TEXT_PROVIDER_IDS = Object.freeze(['openrouter', 'gptproto', 'nanogpt', 'nvidia', 'bedrock', 'custom', 'local']);
+const TEXT_PROVIDER_IDS = Object.freeze(['openrouter', 'gptproto', 'nanogpt', 'nvidia', 'bedrock', 'horde', 'custom', 'local']);
 
 function normalizeRemoteApiBase(value, fallback = '') {
     const candidate = String(value || '').trim().replace(/\/+$/, '');
@@ -974,6 +978,7 @@ function providerApiBase(providerId) {
     if (provider === 'nanogpt') return 'https://nano-gpt.com/api/v1';
     if (provider === 'nvidia') return 'https://integrate.api.nvidia.com/v1';
     if (provider === 'bedrock') return bedrockApiBase();
+    if (provider === 'horde') return 'https://aihorde.net/api/v2';
     if (provider === 'custom') return customApiBase();
     return 'https://openrouter.ai/api/v1';
 }
@@ -1004,7 +1009,8 @@ function providerAuthHeaders(providerId) {
         const key = String(state.customApiKey || '').trim();
         return { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...parseCustomHeaders() };
     }
-    const key = provider === 'gptproto' ? state.gptprotoApiKey
+    const key = provider === 'horde' ? state.hordeApiKey
+        : provider === 'gptproto' ? state.gptprotoApiKey
         : provider === 'nanogpt' ? normalizeNanoGPTApiKey(state.nanogptApiKey)
             : provider === 'nvidia' ? state.nvidiaApiKey
                 : provider === 'bedrock' ? state.bedrockApiKey : state.apiKey;
@@ -1035,6 +1041,7 @@ function providerAttributionHeaders(providerId) {
 function providerHasCredentials(providerId) {
     if (String(providerId || '').toLowerCase() === 'fal') return !!String(state.falApiKey || '').trim();
     const provider = normalizedProviderId(providerId);
+    if (provider === 'horde') return true;
     if (provider === 'local') return true;
     if (provider === 'custom') return !!normalizeRemoteApiBase(state.globalSettings?.customBaseUrl);
     return !!(provider === 'gptproto' ? state.gptprotoApiKey
@@ -1045,9 +1052,22 @@ function providerHasCredentials(providerId) {
 
 function providerDisplayName(providerId) {
     if (String(providerId || '').toLowerCase() === 'fal') return 'Fal';
-    return ({ openrouter: 'OpenRouter', gptproto: 'GPTProto', nanogpt: 'NanoGPT', nvidia: 'NVIDIA NIM', bedrock: 'AWS Bedrock', custom: customProviderName(), local: 'Local provider' })[
+    return ({ openrouter: 'OpenRouter', gptproto: 'GPTProto', nanogpt: 'NanoGPT', nvidia: 'NVIDIA NIM', bedrock: 'AWS Bedrock', horde: 'AI Horde', custom: customProviderName(), local: 'Local provider' })[
         normalizedProviderId(providerId)
     ];
+}
+
+async function requestHordeCompletion(body, signal) {
+    if (!globalThis.HordeStudioHordeClient) throw new Error('AI Horde transport is not loaded. Reload Horde Studio.');
+    const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const prompt = messages.map(message => `${String(message.role || 'user').toUpperCase()}: ${typeof message.content === 'string' ? message.content : JSON.stringify(message.content || '')}`).join('\n\n');
+    const result = await globalThis.HordeStudioHordeClient.generateText({
+        apiKey: state.hordeApiKey, model: body?.model, prompt,
+        maxTokens: body?.max_tokens, temperature: body?.temperature, signal
+    });
+    return new Response(JSON.stringify({ choices: [{ message: { role: 'assistant', content: result.text }, finish_reason: 'stop' }] }), {
+        status: 200, headers: { 'Content-Type': 'application/json' }
+    });
 }
 
 // --- Provider-independent short-form video ---------------------------------
@@ -1287,9 +1307,9 @@ function companionTextProviderId(companion) {
 
 function companionImageProviderId(companion) {
     if (companion?.imageSource === 'fal') return 'fal';
-    const requested = ['openrouter', 'gptproto', 'nanogpt', 'local'].includes(companion?.imageSource)
+    const requested = ['openrouter', 'gptproto', 'nanogpt', 'horde', 'local'].includes(companion?.imageSource)
         ? companion.imageSource : normalizedProviderId();
-    return ['openrouter', 'gptproto', 'nanogpt', 'local'].includes(requested) ? requested : 'openrouter';
+    return ['openrouter', 'gptproto', 'nanogpt', 'horde', 'local'].includes(requested) ? requested : 'openrouter';
 }
 
 /** Turn opaque fetch failures into actionable guidance (esp. local CORS/PNA). */
@@ -1310,6 +1330,7 @@ function humanizeApiError(err, providerId = state.globalSettings.apiProvider) {
 function apiAuthKey() {
     if (isLocalProvider()) return state.globalSettings.localApiKey || 'local';
     if (isCustomProvider()) return state.customApiKey || (Object.keys(parseCustomHeaders()).length ? 'custom-headers' : '');
+    if (normalizedProviderId() === 'horde') return state.hordeApiKey || '0000000000';
     return isGPTProtoProvider() ? state.gptprotoApiKey
         : isNanoGPTProvider() ? normalizeNanoGPTApiKey(state.nanogptApiKey)
             : isNvidiaProvider() ? state.nvidiaApiKey
@@ -1438,10 +1459,12 @@ let state = {
     nanogptApiKey: '',
     nvidiaApiKey: '',
     bedrockApiKey: '',
+    hordeApiKey: '',
     customApiKey: '',
     customHeaders: '',
     globalSettings: {
         defaultModel: 'deepseek/deepseek-v4-flash',
+        timeAdvancesWhenAway: false,
         bedrockRegion: 'us-east-1',
         bedrockBaseUrl: '',
         customProviderName: 'Custom API',
@@ -1651,6 +1674,7 @@ function safeJsonClone(value) {
 function worldPersistenceManifest(world) {
     // Exclude media before cloning. Copying a large photo library and then
     // discarding it made every text turn pay for all World images again.
+    ensureWorldDoorIds(world);
     return safeJsonClone({ ...world, mediaAssets: [] });
 }
 
@@ -1885,6 +1909,7 @@ function validateRoomData(value, label = 'Room') {
 
 function validateWorldData(value, label = 'World', { clone = true } = {}) {
     requirePlainObject(value, label);
+    globalThis.HordeWorldLore?.validateShape(value);
     requireString(value.name, `${label} name`, { max: 300 });
     requireSafeId(value.id, `${label} id`, { optional: true });
     ['description', 'dmPrompt', 'intro', 'model', 'authorNote'].forEach(key =>
@@ -2384,6 +2409,7 @@ function repairLoadedState() {
         world.locations = Array.isArray(world.locations) ? world.locations.filter(isPlainObject) : [];
         world.entities = Array.isArray(world.entities) ? world.entities.filter(isPlainObject) : [];
         world.lorebook = Array.isArray(world.lorebook) ? world.lorebook.filter(isPlainObject) : [];
+        globalThis.HordeWorldLore?.migrate(world);
         try { validateWorldData(world); }
         catch (err) {
             worldLoadWarnings.set(world.id, err.message || 'This world needs repair.');
@@ -2459,6 +2485,7 @@ async function loadState() {
         state.nanogptApiKey = sessionStorage.getItem('horde_nanogpt_api_key') || '';
         state.nvidiaApiKey = sessionStorage.getItem('horde_nvidia_api_key') || '';
         state.bedrockApiKey = sessionStorage.getItem('horde_bedrock_api_key') || '';
+        state.hordeApiKey = sessionStorage.getItem('horde_horde_api_key') || '';
         state.customApiKey = sessionStorage.getItem('horde_custom_api_key') || '';
         state.customHeaders = sessionStorage.getItem('horde_custom_headers') || '';
         let oldSettings = {};
@@ -2533,6 +2560,7 @@ async function loadState() {
         state.nvidiaApiKey = sessionStorage.getItem('horde_nvidia_api_key') || storedNvidiaApiKey;
         if (state.nvidiaApiKey) sessionStorage.setItem('horde_nvidia_api_key', state.nvidiaApiKey);
         state.bedrockApiKey = sessionStorage.getItem('horde_bedrock_api_key') || storedBedrockApiKey;
+        state.hordeApiKey = sessionStorage.getItem('horde_horde_api_key') || '';
         if (state.bedrockApiKey) sessionStorage.setItem('horde_bedrock_api_key', state.bedrockApiKey);
         state.customApiKey = sessionStorage.getItem('horde_custom_api_key') || storedCustomApiKey;
         if (state.customApiKey) sessionStorage.setItem('horde_custom_api_key', state.customApiKey);
@@ -2871,6 +2899,21 @@ async function loadState() {
         });
         if (changed) await saveState();
     }
+    // Content revisions change templates only, never saved session state. An
+    // exact old-value check keeps custom introductions, routines and exits.
+    if (globalThis.HordeBundledContent) {
+        let changed=false;
+        for (const world of state.worlds) {
+            const result=HordeBundledContent.update(world);
+            if (result.changed) {
+                normalizeAuthoredWorld(world);
+                changed=true;
+                if (result.skipped.length) console.info('Bundled world content: preserved edited records',world.id,result.skipped);
+            }
+        }
+        if(changed)await saveState();
+    }
+
 }
 
 let saveStateInFlight = null;
@@ -2889,20 +2932,23 @@ let virtualHumanSaveScope = 0;
 
 function worldRecordsForPersistence(savingWorldMedia, {
     allInstances = false, includeActiveInstance = true, instanceIdsToSave = [],
-    captureMissingWorlds = true
+    captureMissingWorlds = true, prepared = null
 } = {}) {
     // World media stays in a separate record and is rewritten only after
     // an asset edit. Timeline saves may then avoid unrelated app records.
     // Background embeddings, model diagnostics, settings saves and even the
     // first v1→v2 migration may run while a turn is awaiting narration. They
     // must see the last committed World, not a half-applied player action.
-    const pendingTurn = worldTurnPersistenceFence?.committing
+    const pendingTurn = prepared ? null : worldTurnPersistenceFence?.committing
         ? null : worldTurnPersistenceFence;
-    const storedWorlds = (state.worlds || []).map(world =>
-        pendingTurn?.worldId === world.id ? pendingTurn.worldManifest : worldPersistenceManifest(world));
+    const worldSource = prepared ? (state.worlds || []).map(world =>
+        world.id === prepared.worldId ? prepared.world : world) : (state.worlds || []);
+    const storedWorlds = worldSource.map(world =>
+        pendingTurn?.worldId === world.id ? pendingTurn.worldManifest
+            : worldPersistenceManifest(prepared ? safeJsonClone(world) : world));
     const visibleWorldIds = new Set(storedWorlds.map(world => world.id));
     const recovery = isPlainObject(state.worldRecoverySnapshots)
-        ? state.worldRecoverySnapshots : {};
+        ? prepared ? safeJsonClone(state.worldRecoverySnapshots) : state.worldRecoverySnapshots : {};
     if (captureMissingWorlds) lastPersistedWorldManifests.forEach(previous => {
         if (!isPlainObject(previous) || !previous.id || visibleWorldIds.has(previous.id)) return;
         recovery[previous.id] = {
@@ -2911,12 +2957,15 @@ function worldRecordsForPersistence(savingWorldMedia, {
             world: safeJsonClone(previous)
         };
     });
-    state.worldRecoverySnapshots = Object.fromEntries(
+    const recoverySnapshots = Object.fromEntries(
         Object.entries(recovery)
             .sort((a, b) => String(b[1]?.capturedAt || '').localeCompare(String(a[1]?.capturedAt || '')))
             .slice(0, 30)
     );
-    const liveInstances = isPlainObject(state.worldInstances) ? state.worldInstances : {};
+    if (!prepared) state.worldRecoverySnapshots = recoverySnapshots;
+    const liveInstances = prepared
+        ? { ...(state.worldInstances || {}), [prepared.worldId]: prepared.instance }
+        : isPlainObject(state.worldInstances) ? state.worldInstances : {};
     const instances = pendingTurn?.worldId && Object.hasOwn(liveInstances, pendingTurn.worldId)
         ? { ...liveInstances, [pendingTurn.worldId]: pendingTurn.instance }
         : liveInstances;
@@ -2932,7 +2981,7 @@ function worldRecordsForPersistence(savingWorldMedia, {
     ]);
     const records = {
         worlds: storedWorlds,
-        worldRecoverySnapshots: state.worldRecoverySnapshots,
+        worldRecoverySnapshots: recoverySnapshots,
         activeWorldId: state.activeWorldId
     };
     if (legacyMode) {
@@ -2949,13 +2998,13 @@ function worldRecordsForPersistence(savingWorldMedia, {
         if (!Object.hasOwn(instances, id)) records[`worldInstance:${id}`] = null;
     });
     if (savingWorldMedia) {
-        records.worldMediaAssets = Object.fromEntries((state.worlds || []).map(world => [
+        records.worldMediaAssets = Object.fromEntries(worldSource.map(world => [
             world.id,
             safeJsonClone(Array.isArray(world.mediaAssets) ? world.mediaAssets : [])
         ]));
         worldMediaDirty = false;
     }
-    return { records, storedWorlds, instanceIds };
+    return { records, storedWorlds, instanceIds, recoverySnapshots, instances };
 }
 
 async function loadPersistedWorldInstances() {
@@ -2980,7 +3029,7 @@ async function loadPersistedWorldInstances() {
     return Object.fromEntries(index.map((id, indexNumber) => [id, shards[indexNumber]]));
 }
 
-async function commitWorldMigrationAware(records) {
+async function commitWorldMigrationAware(records, { legacyInstances = state.worldInstances } = {}) {
     try {
         await HordeDB.setMultiple(records, { managedRetry: true });
         return !worldMigrationDeferred;
@@ -2992,7 +3041,7 @@ async function commitWorldMigrationAware(records) {
         // incomplete shard index. It may still fail if storage is truly full.
         const legacyRecords = Object.fromEntries(Object.entries(records).filter(([key]) =>
             key !== 'worldInstanceIndex' && !key.startsWith('worldInstance:')));
-        legacyRecords.worldInstances = state.worldInstances;
+        legacyRecords.worldInstances = legacyInstances;
         await HordeDB.setMultiple(legacyRecords, { managedRetry: true });
         worldMigrationDeferred = true;
         if (!worldMigrationNoticeShown) {
@@ -3096,6 +3145,36 @@ async function persistWorldStateSnapshot({ includeActiveInstance = true, request
         console.error('saveWorldsState failed:', err);
         throw err;
     }
+}
+
+// A linked receipt persists its prepared World and timeline before publishing
+// any of their dirty fields to canonical memory. The quota fallback receives
+// the same prepared instance, never state.worldInstances from a pending turn.
+async function persistPreparedWorldTurn(world, sess, workingState) {
+    const expectedVersion = Number(sess.worldStateVersion) || 0;
+    return workingState.commit(async candidate => {
+        if (saveStateInFlight) await saveStateInFlight;
+        if (worldSaveInFlight) await worldSaveInFlight;
+        if ((Number(sess.worldStateVersion) || 0) !== expectedVersion)
+            throw new Error('stale_working_state');
+        const liveInstance = state.worldInstances[world.id];
+        if (!liveInstance || !Array.isArray(liveInstance.sessions))
+            throw new Error('missing_world_instance');
+        const sessionIndex = liveInstance.sessions.findIndex(item => item.id === sess.id);
+        if (sessionIndex < 0) throw new Error('missing_world_session');
+        const preparedInstance = safeJsonClone(liveInstance);
+        preparedInstance.sessions[sessionIndex] = candidate.session;
+        const snapshot = worldRecordsForPersistence(false, {
+            includeActiveInstance: false, instanceIdsToSave: [world.id],
+            prepared: { worldId: world.id, world: candidate.world, instance: preparedInstance }
+        });
+        const migrated = await commitWorldMigrationAware(snapshot.records, {
+            legacyInstances: snapshot.instances
+        });
+        lastPersistedWorldManifests = safeJsonClone(snapshot.storedWorlds);
+        if (migrated) persistedWorldInstanceIds = new Set(snapshot.instanceIds);
+        state.worldRecoverySnapshots = snapshot.recoverySnapshots;
+    }, expectedVersion);
 }
 
 async function saveWorldsState({ worldId = null } = {}) {
@@ -3373,23 +3452,28 @@ function createThronefallSandboxWorld() {
         schedule,
         ...extra
     });
+    for (const [fromId,toId,minutes] of [['vs_road','vs_manor',25],['vs_alder','vs_ruins',75],['vs_wolfscar','vs_ruins',130]]) {
+        const from=locations.find(place=>place.id===fromId),to=locations.find(place=>place.id===toId);
+        from.exits.push({text:`to ${to.name}`,targetLocationId:to.id,travelTime:minutes,isOneWay:false});
+    }
+
     const entities = [
         npc('vs_elin', 'Elin Reed', 'vs_field', '', 'A tenant farmer in a patched green kirtle, quick with figures and tired of pretending not to be.', 'Practical, dryly funny, stubborn about fairness. Knows every household debt in Dunmere.', 'Keep her family fed without surrendering next year’s seed grain.', [{ time: '05:30', locationId: 'vs_field', activity: 'Working the barley strips' }, { time: '12:00', locationId: 'vs_green', activity: 'Trading labor and news' }, { time: '20:00', locationId: 'vs_sheaf', activity: 'Stretching one cup of ale' }], { goalAutonomy: 'high', goalSteps: ['hid two sacks of seed grain from the reeve’s tally', 'organized three households to share an ox', 'asked the miller to verify the manor weights'] }),
-        npc('vs_reeve', 'Reeve Osric Pell', 'vs_green', 'fac_house_vale', 'Stagwatch’s village reeve, carrying a wax tablet and a cudgel polished by his thumb.', 'Exact, defensive, not needlessly cruel. Afraid missing rent will cost him his post and home.', 'Collect Stagwatch’s full rent before the audit riders arrive.', [{ time: '07:00', locationId: 'vs_green', activity: 'Hearing village business' }, { time: '14:00', locationId: 'vs_field', activity: 'Inspecting holdings' }, { time: '18:00', locationId: 'vs_manor', activity: 'Reporting the day’s tally' }], { goalSteps: ['recounted every tenant strip', 'posted the arrears list on the linden', 'requested two manor guards for rent day'] }),
+        npc('vs_reeve', 'Reeve Osric Pell', 'vs_manor', 'fac_house_vale', 'Stagwatch’s village reeve, carrying a wax tablet and a cudgel polished by his thumb.', 'Exact, defensive, not needlessly cruel. Afraid missing rent will cost him his post and home.', 'Collect Stagwatch’s full rent before the audit riders arrive.', [{ time: '07:00', locationId: 'vs_green', activity: 'Hearing village business' }, { time: '14:00', locationId: 'vs_field', activity: 'Inspecting holdings' }, { time: '18:00', locationId: 'vs_manor', activity: 'Reporting the day’s tally' }], { goalSteps: ['recounted every tenant strip', 'posted the arrears list on the linden', 'requested two manor guards for rent day'] }),
         npc('vs_lady_mara', 'Lady Mara Vale', 'vs_manor', 'fac_house_vale', 'The young holder of Stagwatch, newly returned from court with a scar under one glove.', 'Controlled, observant, more interested in competence than pedigree. Hates being pitied.', 'Make Stagwatch solvent without selling it to the guild banks.', [{ time: '07:00', locationId: 'vs_manor', activity: 'Reviewing petitions and accounts' }, { time: '13:00', locationId: 'vs_field', activity: 'Inspecting the demesne' }, { time: '19:00', locationId: 'vs_manor', activity: 'Dining with retainers' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['dismissed an expensive court falconer', 'offered timber rights to the Guild Compact', 'sent a sealed request to Crownfast'], secrets: [{ label: 'Mara’s claim', hint: 'Her mother’s signet stays on a chain beneath her glove.', truth: 'Mara has a plausible blood claim if the royal line fails, but pressing it would endanger everyone she protects.' }] }),
         npc('vs_rook', 'Rook Harrow', 'vs_blackbriar', 'fac_blackbriar', 'A former levy sergeant with a split nose and a courteous habit of offering choices before violence.', 'Patient, sardonic, keeps promises literally. Protects deserters but robs tax convoys without remorse.', 'Turn Blackbriar from hunted refugees into a power no lord can ignore.', [{ time: '06:00', locationId: 'vs_blackbriar', activity: 'Drilling sentries' }, { time: '13:00', locationId: 'vs_alder', activity: 'Meeting informants' }, { time: '22:00', locationId: 'vs_blackbriar', activity: 'Planning the next road strike' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['mapped the royal pay convoy route', 'made contact with angry Dunmere tenants', 'sent terms to a Fen smuggler'] }),
-        npc('vs_queen', 'Queen Aveline II', 'vs_council', 'fac_crown', 'A thirty-year-old monarch in mourning black, crowned six months and already short of money, heirs and unambiguous friends.', 'Formally calm, intellectually restless, remembers names. Capable of mercy and frightening arithmetic.', 'Keep the realm intact through the succession crisis without becoming a puppet.', [{ time: '06:30', locationId: 'vs_cathedral', activity: 'Private observance' }, { time: '09:00', locationId: 'vs_council', activity: 'Holding council' }, { time: '14:00', locationId: 'vs_keep', activity: 'Receiving petitions and envoys' }, { time: '21:00', locationId: 'vs_council', activity: 'Reading dispatches alone' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['ordered a true count of crown grain', 'summoned the March Warden to explain troop movements', 'opened quiet marriage talks with two rival courts'], secrets: [{ label: 'The queen’s physician', hint: 'The royal physician leaves by servants’ stairs and burns every scrap of paper.', truth: 'Aveline is pregnant, but the pregnancy is dangerous and only four people know.' }] }),
-        npc('vs_chancellor', 'Chancellor Tobran Vey', 'vs_council', 'fac_crown', 'A broad, soft-spoken jurist whose plain wool hides the best memory in Greyhaven.', 'Paternal in public, relentless in private. Believes stability justifies secrets but not cruelty.', 'Discover which great house is financing unrest before the next council vote.', [{ time: '07:00', locationId: 'vs_keep', activity: 'Reading reports' }, { time: '09:00', locationId: 'vs_council', activity: 'Directing royal business' }, { time: '17:00', locationId: 'vs_guild', activity: 'Sounding out guild masters' }], { isMajor: true, goalSteps: ['placed a false treasury figure in three separate reports', 'hired a Low Ward copyist as an informant', 'requested old succession law from Ironwood Abbey'] }),
+        npc('vs_queen', 'Queen Aveline II', 'vs_council', 'fac_crown', 'A thirty-year-old monarch in mourning black, crowned six months and already short of money, heirs and unambiguous friends.', 'Formally calm, intellectually restless, remembers names. Capable of mercy and frightening arithmetic.', 'Keep the realm intact through the succession crisis without becoming a puppet.', [{ time: '06:30', locationId: 'vs_cathedral', activity: 'Private observance' }, { time: '09:00', locationId: 'vs_council', activity: 'Holding council' }, { time: '14:00', locationId: 'vs_keep', activity: 'Receiving petitions and envoys' }, { time: '21:00', locationId: 'vs_council', activity: 'Reading dispatches alone' }], { playerOriginIds: ['origin_queen'], isMajor: true, goalAutonomy: 'high', goalSteps: ['ordered a true count of crown grain', 'summoned the March Warden to explain troop movements', 'opened quiet marriage talks with two rival courts'], secrets: [{ label: 'The queen’s physician', hint: 'The royal physician leaves by servants’ stairs and burns every scrap of paper.', truth: 'Aveline is pregnant, but the pregnancy is dangerous and only four people know.' }] }),
+        npc('vs_chancellor', 'Chancellor Tobran Vey', 'vs_guild', 'fac_crown', 'A broad, soft-spoken jurist whose plain wool hides the best memory in Greyhaven.', 'Paternal in public, relentless in private. Believes stability justifies secrets but not cruelty.', 'Discover which great house is financing unrest before the next council vote.', [{ time: '07:00', locationId: 'vs_keep', activity: 'Reading reports' }, { time: '09:00', locationId: 'vs_council', activity: 'Directing royal business' }, { time: '17:00', locationId: 'vs_guild', activity: 'Sounding out guild masters' }], { isMajor: true, goalSteps: ['placed a false treasury figure in three separate reports', 'hired a Low Ward copyist as an informant', 'requested old succession law from Ironwood Abbey'] }),
         npc('vs_ser_calder', 'Ser Calder Rusk', 'vs_yard', 'fac_crown', 'Captain of the royal household, a weathered knight whose left knee stiffens before rain.', 'Blunt, loyal to the office rather than the person, suspicious of ornamental courage.', 'Make the capital defensible with half the troops the council promises.', [{ time: '05:30', locationId: 'vs_yard', activity: 'Inspecting the watch' }, { time: '11:00', locationId: 'vs_grey_gate', activity: 'Reviewing gate security' }, { time: '18:00', locationId: 'vs_keep', activity: 'Reporting to the crown' }], { goalAutonomy: 'high', goalSteps: ['cancelled ceremonial drill for wall inspection', 'quietly doubled the queen’s night guard', 'tested how quickly the south gate can close'] }),
-        npc('vs_ysabet', 'Mistress Ysabet Coil', 'vs_guild', 'fac_guilds', 'Speaker of the Guild Compact, dressed in severe blue with ink permanently darkening two fingers.', 'Warm when bargaining, cold when agreed terms are broken. Sees trade as the realm’s circulatory system.', 'Exchange emergency crown credit for permanent guild seats on the council.', [{ time: '08:00', locationId: 'vs_guild', activity: 'Hearing masters’ petitions' }, { time: '13:00', locationId: 'vs_market', activity: 'Inspecting prices' }, { time: '16:00', locationId: 'vs_council', activity: 'Lobbying the royal council' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['froze three noble credit lines', 'bought grain futures before the crown report', 'drafted a charter for guild council seats'] }),
+        npc('vs_ysabet', 'Mistress Ysabet Coil', 'vs_council', 'fac_guilds', 'Speaker of the Guild Compact, dressed in severe blue with ink permanently darkening two fingers.', 'Warm when bargaining, cold when agreed terms are broken. Sees trade as the realm’s circulatory system.', 'Exchange emergency crown credit for permanent guild seats on the council.', [{ time: '08:00', locationId: 'vs_guild', activity: 'Hearing masters’ petitions' }, { time: '13:00', locationId: 'vs_market', activity: 'Inspecting prices' }, { time: '16:00', locationId: 'vs_council', activity: 'Lobbying the royal council' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['froze three noble credit lines', 'bought grain futures before the crown report', 'drafted a charter for guild council seats'] }),
         npc('vs_mother', 'Mother Hester', 'vs_cathedral', 'fac_church', 'The cathedral’s elderly canon, leaning on a hawthorn staff and missing nothing.', 'Kind without softness, asks questions that make liars revise themselves.', 'Prevent the succession dispute from becoming a holy war.', [{ time: '05:00', locationId: 'vs_cathedral', activity: 'Leading dawn offices' }, { time: '10:00', locationId: 'vs_highward', activity: 'Visiting households' }, { time: '18:00', locationId: 'vs_cathedral', activity: 'Hearing confessions' }], { isMajor: true, goalSteps: ['requested every claimant’s baptismal record', 'sent neutral mediators to Whitebridge', 'refused a noble request for public endorsement'] }),
-        npc('vs_wina', 'Warden Wina Ash', 'vs_whitebridge', 'fac_march', 'March warden in scaled armor, sun-browned and visibly short of sleep.', 'Direct, decisive, contemptuous of court delay. Protects the border first and explains later.', 'Secure Whitebridge and force the crown to fund the eastern defense.', [{ time: '05:00', locationId: 'vs_marchcamp', activity: 'Inspecting the lines' }, { time: '11:00', locationId: 'vs_whitebridge', activity: 'Hearing scouts and merchants' }, { time: '20:00', locationId: 'vs_marchcamp', activity: 'Planning patrols' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['called up two hundred village levies', 'seized merchant wagons for army supply', 'sent a furious dispatch to Crownfast'] }),
+        npc('vs_wina', 'Warden Wina Ash', 'vs_marchcamp', 'fac_march', 'March warden in scaled armor, sun-browned and visibly short of sleep.', 'Direct, decisive, contemptuous of court delay. Protects the border first and explains later.', 'Secure Whitebridge and force the crown to fund the eastern defense.', [{ time: '05:00', locationId: 'vs_marchcamp', activity: 'Inspecting the lines' }, { time: '11:00', locationId: 'vs_whitebridge', activity: 'Hearing scouts and merchants' }, { time: '20:00', locationId: 'vs_marchcamp', activity: 'Planning patrols' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['called up two hundred village levies', 'seized merchant wagons for army supply', 'sent a furious dispatch to Crownfast'] }),
         npc('vs_brother', 'Brother Cadoc', 'vs_abbey', 'fac_church', 'An archivist with a narrow face, inked cuffs and the nervous courtesy of a man guarding explosive paper.', 'Pedantic until frightened, then unexpectedly brave. Reveres evidence more than rank.', 'Catalogue the rediscovered land grants before anyone steals them.', [{ time: '06:00', locationId: 'vs_abbey', activity: 'Copying charters' }, { time: '12:00', locationId: 'vs_abbey', activity: 'Teaching novices' }, { time: '22:00', locationId: 'vs_abbey', activity: 'Checking archive locks' }], { goalSteps: ['found a grant bearing a disputed royal seal', 'made a hidden duplicate of the claimant register', 'noticed a folio missing after a noble visitor'] }),
         npc('vs_jarl', 'Jarl Signe Frost', 'vs_frosthold', 'fac_north', 'Leader of the northern clans, wearing seal fur over mail and a silver oath-ring.', 'Dry, deliberate, unimpressed by southern ceremony. Loyalty must be renewed through action.', 'Win recognition of northern law before committing warriors to the queen.', [{ time: '06:00', locationId: 'vs_frosthold', activity: 'Training with the household' }, { time: '11:00', locationId: 'vs_frosthold', activity: 'Hearing clan disputes' }, { time: '18:00', locationId: 'vs_frosthold', activity: 'Feasting with captains' }], { isMajor: true, goalSteps: ['called a winter thing', 'withheld three hundred spears from royal muster', 'offered safe passage to a royal envoy'] }),
         npc('vs_nessa', 'Nessa Pike', 'vs_mirecross', 'fac_fen', 'A reed-boat captain with bright scarves, quick hands and three different customs permits.', 'Charming, irreverent, loyal to people rather than institutions.', 'Unite the Fen crews before guild ships take the smuggling routes.', [{ time: '06:00', locationId: 'vs_mirecross', activity: 'Loading a reed boat' }, { time: '13:00', locationId: 'vs_fen', activity: 'Moving cargo along hidden cuts' }, { time: '21:00', locationId: 'vs_mirecross', activity: 'Trading news and favors' }], { goalAutonomy: 'high', goalSteps: ['bought the loyalty of two toll keepers', 'moved fever medicine without paying duty', 'called a meeting of rival boat families'] }),
         npc('vs_admiral', 'Admiral Corren Vale', 'vs_saltmere', 'fac_house_vale', 'Lady Mara’s uncle, a magnificent older privateer with a velvet eye patch and creditors in four kingdoms.', 'Grandiose, genuinely brave, addicted to expensive solutions.', 'Use the succession crisis to make House Vale indispensable at sea.', [{ time: '07:00', locationId: 'vs_saltmere', activity: 'Inspecting ships' }, { time: '12:00', locationId: 'vs_guild', activity: 'Negotiating credit' }, { time: '19:00', locationId: 'vs_saltmere', activity: 'Entertaining captains' }], { isMajor: true, goalSteps: ['commissioned two privateers on borrowed coin', 'offered convoy protection to the Guild Compact', 'sent Mara a letter urging her to prepare her claim'] }),
         npc('vs_tamsin', 'Tamsin Quill', 'vs_lowward', '', 'A sixteen-year-old printer’s apprentice with inked thumbs and an appetite for dangerous truths.', 'Fast-talking, idealistic, brave in crowds and frightened alone.', 'Print something powerful people cannot make disappear.', [{ time: '07:00', locationId: 'vs_guild', activity: 'Setting type at the print shop' }, { time: '16:00', locationId: 'vs_market', activity: 'Selling broadsheets' }, { time: '21:00', locationId: 'vs_lowward', activity: 'Meeting sources' }], { goalSteps: ['printed the grain price beside the crown’s official figure', 'interviewed discharged March levies', 'received an anonymous copy of a council memorandum'] }),
-        npc('vs_hound', 'Hound', 'vs_road', '', 'A scarred sellsword with a plain sword, no heraldry and the watchfulness of someone accustomed to ambush.', 'Few words, professional boundaries, unexpectedly gentle with animals.', 'Find steady work without swearing another oath that can be abused.', [{ time: '07:00', locationId: 'vs_road', activity: 'Walking with merchant traffic' }, { time: '18:00', locationId: 'vs_sheaf', activity: 'Looking for paid work' }], { goalPool: [{ goal: 'Learn who betrayed the old border company', steps: ['asked after surviving members of the company', 'found the company roll scratched out of a muster book', 'recognized a familiar seal on a guild contract'] }] })
+        npc('vs_hound', 'Hound', 'vs_sheaf', '', 'A scarred sellsword with a plain sword, no heraldry and the watchfulness of someone accustomed to ambush.', 'Few words, professional boundaries, unexpectedly gentle with animals.', 'Find steady work without swearing another oath that can be abused.', [{ time: '07:00', locationId: 'vs_road', activity: 'Walking with merchant traffic' }, { time: '18:00', locationId: 'vs_sheaf', activity: 'Looking for paid work' }], { goalPool: [{ goal: 'Learn who betrayed the old border company', steps: ['asked after surviving members of the company', 'found the company roll scratched out of a muster book', 'recognized a familiar seal on a guild contract'] }] })
     ];
 
     const factions = [
@@ -3407,14 +3491,14 @@ function createThronefallSandboxWorld() {
         { id: 'origin_peasant', icon: '🌾', name: 'Tenant of Dunmere', role: 'tenant farmer', socialRank: 'peasant', description: 'Begin at first light in a wet field, owing rent and labor but knowing every person and path in the vale.', startLocationId: 'vs_field', outfit: 'mud-stained wool, patched boots and a faded hood', inventory: ['sickle', 'twine', 'heel of bread'], statOverrides: { gold: 1, hp: 14, renown: 0 }, obligations: ['Three labor days owed to Stagwatch', 'Rent due after harvest', 'Family and neighbors depend on the crop'], privileges: ['Customary right to gather fallen wood', 'A vote in village moot on common matters'], legalStatus: 'bound tenant', intro: 'Dawn finds you ankle-deep in the east barley strip, where last night’s rain has laid half the young crop flat. The reeve’s tally stick waits on the boundary stone. So does a black feather—the sign Blackbriar uses when it wants a private word. Behind you, Dunmere’s rent bell begins to ring.' },
         { id: 'origin_outlaw', icon: '🏹', name: 'Blackbriar Outlaw', role: 'bandit and fugitive', socialRank: 'outlaw', description: 'Begin wanted in a forest camp where stolen food, desperate families and ambitious killers share one fire.', startLocationId: 'vs_blackbriar', factionId: 'fac_blackbriar', factionReputation: 35, outfit: 'weathered leathers under a stolen russet cloak', inventory: ['hunting bow', '12 arrows', 'long knife', '2 days rations'], statOverrides: { gold: 4, hp: 18, renown: 8 }, obligations: ['Take a watch shift', 'Share a fifth of any score with the camp'], privileges: ['Shelter and intelligence from Blackbriar allies', 'A voice in the camp council'], legalStatus: 'wanted for outlawry', intro: 'Someone has dragged a bound royal courier into Blackbriar before breakfast. Half the camp wants his pay chest. Rook Harrow wants to know why the courier was riding alone—and why the sealed letter in his boot names you.' },
         { id: 'origin_hedgeknight', icon: '🛡️', name: 'Landless Knight', role: 'hedge knight', socialRank: 'lesser nobility', description: 'Begin with a horse, armor, an honorable name and no money to maintain any of them.', startLocationId: 'vs_road', outfit: 'travel-stained mail beneath a faded surcoat with unrecognized arms', inventory: ['arming sword', 'mail shirt', 'shield', 'riding horse', 'bedroll'], statOverrides: { gold: 9, hp: 24, renown: 12 }, obligations: ['Honor sworn hospitality', 'Answer a lawful royal summons or openly refuse it'], privileges: ['Right to bear arms and issue a formal challenge', 'Can seek noble hospitality for three nights'], legalStatus: 'free knight', intro: 'Your horse throws a shoe beside the Old King’s Road milestone at the exact moment three riders appear behind you wearing no colors. Ahead, a royal recruiting sergeant is nailing a call to arms over a reward notice bearing a very good likeness of one of those riders.' },
-        { id: 'origin_guard', icon: '⚔️', name: 'Royal Household Guard', role: 'household guard', socialRank: 'royal retainer', description: 'Begin inside Crownfast, close enough to power to see fear beneath ceremony.', startLocationId: 'vs_yard', factionId: 'fac_crown', factionReputation: 28, outfit: 'blue-black royal livery over a polished brigandine', inventory: ['spear', 'short sword', 'brigandine', 'royal badge'], statOverrides: { gold: 16, hp: 22, renown: 10 }, obligations: ['Obey lawful orders from the household captain', 'Protect the sovereign and keep palace confidence'], privileges: ['Access to Crownfast public and service areas', 'Authority over city watch during a palace emergency'], legalStatus: 'sworn royal retainer', intro: 'The queen’s door is open. It is never open. Ser Calder stands in the corridor with blood on one cuff and orders you to close the stair, admit no councillor, and tell no one what you heard from inside.' },
-        { id: 'origin_guild', icon: '⚖️', name: 'Guild Merchant', role: 'licensed merchant', socialRank: 'chartered citizen', description: 'Begin with credit, contracts and a cargo whose price could decide whether a district eats.', startLocationId: 'vs_guild', factionId: 'fac_guilds', factionReputation: 25, outfit: 'well-cut blue wool, ledger satchel and guild seal', inventory: ['guild seal', 'account ledger', 'warehouse key', 'sample case'], statOverrides: { gold: 85, hp: 15, renown: 14 }, obligations: ['Honor guild judgments', 'Pay Compact dues', 'Deliver contracted grain or face ruin'], privileges: ['Trade under guild protection', 'Access to guild credit and arbitration'], holdings: ['A rented Low Ward warehouse', 'A one-third share in a river barge'], legalStatus: 'chartered merchant', intro: 'Your warehouse key turns, but the door opens from inside. Forty sacks of contracted grain are gone. In their place sits a royal treasury chest, sealed and very much not yours, while the guild bell summons every master to an emergency vote.' },
+        { id: 'origin_guard', icon: '⚔️', name: 'Royal Household Guard', role: 'household guard', socialRank: 'royal retainer', description: 'Begin inside Crownfast, close enough to power to see fear beneath ceremony.', startLocationId: 'vs_yard', factionId: 'fac_crown', factionReputation: 28, outfit: 'blue-black royal livery over a polished brigandine', inventory: ['spear', 'short sword', 'brigandine', 'royal badge'], statOverrides: { gold: 16, hp: 22, renown: 10 }, obligations: ['Obey lawful orders from the household captain', 'Protect the sovereign and keep palace confidence'], privileges: ['Access to Crownfast public and service areas', 'Authority over city watch during a palace emergency'], legalStatus: 'sworn royal retainer', intro: 'In Crownfast Yard, Ser Calder intercepts you beside the well. Blood has dried along one cuff. He lowers his voice: “The queen’s door was standing open. It never stands open. I need the inner stair guarded before the councillors arrive.” The keep entrance is behind him. He waits for your answer.' },
+        { id: 'origin_guild', icon: '⚖️', name: 'Guild Merchant', role: 'licensed merchant', socialRank: 'chartered citizen', description: 'Begin with credit, contracts and a cargo whose price could decide whether a district eats.', startLocationId: 'vs_guild', factionId: 'fac_guilds', factionReputation: 25, outfit: 'well-cut blue wool, ledger satchel and guild seal', inventory: ['guild seal', 'account ledger', 'warehouse key', 'sample case'], statOverrides: { gold: 85, hp: 15, renown: 14 }, obligations: ['Honor guild judgments', 'Pay Compact dues', 'Deliver contracted grain or face ruin'], privileges: ['Trade under guild protection', 'Access to guild credit and arbitration'], holdings: ['A rented Low Ward warehouse', 'A one-third share in a river barge'], legalStatus: 'chartered merchant', intro: 'A folded warehouse report has been pushed beneath your counting-house door on Guildhall Row. Forty sacks of contracted grain are missing from your Low Ward store. The night watch has sketched the royal seal stamped on a chest left in their place. Outside, the guild bell begins calling the masters to an emergency vote. Your warehouse key is still on its hook.' },
         { id: 'origin_cleric', icon: '🕯️', name: 'Priory Healer', role: 'lay healer', socialRank: 'church servant', description: 'Begin in sanctuary with medical knowledge, vows of aid and fugitives whose stories do not agree.', startLocationId: 'vs_priory', factionId: 'fac_church', factionReputation: 22, outfit: 'undyed wool, waxed apron and Saint Orra’s reed badge', inventory: ['healer kit', 'fever tincture', 'prayer cord'], statOverrides: { gold: 3, hp: 15, renown: 6 }, obligations: ['Treat the sick before asking payment', 'Protect sanctuary until dawn'], privileges: ['Claim temporary sanctuary under church law', 'Travel on church roads without common tolls'], legalStatus: 'church protected', intro: 'Three patients arrive before dawn: a feverish child, a customs officer with an arrow in his back, and the masked archer who shot him. Priory law protects them both until sunrise. Outside, mounted officers demand the door.' },
         { id: 'origin_smuggler', icon: '🛶', name: 'Fen Boat Runner', role: 'smuggler and boat captain', socialRank: 'free commoner', description: 'Begin on hidden waterways with contraband, cousins at every toll and debts that cannot be settled in coin.', startLocationId: 'vs_mirecross', factionId: 'fac_fen', factionReputation: 30, outfit: 'oilskin coat, bright scarf and soft marsh boots', inventory: ['reed boat', 'pole', 'concealed crossbow', 'false customs papers', 'medicine crate'], statOverrides: { gold: 22, hp: 17, renown: 9 }, obligations: ['Carry one Saint Orra mercy cargo when called', 'Repay Nessa Pike a dangerous favor'], privileges: ['Safe moorings among allied boat families', 'Knowledge of untolled fen routes'], legalStatus: 'suspected smuggler', intro: 'The tide uncovers a body beneath your boat landing, dressed in guild blue and holding your genuine customs permit. Across the channel a crown patrol is already turning toward Mirecross.' },
         { id: 'origin_soldier', icon: '🏕️', name: 'March Levy', role: 'pressed levy soldier', socialRank: 'common soldier', description: 'Begin cold, underpaid and armed at the edge of a war whose causes are being argued far away.', startLocationId: 'vs_marchcamp', factionId: 'fac_march', factionReputation: 15, outfit: 'padded jack, kettle helm and muddy village boots', inventory: ['spear', 'kettle helm', 'blanket', '3 days rations'], statOverrides: { gold: 2, hp: 19, renown: 3 }, obligations: ['Serve until legally discharged', 'Keep watch and remain with the levy banner'], privileges: ['Army rations and camp shelter', 'Share of lawful battlefield salvage'], legalStatus: 'conscripted levy', intro: 'The dawn muster calls one hundred and ninety-eight names. Two hundred answered yesterday. Your file leader quietly shows you blood beneath the supply wagon and asks whether you want the officers to find it first.' },
-        { id: 'origin_noble', icon: '🦌', name: 'Heir of Stagwatch', role: 'landed noble', socialRank: 'minor nobility', title: 'Heir of Stagwatch', description: 'Begin responsible for a struggling estate, its tenants, its debts and a dangerous blood claim.', startLocationId: 'vs_manor', factionId: 'fac_house_vale', factionReputation: 32, outfit: 'dark riding clothes bearing the silver stag of House Vale', inventory: ['signet ring', 'riding sword', 'estate account book', 'warhorse'], statOverrides: { gold: 42, hp: 19, renown: 25 }, obligations: ['Protect Stagwatch tenants', 'Maintain the manor garrison', 'Answer House Vale’s family council'], privileges: ['Hold manor court', 'Collect customary rents', 'Command six household retainers'], holdings: ['Stagwatch Manor in expectation', 'Rights in Dunmere mill and woodland'], legalStatus: 'noble in good standing', intro: 'Breakfast is interrupted by three arrivals: a guild banker with the estate debt, the reeve with news that tenants hid seed grain, and a royal herald carrying a summons addressed not to Lady Mara—but to you.' },
-        { id: 'origin_prince', icon: '♞', name: 'Royal Prince', role: 'prince of the blood', socialRank: 'royalty', title: 'Prince of Greyhaven', description: 'Begin close to succession, surrounded by affection, surveillance and people who need your future.', startLocationId: 'vs_highward', factionId: 'fac_crown', factionReputation: 38, outfit: 'court black with a narrow silver circlet and a concealed mail shirt', inventory: ['royal signet', 'ceremonial sword', 'personal letters', 'purse of gold'], statOverrides: { gold: 120, hp: 20, renown: 48 }, obligations: ['Attend royal council when summoned', 'Preserve the dignity and continuity of the crown'], privileges: ['Audience with the queen', 'Royal household and guard retinue', 'Issue limited warrants in the sovereign’s name'], holdings: ['Townhouse in the High Ward', 'Income from three crown manors'], legalStatus: 'royal blood', intro: 'A servant wakes you before the bells with news that the queen is ill. On your writing desk lies a succession oath in the Chancellor’s hand, unsigned, and beneath it a second note offering enough soldiers to make the signature unnecessary.' },
-        { id: 'origin_queen', icon: '♛', name: 'Sovereign of the Realm', role: 'reigning monarch', socialRank: 'sovereign', title: 'Queen of Greyhaven', description: 'Begin on the throne with law, armies and wealth that are all less absolute than they look.', startLocationId: 'vs_council', factionId: 'fac_crown', factionReputation: 55, outfit: 'mourning-black velvet, the narrow state crown and a hidden protective charm', inventory: ['Great Seal of the Realm', 'state papers', 'ceremonial sword', 'royal treasury keys'], statOverrides: { gold: 500, hp: 18, renown: 75 }, obligations: ['Hear petitions and render justice', 'Defend the realm', 'Maintain the crown’s oaths, household and solvency'], privileges: ['Issue decrees, pardons, warrants and commissions', 'Command royal forces subject to loyalty and supply', 'Summon council, levy and high court'], holdings: ['Crownfast Keep', 'Royal demesne', 'Crown roads, customs and wardships'], legalStatus: 'the sovereign', intro: 'The council rises when you enter, but no one meets your eyes. On the table: an empty treasury report, a border demand for troops, a guild ultimatum over grain, and a sealed physician’s note marked for your hand alone. Outside, petitioners chant for bread.' },
+        { id: 'origin_noble', icon: '🦌', name: 'Heir of Stagwatch', role: 'landed noble', socialRank: 'minor nobility', title: 'Heir of Stagwatch', description: 'Begin responsible for a struggling estate, its tenants, its debts and a dangerous blood claim.', startLocationId: 'vs_manor', factionId: 'fac_house_vale', factionReputation: 32, outfit: 'dark riding clothes bearing the silver stag of House Vale', inventory: ['signet ring', 'riding sword', 'estate account book', 'warhorse'], statOverrides: { gold: 42, hp: 19, renown: 25 }, obligations: ['Protect Stagwatch tenants', 'Maintain the manor garrison', 'Answer House Vale’s family council'], privileges: ['Hold manor court', 'Collect customary rents', 'Command six household retainers'], holdings: ['Stagwatch Manor in expectation', 'Rights in Dunmere mill and woodland'], legalStatus: 'noble in good standing', intro: 'At Stagwatch Manor, your breakfast tray arrives with three unopened documents: a guild demand for the estate debt, a report from the reeve about concealed seed grain, and a royal summons addressed to you rather than Lady Mara. Rain taps against the windows. You can hear the household beginning its morning beyond the hall.' },
+        { id: 'origin_prince', icon: '♞', name: 'Royal Prince', role: 'prince of the blood', socialRank: 'royalty', title: 'Prince of Greyhaven', description: 'Begin close to succession, surrounded by affection, surveillance and people who need your future.', startLocationId: 'vs_highward', factionId: 'fac_crown', factionReputation: 38, outfit: 'court black with a narrow silver circlet and a concealed mail shirt', inventory: ['royal signet', 'ceremonial sword', 'personal letters', 'purse of gold'], statOverrides: { gold: 120, hp: 20, renown: 48 }, obligations: ['Attend royal council when summoned', 'Preserve the dignity and continuity of the crown'], privileges: ['Audience with the queen', 'Royal household and guard retinue', 'Issue limited warrants in the sovereign’s name'], holdings: ['Townhouse in the High Ward', 'Income from three crown manors'], legalStatus: 'royal blood', intro: 'Outside your townhouse in the High Ward, the first courtyard bell catches you with two letters in your hand. One bears the royal household seal and says the queen is ill. The other contains an unsigned succession oath in the Chancellor’s hand—and a note offering soldiers enough to make the signature unnecessary. Crownfast lies uphill. Neither letter explains who brought the other.' },
+        { id: 'origin_queen', icon: '♛', name: 'Sovereign of the Realm', role: 'reigning monarch', socialRank: 'sovereign', title: 'Queen of Greyhaven', description: 'Begin on the throne with law, armies and wealth that are all less absolute than they look.', startLocationId: 'vs_council', factionId: 'fac_crown', factionReputation: 55, outfit: 'mourning-black velvet, the narrow state crown and a hidden protective charm', inventory: ['Great Seal of the Realm', 'state papers', 'ceremonial sword', 'royal treasury keys'], statOverrides: { gold: 500, hp: 18, renown: 75 }, obligations: ['Hear petitions and render justice', 'Defend the realm', 'Maintain the crown’s oaths, household and solvency'], privileges: ['Issue decrees, pardons, warrants and commissions', 'Command royal forces subject to loyalty and supply', 'Summon council, levy and high court'], holdings: ['Crownfast Keep', 'Royal demesne', 'Crown roads, customs and wardships'], legalStatus: 'the sovereign', intro: 'The Royal Council Chamber is quiet before the morning session. The sovereign’s seal rests beside your hand. On the table lie an empty treasury report, a border demand for troops, a guild ultimatum over grain, and a sealed physician’s note. From beyond the keep walls comes the uneven rhythm of petitioners calling for bread.' },
         { id: 'origin_wanderer', icon: '🧭', name: 'Unknown Wanderer', role: 'traveler of uncertain purpose', socialRank: 'unrecorded', description: 'Begin with almost nothing and no fixed identity. The world will decide who you are by what you do.', startLocationId: 'vs_road', outfit: 'plain travel-worn wool and a weathered cloak', inventory: ['walking staff', 'bedroll', 'flint', '2 days rations'], statOverrides: { gold: 5, hp: 16, renown: 0 }, obligations: [], privileges: [], legalStatus: 'free but unvouched', intro: 'Rain follows you to a four-way milestone where a corpse hangs in a gibbet and someone has left a fresh loaf beneath it. The north road leads to the capital, east to war, south to the fen and west to a village ringing its rent bell. Hoofbeats approach from behind.' }
     ];
 
@@ -3681,6 +3765,25 @@ function createBellwether2005World() {
         entities.push({ id:`bw_worker_${i+1}`, name, type:'npc', startLocation:workplace, description:`${name} works at ${byId.get(workplace)?.name || 'a Bellwether workplace'} and is known for ${['trading shifts','remembering regular customers','having a second job','knowing the unofficial rules','bringing elaborate lunches','being first to hear staffing rumors'][i%6]}.`, persona:`${['Outgoing but overscheduled','Quiet, capable and observant','Friendly with a competitive streak','Sarcastic, dependable and tired','Optimistic until management enters the room','Private but unexpectedly generous'][i%6]}.`, goal:['get enough hours without losing every weekend','move into a better apartment','turn a hobby into paid work','repair a friendship damaged by workplace gossip','earn trust for a promotion','save for a reliable used car'][i%6], goalAutonomy:'medium', goalSteps:['changed one shift or expense to make progress','confided in a coworker','encountered a workplace complication'], schedule:[{time:'09:00',locationId:workplace,activity:'working the day shift',days:['Monday','Tuesday','Wednesday']},{time:'14:00',locationId:workplace,activity:'working the later shift',days:['Thursday','Friday']},{time:'12:00',locationId:i%2?'bw_mall':'bw_park',activity:'off work and out in town',days:['weekend']}] });
     }
 
+    // Specialists need an overnight place too; a final cafe/council/park
+    // appointment must not keep them there until the following morning.
+    const residentialStreets=locations.filter(place=>place.mapType==='route' && /Maple|Oak|Cedar|Lakeview|Westgate/.test(place.region));
+    entities.filter(person=>!person.homeLocation).forEach((person,index)=>{
+        if(person.id==='bw_core_mayor')person.playerOriginIds=['bw_origin_mayor'];
+        const street=residentialStreets[index%residentialStreets.length];
+        const homeId=`bw_residence_${person.id}`,homeName=`${person.name}'s Home`;
+        add(homeId,homeName,street.region,'building',`A private home off ${street.name}. Shoes by the door, a landline and a crowded paper calendar mark the part of ${person.name}'s life that continues after work.`,{parentLocationId:street.id});
+        connect(street.id,homeId,2);
+        person.homeLocation=homeId;person.startLocation=homeId;
+        const rest=[{time:'00:00',locationId:homeId,activity:'at home overnight'},
+            ...(person.id.startsWith('bw_worker_')?[
+                {time:'18:00',locationId:homeId,activity:'home after the day shift',days:['Monday','Tuesday','Wednesday']},
+                {time:'22:00',locationId:homeId,activity:'home after the late shift',days:['Thursday','Friday']}
+            ]:[{time:'21:00',locationId:homeId,activity:'home after the day’s obligations',days:['weekday']}]),
+            {time:'20:00',locationId:homeId,activity:'at home for the evening',days:['weekend']}];
+        person.schedule=[...rest,...person.schedule];
+    });
+
     const factions = [
         { id:'bw_town', name:'Town Government', description:'Mayor, council, departments and employees balancing services, taxes, development and public patience.', influence:72,reputation:14,resources:68,goal:'Approve a sustainable 2006 budget without closing services',territory:['bw_crossroads','bw_townhall','bw_council','bw_library','bw_park','bw_pool'],relations:[{factionId:'bw_business',score:18},{factionId:'bw_media',score:-12},{factionId:'bw_safety',score:28}],goalPool:['Decide the Route 17 development proposal','Modernize town records and public access'] },
         { id:'bw_schools', name:'Bellwether School District', description:'Schools, board, teachers, coaches, students and families fighting over what education should protect.', influence:67,reputation:31,resources:55,goal:'Close a budget gap without cutting essential programs',territory:['bw_school_high','bw_school_middle','bw_school_elementary'],relations:[{factionId:'bw_town',score:22},{factionId:'bw_teens',score:8}],goalPool:['Renegotiate bus and athletics contracts','Pass the spring operating levy'] },
@@ -3697,21 +3800,21 @@ function createBellwether2005World() {
     ];
 
     const startingLives = [
-        {id:'bw_origin_newkid',icon:'🎒',name:'The New Kid',role:'high-school junior',socialRank:'student',description:'Your family moved to Bellwether yesterday. Nobody knows your history, and you do not yet know the map of theirs.',startLocationId:'bw_school_high_main_office',outfit:'new jeans, layered T-shirts and a backpack packed too carefully',inventory:['school schedule','house key','CD player','burned mix CD'],statOverrides:{cash:28,energy:82,stress:38,reputation:0},obligations:['Attend school','Follow household rules and curfew'],privileges:['A clean social slate','Access to Bellwether High'],legalStatus:'minor student',intro:'The guidance counselor mispronounces your last name over the intercom before first period. By lunch, three different people have invited you to three mutually incompatible tables—and somebody has written your old hometown beneath your locker number.'},
-        {id:'bw_origin_localteen',icon:'📱',name:'Bellwether Lifer',role:'high-school senior',socialRank:'student',description:'You know every shortcut and everybody knows a version of you, including several versions you would like retired.',startLocationId:'bw_school_high_student_parking_lot',factionId:'bw_teens',factionReputation:24,outfit:'hoodie, faded band shirt and carefully casual sneakers',inventory:['flip phone','car keys to a shared 1994 sedan','CD wallet','school ID'],statOverrides:{cash:46,energy:70,stress:44,reputation:22},obligations:['Graduate','Keep the shared car fueled','Be home by the negotiated curfew'],privileges:['Deep local knowledge','An established friend network'],legalStatus:'licensed minor',intro:'Your car starts on the fourth try in the student lot. The morning announcement says the senior prank caused “significant plumbing consequences.” Your phone shows six missed calls, and the assistant principal is walking directly toward you.'},
-        {id:'bw_origin_middle',icon:'🛹',name:'Middle-School Wildcard',role:'eighth-grade student',socialRank:'student',description:'Your world is school, home, bikes, friends, older siblings and freedoms measured in blocks and minutes.',startLocationId:'bw_school_middle_bus_loop',outfit:'cargo pants, zip hoodie and scuffed skate shoes',inventory:['bike lock key','handheld game','lunch money','spiral notebook'],statOverrides:{cash:12,energy:92,stress:31,reputation:8},obligations:['Attend school','Stay within family rules','Do not miss the bus again'],privileges:['Adults routinely underestimate what you notice'],legalStatus:'minor student',intro:'The bus pulls away with your science project still on it. Your best friend swears they can catch it by cutting through Briar Creek Woods. First bell is in twenty-two minutes, and the vice principal is already standing at the entrance.'},
-        {id:'bw_origin_parent',icon:'🚙',name:'Suburban Parent',role:'working parent',socialRank:'resident',description:'A household, a job, a car, school logistics and thirty-seven small promises all compete for the same Tuesday.',startLocationId:homeIds[0],outfit:'office-casual clothes with a coffee stain discovered too late',inventory:['minivan keys','wallet','flip phone','paper day planner','grocery coupons'],statOverrides:{cash:260,energy:58,stress:62,reputation:14},obligations:['Pay household bills','Care for family','Meet work and school commitments'],privileges:['A home, car and established community ties'],holdings:['Family home with mortgage','Used minivan'],legalStatus:'adult resident',intro:'At 7:14 Monday morning, the minivan will not start, one child says today is definitely picture day, your boss has left two voicemails, and the answering machine contains a message from Town Hall about “your fence situation.”'},
-        {id:'bw_origin_single',icon:'🧾',name:'Starting Over at Westgate',role:'single parent and new tenant',socialRank:'resident',description:'You have an apartment, a child, two jobs between you and disaster, and no time for the town’s assumptions.',startLocationId:'bw_apartments',outfit:'work clothes under a practical coat',inventory:['apartment keys','bus pass','prepaid cell phone','folder of bills'],statOverrides:{cash:84,energy:46,stress:74,reputation:0},obligations:['Pay rent','Arrange childcare','Keep two work schedules functioning'],privileges:['Tenant protections','A close apartment community if you earn its trust'],legalStatus:'adult tenant',intro:'The radiator has stopped again. Your child’s school calls at the same moment the diner asks whether you can cover a shift, while a bright orange notice appears under the apartment door announcing a rent increase next month.'},
-        {id:'bw_origin_teacher',icon:'📝',name:'First-Year Teacher',role:'public-school teacher',socialRank:'professional',description:'You have one classroom, one contract year and roughly one hundred people evaluating your choices.',startLocationId:'bw_school_high_south_hall',factionId:'bw_schools',factionReputation:12,outfit:'carefully professional clothes and shoes already regretted',inventory:['grade book','classroom keys','red pens','staff handbook'],statOverrides:{cash:118,energy:68,stress:57,reputation:5},obligations:['Teach assigned classes','Supervise students','Follow district policy and contract'],privileges:['Staff access','Professional discretion inside the classroom'],legalStatus:'district employee',intro:'A parent is waiting outside your classroom before the first bell. Inside, someone has replaced every desk with a folding chair from the auditorium, and the principal’s memo says today’s unannounced observation will occur “at any time.”'},
-        {id:'bw_origin_mall',icon:'💿',name:'Mall Employee',role:'music-store clerk',socialRank:'hourly worker',description:'Your shifts, friends, romantic complications and entire social map overlap beneath one fluorescent roof.',startLocationId:'bw_mall_music',factionId:'bw_mall_faction',factionReputation:8,outfit:'store polo over a band shirt management has not noticed',inventory:['store keys','name tag','flip phone','employee discount card'],statOverrides:{cash:64,energy:66,stress:42,reputation:10},obligations:['Work assigned shifts','Protect store inventory','Find somebody to cover before calling out'],privileges:['Mall employee corridors','Store discount','Informal access to the youth scene'],legalStatus:'adult employee',intro:'The opening shipment contains two hundred copies of the wrong album. Your manager is stuck in traffic, a local band has arrived expecting the in-store performance nobody booked, and mall security wants to discuss footage from last night.'},
-        {id:'bw_origin_owner',icon:'🔑',name:'Small Business Owner',role:'downtown shop owner',socialRank:'business owner',description:'You have keys, payroll, regulars, debt and the freedom to work every hour the business is open.',startLocationId:'bw_coffee',factionId:'bw_merchants',factionReputation:22,outfit:'rolled sleeves, apron and comfortable shoes',inventory:['shop keys','cashbox key','supplier invoices','pager'],statOverrides:{cash:620,energy:52,stress:63,reputation:28},obligations:['Make payroll','Pay rent and suppliers','Meet health and licensing rules'],privileges:['Control your business premises','Vote in the merchants association'],holdings:['The Daily Grind business and equipment'],legalStatus:'licensed proprietor',intro:'The espresso machine makes a noise like a lawn mower and dies during the morning rush. At the same moment, a developer offers to buy your lease, and the health inspector joins the line.'},
-        {id:'bw_origin_reporter',icon:'📰',name:'Local Reporter',role:'newspaper reporter',socialRank:'local professional',description:'You can ask nearly anyone a question, but publishing the answer may cost access, advertising or friendships.',startLocationId:'bw_paper',factionId:'bw_media',factionReputation:20,outfit:'creased shirt, practical jacket and ink on one cuff',inventory:['reporter notebook','microcassette recorder','35mm camera','press badge'],statOverrides:{cash:92,energy:72,stress:48,reputation:18},obligations:['Verify before publishing','Protect confidential sources','Meet the Beacon deadline'],privileges:['Press access','A reason to ask unwelcome questions'],legalStatus:'working press',intro:'An envelope on your desk contains copies of a development contract dated three weeks before the public bidding process. The editor needs a zoning story by noon. The bank president is already calling to ask what you are working on.'},
-        {id:'bw_origin_officer',icon:'🚓',name:'Night-Shift Officer',role:'patrol officer',socialRank:'public employee',description:'You have authority, a radio, a partner and a town where every call may involve somebody you know.',startLocationId:'bw_police',factionId:'bw_safety',factionReputation:18,outfit:'Bellwether patrol uniform, duty belt and rain jacket',inventory:['patrol radio','badge','flashlight','notebook','patrol car keys'],statOverrides:{cash:142,energy:48,stress:54,reputation:12},obligations:['Respond to calls lawfully','Document enforcement actions','Protect people in custody and the public'],privileges:['Police authority within jurisdiction','Access to dispatch and incident records'],legalStatus:'sworn officer',intro:'Dispatch sends you to the mall for a “fountain-related disturbance” and then quietly adds that the mayor’s son is involved. Your partner recognizes the address on a second pending call and asks you to take the long route.'},
-        {id:'bw_origin_mayor',icon:'🏛️',name:'Mayor of Bellwether',role:'elected mayor',socialRank:'local executive',description:'You can set agendas and influence departments, but every promise has a budget, a constituency and a camera.',startLocationId:'bw_council',factionId:'bw_town',factionReputation:40,title:'Mayor of Bellwether',outfit:'navy suit, town pin and shoes chosen for standing through meetings',inventory:['town hall keys','official pager','briefing binder','campaign donor list'],statOverrides:{cash:310,energy:61,stress:69,reputation:46},obligations:['Execute town policy','Present a balanced budget','Remain accountable to residents and council'],privileges:['Set executive priorities','Direct department heads within law','Public platform and official access'],legalStatus:'elected official',intro:'The council chamber microphones are live ten minutes early. Through them, half the town hears two council members arguing that your development deal is already fixed. Your assistant whispers that the state auditor has arrived without an appointment.'},
-        {id:'bw_origin_retired',icon:'☕',name:'Retired Local Fixture',role:'retired resident',socialRank:'elder resident',description:'You have time, history, skills and connections spanning people who no longer speak to each other.',startLocationId:'bw_diner',factionId:'bw_oldguard',factionReputation:36,outfit:'windbreaker, comfortable shoes and a cap from a long-closed business',inventory:['old station wagon keys','address book','garage tools','diner loyalty card'],statOverrides:{cash:190,energy:57,stress:22,reputation:42},obligations:['Keep a few promises made decades ago'],privileges:['Long local memory','Trust across several generations','Time to notice what busy people miss'],holdings:['Paid-off modest home','Crowded garage workshop'],legalStatus:'adult resident',intro:'The diner waitress brings your usual before you order and slides a sealed letter beneath the coffee. It is addressed in the handwriting of a friend who died eight years ago. Across the counter, the new reporter is asking about the old factory fire.'},
-        {id:'bw_origin_doctor',icon:'🩺',name:'Emergency Doctor',role:'emergency physician',socialRank:'medical professional',description:'You carry expertise and responsibility inside a hospital woven tightly into the town outside it.',startLocationId:'bw_er',factionId:'bw_health',factionReputation:28,outfit:'scrubs beneath a white coat, running shoes and a clipped pager',inventory:['hospital badge','pager','stethoscope','car keys'],statOverrides:{cash:480,energy:43,stress:72,reputation:31},obligations:['Treat patients ethically','Protect confidentiality','Respond to emergencies while on duty'],privileges:['Clinical authority','Hospital access','Professional standing'],legalStatus:'licensed physician',intro:'Three ambulances arrive within six minutes: a factory injury, a school-bus crash with no serious wounds, and the bank president complaining of chest pain while insisting his name stay off the board. Pediatrics has no overnight coverage.'},
-        {id:'bw_origin_unemployed',icon:'📼',name:'Back Home Again',role:'unemployed adult living with family',socialRank:'resident',description:'You returned to your childhood room with boxes, a résumé and a town determined to remember you at seventeen.',startLocationId:homeIds[1],outfit:'old jeans and a college sweatshirt that invites questions',inventory:['used car keys','résumé folder','desktop computer','box of old yearbooks'],statOverrides:{cash:37,energy:64,stress:68,reputation:6},obligations:['Contribute at home','Search for work','Explain the plan repeatedly'],privileges:['Family shelter','Old friendships that may or may not still fit'],legalStatus:'adult resident',intro:'Your mother has circled three jobs in the Beacon and scheduled you for lunch with someone who “knows people.” Before you can object, your old best friend leaves a message asking whether you still have the key to the water tower fence.'},
-        {id:'bw_origin_richkid',icon:'🏡',name:'Lakeview Golden Child',role:'college-bound senior',socialRank:'affluent student',description:'You have money, access and expectations high enough to make every mistake public.',startLocationId:homeIds[homeIds.length-1],factionId:'bw_hoa',factionReputation:18,outfit:'expensive casual clothes chosen to appear effortless',inventory:['new flip phone','SUV keys','credit card for emergencies','college application folder'],statOverrides:{cash:420,energy:74,stress:58,reputation:38},obligations:['Protect the family name','Maintain grades and admissions prospects','Follow household image rules'],privileges:['Car access','Money and social reach','Lakeview facilities'],legalStatus:'licensed minor',intro:'A photo from Saturday’s lake party is circulating at school on printed computer paper. You are not doing anything illegal in it—but somebody important is visible behind you, and your parent wants every copy gone before lunch.'}
+        {id:'bw_origin_newkid',icon:'🎒',name:'The New Kid',role:'high-school junior',socialRank:'student',description:'Your family moved to Bellwether yesterday. Nobody knows your history, and you do not yet know the map of theirs.',startLocationId:'bw_school_high_main_office',outfit:'new jeans, layered T-shirts and a backpack packed too carefully',inventory:['school schedule','house key','CD player','burned mix CD'],statOverrides:{cash:28,energy:82,stress:38,reputation:0},obligations:['Attend school','Follow household rules and curfew'],privileges:['A clean social slate','Access to Bellwether High'],legalStatus:'minor student',intro:'The Bellwether High main office smells of warm toner and floor polish. Your enrollment folder is open on the counter, your surname crossed out and rewritten in the wrong spelling. A locker assignment is clipped to your timetable. Beneath the printed number, someone has penciled the name of your old hometown. You have not told anyone here about it.'},
+        {id:'bw_origin_localteen',icon:'📱',name:'Bellwether Lifer',role:'high-school senior',socialRank:'student',description:'You know every shortcut and everybody knows a version of you, including several versions you would like retired.',startLocationId:'bw_school_high_student_parking_lot',factionId:'bw_teens',factionReputation:24,outfit:'hoodie, faded band shirt and carefully casual sneakers',inventory:['flip phone','car keys to a shared 1994 sedan','CD wallet','school ID'],statOverrides:{cash:46,energy:70,stress:44,reputation:22},obligations:['Graduate','Keep the shared car fueled','Be home by the negotiated curfew'],privileges:['Deep local knowledge','An established friend network'],legalStatus:'licensed minor',intro:'In the high-school student parking lot, your shared sedan has finally stopped coughing. Six missed calls fill the flip phone’s tiny screen. A pink office slip is caught beneath the wiper: PLEASE REPORT BEFORE FIRST PERIOD. From the building’s loudspeaker comes an announcement about “significant plumbing consequences.” Nobody has said your name yet.'},
+        {id:'bw_origin_middle',icon:'🛹',name:'Middle-School Wildcard',role:'eighth-grade student',socialRank:'student',description:'Your world is school, home, bikes, friends, older siblings and freedoms measured in blocks and minutes.',startLocationId:'bw_school_middle_bus_loop',outfit:'cargo pants, zip hoodie and scuffed skate shoes',inventory:['bike lock key','handheld game','lunch money','spiral notebook'],statOverrides:{cash:12,energy:92,stress:31,reputation:8},obligations:['Attend school','Stay within family rules','Do not miss the bus again'],privileges:['Adults routinely underestimate what you notice'],legalStatus:'minor student',intro:'At the middle-school bus loop, the bus disappears around the corner with your science project still aboard. A text from your best friend suggests the path through Briar Creek Woods. The school doors are open behind you. Your empty hands feel conspicuous among the other project boxes.'},
+        {id:'bw_origin_parent',icon:'🚙',name:'Suburban Parent',role:'working parent',socialRank:'resident',description:'A household, a job, a car, school logistics and thirty-seven small promises all compete for the same Monday.',startLocationId:homeIds[0],outfit:'office-casual clothes with a coffee stain discovered too late',inventory:['minivan keys','wallet','flip phone','paper day planner','grocery coupons'],statOverrides:{cash:260,energy:58,stress:62,reputation:14},obligations:['Pay household bills','Care for family','Meet work and school commitments'],privileges:['A home, car and established community ties'],holdings:['Family home with mortgage','Used minivan'],legalStatus:'adult resident',intro:'Monday morning at home: the minivan will not start, a school reminder insists today is picture day, and your boss has left two voicemails. The answering machine’s final message is from Town Hall about “your fence situation.” The kitchen clock says seven. Your keys are on the table beside the permission slip you meant to sign last night.'},
+        {id:'bw_origin_single',icon:'🧾',name:'Starting Over at Westgate',role:'single parent and new tenant',socialRank:'resident',description:'You have an apartment, a child, two jobs between you and disaster, and no time for the town’s assumptions.',startLocationId:'bw_apartments',outfit:'work clothes under a practical coat',inventory:['apartment keys','bus pass','prepaid cell phone','folder of bills'],statOverrides:{cash:84,energy:46,stress:74,reputation:0},obligations:['Pay rent','Arrange childcare','Keep two work schedules functioning'],privileges:['Tenant protections','A close apartment community if you earn its trust'],legalStatus:'adult tenant',intro:'At Westgate Apartments, the radiator has stopped again. The answering machine holds a message from your child’s school and another from the diner asking whether you can cover a shift. A bright orange notice has been pushed under the door: the rent goes up next month. You are still in the apartment corridor, with your keys and work bag.'},
+        {id:'bw_origin_teacher',icon:'📝',name:'First-Year Teacher',role:'public-school teacher',socialRank:'professional',description:'You have one classroom, one contract year and roughly one hundred people evaluating your choices.',startLocationId:'bw_school_high_south_hall',factionId:'bw_schools',factionReputation:12,outfit:'carefully professional clothes and shoes already regretted',inventory:['grade book','classroom keys','red pens','staff handbook'],statOverrides:{cash:118,energy:68,stress:57,reputation:5},obligations:['Teach assigned classes','Supervise students','Follow district policy and contract'],privileges:['Staff access','Professional discretion inside the classroom'],legalStatus:'district employee',intro:'In Bellwether High’s south hall, a folded parent note waits beneath your classroom number. Through the open doorway you can see rows of folding chairs where desks should be. The principal’s memo in your hand promises an unannounced observation “at any time today.” Somewhere farther down the hall, a chair leg scrapes the floor.'},
+        {id:'bw_origin_mall',icon:'💿',name:'Mall Employee',role:'music-store clerk',socialRank:'hourly worker',description:'Your shifts, friends, romantic complications and entire social map overlap beneath one fluorescent roof.',startLocationId:'bw_mall_music',factionId:'bw_mall_faction',factionReputation:8,outfit:'store polo over a band shirt management has not noticed',inventory:['store keys','name tag','flip phone','employee discount card'],statOverrides:{cash:64,energy:66,stress:42,reputation:10},obligations:['Work assigned shifts','Protect store inventory','Find somebody to cover before calling out'],privileges:['Mall employee corridors','Store discount','Informal access to the youth scene'],legalStatus:'adult employee',intro:'Behind Sound Circuit’s counter, the opening shipment is stacked around your ankles: two hundred copies of the wrong album. The shop’s fax machine has printed a local band’s confirmation for an in-store show nobody entered in the diary. A message from mall security asks you to collect last night’s incident report before opening.'},
+        {id:'bw_origin_owner',icon:'🔑',name:'Small Business Owner',role:'downtown shop owner',socialRank:'business owner',description:'You have keys, payroll, regulars, debt and the freedom to work every hour the business is open.',startLocationId:'bw_coffee',factionId:'bw_merchants',factionReputation:22,outfit:'rolled sleeves, apron and comfortable shoes',inventory:['shop keys','cashbox key','supplier invoices','pager'],statOverrides:{cash:620,energy:52,stress:63,reputation:28},obligations:['Make payroll','Pay rent and suppliers','Meet health and licensing rules'],privileges:['Control your business premises','Vote in the merchants association'],holdings:['The Daily Grind business and equipment'],legalStatus:'licensed proprietor',intro:'At the coffee shop, the espresso machine makes a sound like a lawn mower and falls silent. The first cups are already lined up on the counter. Beneath the till sits a developer’s offer to buy your lease; taped beside it is today’s inspection notice. The handwritten specials board still promises the best coffee in Bellwether.'},
+        {id:'bw_origin_reporter',icon:'📰',name:'Local Reporter',role:'newspaper reporter',socialRank:'local professional',description:'You can ask nearly anyone a question, but publishing the answer may cost access, advertising or friendships.',startLocationId:'bw_paper',factionId:'bw_media',factionReputation:20,outfit:'creased shirt, practical jacket and ink on one cuff',inventory:['reporter notebook','microcassette recorder','35mm camera','press badge'],statOverrides:{cash:92,energy:72,stress:48,reputation:18},obligations:['Verify before publishing','Protect confidential sources','Meet the Beacon deadline'],privileges:['Press access','A reason to ask unwelcome questions'],legalStatus:'working press',intro:'At the Beacon office, an envelope on your desk contains a development contract dated three weeks before public bidding opened. An editorial note asks for the zoning story by noon. The bank’s number is blinking on the answering machine. A corner of the final contract page has been cut away.'},
+        {id:'bw_origin_officer',icon:'🚓',name:'Night-Shift Officer',role:'patrol officer',socialRank:'public employee',description:'You have authority, a radio, a partner and a town where every call may involve somebody you know.',startLocationId:'bw_police',factionId:'bw_safety',factionReputation:18,outfit:'Bellwether patrol uniform, duty belt and rain jacket',inventory:['patrol radio','badge','flashlight','notebook','patrol car keys'],statOverrides:{cash:142,energy:48,stress:54,reputation:12},obligations:['Respond to calls lawfully','Document enforcement actions','Protect people in custody and the public'],privileges:['Police authority within jurisdiction','Access to dispatch and incident records'],legalStatus:'sworn officer',intro:'At the police station, the end-of-shift board lists a “fountain-related disturbance” at the mall. A second line adds the mayor’s son’s name. Beside it is another pending address, underlined twice, with a handwritten request to speak privately before taking the call. Your radio is still on the desk.'},
+        {id:'bw_origin_mayor',icon:'🏛️',name:'Mayor of Bellwether',role:'elected mayor',socialRank:'local executive',description:'You can set agendas and influence departments, but every promise has a budget, a constituency and a camera.',startLocationId:'bw_council',factionId:'bw_town',factionReputation:40,title:'Mayor of Bellwether',outfit:'navy suit, town pin and shoes chosen for standing through meetings',inventory:['town hall keys','official pager','briefing binder','campaign donor list'],statOverrides:{cash:310,energy:61,stress:69,reputation:46},obligations:['Execute town policy','Present a balanced budget','Remain accountable to residents and council'],privileges:['Set executive priorities','Direct department heads within law','Public platform and official access'],legalStatus:'elected official',intro:'In the council chamber, the microphone at your seat is unexpectedly live. A thin red lamp glows beneath the empty public benches. Someone has left two contradictory versions of the development vote on the table, along with a note from the clerk: STATE AUDIT REQUEST—PLEASE CALL. The morning meeting has not begun.'},
+        {id:'bw_origin_retired',icon:'☕',name:'Retired Local Fixture',role:'retired resident',socialRank:'elder resident',description:'You have time, history, skills and connections spanning people who no longer speak to each other.',startLocationId:'bw_diner',factionId:'bw_oldguard',factionReputation:36,outfit:'windbreaker, comfortable shoes and a cap from a long-closed business',inventory:['old station wagon keys','address book','garage tools','diner loyalty card'],statOverrides:{cash:190,energy:57,stress:22,reputation:42},obligations:['Keep a few promises made decades ago'],privileges:['Long local memory','Trust across several generations','Time to notice what busy people miss'],holdings:['Paid-off modest home','Crowded garage workshop'],legalStatus:'adult resident',intro:'At your usual diner booth, a sealed letter lies beneath the coffee cup. The envelope carries the handwriting of a friend who died eight years ago. Beside it is a Beacon clipping about the old factory fire. The reverse has one fresh pencil mark: a question mark beside your name.'},
+        {id:'bw_origin_doctor',icon:'🩺',name:'Emergency Doctor',role:'emergency physician',socialRank:'medical professional',description:'You carry expertise and responsibility inside a hospital woven tightly into the town outside it.',startLocationId:'bw_er',factionId:'bw_health',factionReputation:28,outfit:'scrubs beneath a white coat, running shoes and a clipped pager',inventory:['hospital badge','pager','stethoscope','car keys'],statOverrides:{cash:480,energy:43,stress:72,reputation:31},obligations:['Treat patients ethically','Protect confidentiality','Respond to emergencies while on duty'],privileges:['Clinical authority','Hospital access','Professional standing'],legalStatus:'licensed physician',intro:'In the emergency department, the incoming radio lists three arrivals within six minutes: a factory injury, a school-bus collision with no serious injuries reported, and the bank president with chest pain. The first bay is ready; the second still has yesterday’s faulty monitor. Your handover sheet is blank where the overnight shortages should be recorded.'},
+        {id:'bw_origin_unemployed',icon:'📼',name:'Back Home Again',role:'unemployed adult living with family',socialRank:'resident',description:'You returned to your childhood room with boxes, a résumé and a town determined to remember you at seventeen.',startLocationId:homeIds[1],outfit:'old jeans and a college sweatshirt that invites questions',inventory:['used car keys','résumé folder','desktop computer','box of old yearbooks'],statOverrides:{cash:37,energy:64,stress:68,reputation:6},obligations:['Contribute at home','Search for work','Explain the plan repeatedly'],privileges:['Family shelter','Old friendships that may or may not still fit'],legalStatus:'adult resident',intro:'Back at the family house, three jobs are circled in the Beacon on the kitchen table. Your mother has left a note about lunch with someone who “knows people.” On the answering machine, an old friend asks whether you still have the key to the water-tower fence. They do not say why they need it.'},
+        {id:'bw_origin_richkid',icon:'🏡',name:'Lakeview Golden Child',role:'college-bound senior',socialRank:'affluent student',description:'You have money, access and expectations high enough to make every mistake public.',startLocationId:homeIds[homeIds.length-1],factionId:'bw_hoa',factionReputation:18,outfit:'expensive casual clothes chosen to appear effortless',inventory:['new flip phone','SUV keys','credit card for emergencies','college application folder'],statOverrides:{cash:420,energy:74,stress:58,reputation:38},obligations:['Protect the family name','Maintain grades and admissions prospects','Follow household image rules'],privileges:['Car access','Money and social reach','Lakeview facilities'],legalStatus:'licensed minor',intro:'At home in Lakeview, a photocopied image from Saturday’s lake party lies across your college application folder. You are not doing anything illegal in it, but someone important is visible behind you. A note in your parent’s handwriting says: GET EVERY COPY BACK BEFORE LUNCH. The paper has already been folded into quarters by somebody else.'}
     ];
 
     const scheduledEvents = [
@@ -3801,7 +3904,7 @@ const STARTER_WORLDS = [
         maxTokens: 2048,
         contextSize: 32768,
         startLocationId: 'loc_square',
-        intro: 'The caravan pays you off at the crossroads milestone — eleven days guarding wool wagons for nine silver and a blister — and rolls on south toward Karsholm without you. You walk north into Emberwick under a dawn the color of forge-light.\n\nThe village should be waking. Instead it stands still in the square: forty-odd souls in mourning grey around a coffin on trestles, while a young priestess in dawn-gold vestments speaks the rites. The chapel bell tolls for the dead. You count the strokes the way every child of the Vale learns to — twelve, one for each god-hour.\n\nIt strikes a thirteenth time. Every head in the square lifts at once.\n\nIn the hush that follows, details find you. The mine on the hill above town — the Ironvein, whose ore pays for every roof here — has no smoke, no cart-rattle, no sound at all. At the square\'s edge a plump man in merchant\'s velvet is not mourning in the least; he is making small notes in a grain ledger, thumbing it from the wrong edge. And on the chapel steps a stable-child is staring not at the coffin but at you, with the fierce relief of someone who has been waiting for anyone at all to arrive.\n\nThe coffin holds Reeve Harlan Mosse, dead three nights past of what the village is calling a fall. The mine has been silent for nine days. The Gilded Griffin\'s door stands open behind you, and the smell of bread and beeswax drifts across the square like the last normal thing in the world.\n\nWhat do you do?',
+        intro: 'The caravan pays you off at the crossroads milestone — eleven days guarding wool wagons for nine silver and a blister — and rolls on south toward Karsholm without you. You walk north into Emberwick under a dawn the color of forge-light.\n\nThe village should be waking. Instead it stands still in the square: forty-odd souls in mourning grey around a coffin on trestles, while a young priestess in dawn-gold vestments speaks the rites. The chapel bell tolls for the dead. You count the strokes the way every child of the Vale learns to — twelve, one for each god-hour.\n\nIt strikes a thirteenth time. Every head in the square lifts at once.\n\nIn the hush that follows, details find you. The mine on the hill above town — the Ironvein, whose ore pays for every roof here — has no smoke, no cart-rattle, no sound at all. At the square\'s edge a plump man in merchant\'s velvet is not mourning in the least; he is making small notes in a grain ledger, thumbing it from the wrong edge. And on the chapel steps a stable-child is staring not at the coffin but at you, with the fierce relief of someone who has been waiting for anyone at all to arrive.\n\nThe card beside the coffin reads REEVE HARLAN MOSSE. A notice on the fountain asks for witnesses to a fall three nights ago. Below it, an older chalk mark counts nine days without a delivery from the mine. The Gilded Griffin\'s door stands open behind you, and the smell of bread and beeswax drifts across the square like the last normal thing in the world.\n\nWhat do you do?',
         locations: [
             { id: 'loc_crossroads', name: 'The King\'s Crossroads', region: 'The Vale of Aldenmere', mapType: 'outdoor', description: 'A weathered milestone where four roads meet under a gallows-bare oak. The king it names has been dead two hundred years, but carters still touch the stone for luck.', exits: [ { text: 'north to Emberwick Village Square', travelTime: 30 }, { text: 'east to Whisperwood Edge', travelTime: 45 }, { text: 'south to Karsholm Northgate', travelTime: 150 }, { text: 'west to Lake Morrow Shore', travelTime: 90 } ] },
             { id: 'loc_square', name: 'Emberwick Village Square', region: 'Emberwick', mapType: 'area', description: 'Cobbles worn smooth by ore-carts, a dry fountain crowned with a rusted sun, and every window watching. The Gilded Griffin, the chapel, and the forge face each other across it like old friends keeping secrets.', exits: [ 'to The Gilded Griffin Taproom', 'to Dawnmother Chapel', 'to Ironvein Forge', { text: 'north to The Mine Road', travelTime: 15 }, { text: 'south to The King\'s Crossroads', travelTime: 30 } ] },
@@ -3829,9 +3932,9 @@ const STARTER_WORLDS = [
         ],
         entities: [
             { id: 'ent_maera', name: 'Maera Thistledown', type: 'npc', startLocation: 'loc_griffin_tap', description: 'The Gilded Griffin\'s innkeeper: silver-braided, broad-shouldered, flour on her forearms and an old fencer\'s balance in her step.', persona: 'Warm, unhurried, watches doors. Deflects questions about her past with food. Protects Emberwick like a veteran holding a bridge — because she is one.', goal: 'Keep Emberwick safe while quietly learning what has disturbed the mine.', goalSteps: ['took the old longsword down from the hearth and oiled it for the first time in years', 'asked two carters, quietly, whether the south road is still safe after dark', 'was seen carrying a lantern down to the cellar long after the taproom emptied', 'pried up the third flagstone in the cellar and sat a long while with what was under it', 'began turning travellers away from the mine road, and will not say why'], goalPool: [{ goal: 'Stand watch over Emberwick the way the Last Company once would have', steps: ['cleared thirty years of dust off the cellar\'s hidden weapon rack', 'began walking the village bounds at dusk with the old longsword on her hip', 'started teaching Pip to hold a knife properly, calling it kitchen work', 'drew up a watch rota and bullied four villagers into keeping it'] }], goalAutonomy: 'high', schedule: [ { time: '06:00', locationId: 'loc_griffin_tap', activity: 'Baking and opening the taproom' }, { time: '14:00', locationId: 'loc_square', activity: 'Market errands and quiet headcounts' }, { time: '17:00', locationId: 'loc_griffin_tap', activity: 'Working the evening crowd' }, { time: '23:00', locationId: 'loc_griffin_cellar', activity: 'Sitting alone with an old sword' } ], secrets: [ { label: 'The Lark of the Last Company', hint: 'She never speaks of her adventuring days, and she oils a longsword she claims she cannot swing.', truth: 'Thirty years ago her company — the Last Company — opened the Deepgate. Her captain, Ser Kaelen, fell, and something wearing his armor walked out. She and Brannoc\'s father sealed the gate and swore never to speak of it. Her map of the lower galleries lies under the cellar\'s third flagstone.' } ] },
-            { id: 'ent_rowena', name: 'Sister Rowena', type: 'npc', startLocation: 'loc_chapel', description: 'A young priestess of the Dawnmother with steady hands and sleepless eyes, gold vestments carefully mended.', persona: 'Gentle, precise, immovable on matters of the dead. Her serenity is practiced like a sword-form; she is frightened and will not show it.', goal: 'Determine why the funeral rites failed without causing panic in Emberwick.', goalSteps: ['had the chapel\'s oldest rite-books brought up from the locked cabinet', 'was seen scraping at the ceiling plaster where a thirteenth god-hour would go', 'quietly bought every blessed iron nail the forge had in stock', 'wrote a letter to the Dawnmother\'s seat in Karsholm and did not send it', 'stopped ringing the evening bell altogether'], goalPool: [{ goal: 'Ready the chapel to shelter Emberwick if the dead come calling', steps: ['consecrated the chapel threshold stone by stone through an entire night', 'hammered blessed nails into every window frame and doorway of the chapel', 'moved bedding and stores into the crypt, of all places', 'finally sent the letter to the Dawnmother\'s seat in Karsholm'] }], goalAutonomy: 'medium', schedule: [ { time: '05:00', locationId: 'loc_chapel', activity: 'Dawn service' }, { time: '12:00', locationId: 'loc_square', activity: 'Alms and visiting the sick' }, { time: '19:00', locationId: 'loc_chapel', activity: 'Vespers' }, { time: '22:00', locationId: 'loc_crypt', activity: 'Studying the reeve\'s body by candlelight' } ], secrets: [ { label: 'The Thirteenth Bell', hint: 'She rang the funeral bell herself, and a priestess does not miscount the god-hours.', truth: 'The reeve\'s wound was bloodless and rimmed with frost — a grave-cold blade. The Dawnmother\'s rites would not settle him; he sat up on the slab and spoke one word, "Vane," before she pinned him with a blessed nail. She has told no one.' } ] },
+            { id: 'ent_rowena', name: 'Sister Rowena', type: 'npc', startLocation: 'loc_square', description: 'A young priestess of the Dawnmother with steady hands and sleepless eyes, gold vestments carefully mended.', persona: 'Gentle, precise, immovable on matters of the dead. Her serenity is practiced like a sword-form; she is frightened and will not show it.', goal: 'Determine why the funeral rites failed without causing panic in Emberwick.', goalSteps: ['had the chapel\'s oldest rite-books brought up from the locked cabinet', 'was seen scraping at the ceiling plaster where a thirteenth god-hour would go', 'quietly bought every blessed iron nail the forge had in stock', 'wrote a letter to the Dawnmother\'s seat in Karsholm and did not send it', 'stopped ringing the evening bell altogether'], goalPool: [{ goal: 'Ready the chapel to shelter Emberwick if the dead come calling', steps: ['consecrated the chapel threshold stone by stone through an entire night', 'hammered blessed nails into every window frame and doorway of the chapel', 'moved bedding and stores into the crypt, of all places', 'finally sent the letter to the Dawnmother\'s seat in Karsholm'] }], goalAutonomy: 'medium', schedule: [ { time: '07:00', locationId: 'loc_square', activity: 'Morning rites and village business' }, { time: '05:00', locationId: 'loc_chapel', activity: 'Dawn service' }, { time: '12:00', locationId: 'loc_square', activity: 'Alms and visiting the sick' }, { time: '19:00', locationId: 'loc_chapel', activity: 'Vespers' }, { time: '22:00', locationId: 'loc_crypt', activity: 'Studying the reeve\'s body by candlelight' } ], secrets: [ { label: 'The Thirteenth Bell', hint: 'She rang the funeral bell herself, and a priestess does not miscount the god-hours.', truth: 'The reeve\'s wound was bloodless and rimmed with frost — a grave-cold blade. The Dawnmother\'s rites would not settle him; he sat up on the slab and spoke one word, "Vane," before she pinned him with a blessed nail. She has told no one.' } ] },
             { id: 'ent_brannoc', name: 'Brannoc Ironvein', type: 'npc', startLocation: 'loc_forge', description: 'A mountain of a smith with singed eyebrows and an ancient signet on a cord around his neck.', persona: 'Slow to speak, honest to a fault, undercharges his neighbors. Goes quiet and busy whenever the mine or his family history is raised.', goal: 'Protect his neighbors and decide how much of his family history to reveal.', goalSteps: ['worked past midnight filling orders nobody had placed', 'took the old signet off its cord, set it on the anvil, and looked at it a long while', 'reached up into the forge chimney and brought down something wrapped in oilcloth', 'asked Maera, of all people, what his father did the year the mine was sealed', 'started forging something that is not a horseshoe and will not say what'], goalPool: [{ goal: 'Forge what his blood remembers and be ready to open what is sealed', steps: ['read his grandmother\'s journal cover to cover by forge-light', 'began forging to an old pattern drawn in the journal\'s margins', 'quenched a blade in consecrated water begged from Sister Rowena', 'hung the new-forged key-blade above the door where the horseshoes used to be'] }], goalAutonomy: 'medium', schedule: [ { time: '07:00', locationId: 'loc_forge', activity: 'Hammer-work' }, { time: '13:00', locationId: 'loc_square', activity: 'Lunch on the fountain rim' }, { time: '14:00', locationId: 'loc_forge', activity: 'Afternoon commissions' }, { time: '21:00', locationId: 'loc_griffin_tap', activity: 'One ale, rarely two' } ], secrets: [ { label: 'The Quartermaster\'s Seal', hint: 'The signet he stamps his best work with is far older than any smith\'s mark.', truth: 'His line served King Aldric as royal quartermasters. The Vault of Embers answers to Ironvein blood and will open for no one else. His grandmother\'s journal, hidden in the forge chimney, records exactly where the Ember Shard was laid — and why the family never went back.' } ] },
-            { id: 'ent_quill', name: 'Silas Quill', type: 'npc', startLocation: 'loc_griffin_tap', description: 'A plump, friendly merchant in expensive velvet, always mid-smile, always buying the next round.', persona: 'Charm as a working tool. Never lies when a half-truth will serve; genuinely likes people and robs them anyway. If cornered, he buys; if bought, he betrays.', goal: 'Expand his leverage over Emberwick while keeping everyone friendly.', goalSteps: ['bought the mill\'s outstanding debt at a generous price, and made sure the miller heard how generous', 'stood a round for the whole taproom on the night of the funeral', 'was seen at the fountain after dark with his hand behind a loose brick', 'sent a rider south with a sealed packet and paid him extra not to open it', 'began quietly asking which families in Emberwick carry Ironvein blood'], goalPool: [{ goal: 'Deliver his ledger of Emberwick to Karsholm and collect his price', steps: ['called in three small debts sharply, out of character for him', 'booked passage south with a carter and paid double for silence', 'was seen burning papers behind the Griffin\'s stable at first light', 'left a sealed letter addressed to Maera behind the bar, to be opened if he does not return'] }], goalAutonomy: 'high', schedule: [ { time: '08:00', locationId: 'loc_griffin_tap', activity: 'Holding court over breakfast' }, { time: '11:00', locationId: 'loc_square', activity: 'Buying debts with sympathy and silver' }, { time: '16:00', locationId: 'loc_mine_gate', activity: 'Paying his "surveyors"' }, { time: '20:00', locationId: 'loc_griffin_tap', activity: 'Rounds for the house' } ], secrets: [ { label: 'The Ledger Written Backward', hint: 'His grain ledger is thumbed from the wrong edge, and he has never once sold any grain.', truth: 'He is a factor of the Red Ledger. The book is a coded manifest of every debt in Emberwick — he has quietly bought the mine, the mill, and the Griffin\'s mortgage. His standing orders, signed M.V., are to have the mine surveyed and any shard-bearing stone crated for Karsholm. His true second ledger sits behind a loose brick by the square\'s fountain.' } ] },
+            { id: 'ent_quill', name: 'Silas Quill', type: 'npc', startLocation: 'loc_square', description: 'A plump, friendly merchant in expensive velvet, always mid-smile, always buying the next round.', persona: 'Charm as a working tool. Never lies when a half-truth will serve; genuinely likes people and robs them anyway. If cornered, he buys; if bought, he betrays.', goal: 'Expand his leverage over Emberwick while keeping everyone friendly.', goalSteps: ['bought the mill\'s outstanding debt at a generous price, and made sure the miller heard how generous', 'stood a round for the whole taproom on the night of the funeral', 'was seen at the fountain after dark with his hand behind a loose brick', 'sent a rider south with a sealed packet and paid him extra not to open it', 'began quietly asking which families in Emberwick carry Ironvein blood'], goalPool: [{ goal: 'Deliver his ledger of Emberwick to Karsholm and collect his price', steps: ['called in three small debts sharply, out of character for him', 'booked passage south with a carter and paid double for silence', 'was seen burning papers behind the Griffin\'s stable at first light', 'left a sealed letter addressed to Maera behind the bar, to be opened if he does not return'] }], goalAutonomy: 'high', schedule: [ { time: '06:30', locationId: 'loc_square', activity: 'Watching the morning gathering and taking notes' }, { time: '08:00', locationId: 'loc_griffin_tap', activity: 'Holding court over breakfast' }, { time: '11:00', locationId: 'loc_square', activity: 'Buying debts with sympathy and silver' }, { time: '16:00', locationId: 'loc_mine_gate', activity: 'Paying his "surveyors"' }, { time: '20:00', locationId: 'loc_griffin_tap', activity: 'Rounds for the house' } ], secrets: [ { label: 'The Ledger Written Backward', hint: 'His grain ledger is thumbed from the wrong edge, and he has never once sold any grain.', truth: 'He is a factor of the Red Ledger. The book is a coded manifest of every debt in Emberwick — he has quietly bought the mine, the mill, and the Griffin\'s mortgage. His standing orders, signed M.V., are to have the mine surveyed and any shard-bearing stone crated for Karsholm. His true second ledger sits behind a loose brick by the square\'s fountain.' } ] },
             { id: 'ent_odo', name: 'Foreman Odo', type: 'npc', startLocation: 'loc_griffin_tap', description: 'The mine\'s foreman: rock-dust in every crease, hands that will not stay still, wax crumbs in his ears.', persona: 'Guilt-wrecked and monosyllabic when sober. Kindness and patience open him faster than coin; loud noises close him for the day.', goal: 'Find the courage to tell someone what happened at the mine.', goalSteps: ['started drinking at the Griffin before the forge fire was even lit', 'walked up the mine road as far as the gate, stood there an hour, and came back down', 'was heard humming something in the taproom that nobody could place', 'asked Sister Rowena whether the dead can sing', 'took the wax out of his ears and went up the mine road alone'], goalPool: [{ goal: 'Lead someone he trusts down to the singing before it stops', steps: ['sobered up three days running for the first time since the collapse', 'recovered his foreman\'s lamp and mended its shutter', 'chalked the safe path through the upper galleries from memory, on the taproom table', 'stood at the mine gate at midnight, listening, and did not run'] }], goalAutonomy: 'low', schedule: [ { time: '09:00', locationId: 'loc_griffin_tap', activity: 'Drinking breakfast' }, { time: '15:00', locationId: 'loc_mine_gate', activity: 'Standing at the gate, not going in' }, { time: '18:00', locationId: 'loc_griffin_tap', activity: 'Drinking supper' } ], secrets: [ { label: 'What the Mine Said', hint: 'He drinks until his hands stop shaking, and he sleeps with wax in his ears.', truth: 'Three nights after the collapse he heard the twelve missing miners from the airshaft — twelve voices in perfect unison, sharing one throat\'s worth of breath. They were singing a coronation hymn that has not been sung in the Vale for two hundred years. It is getting louder.' } ] },
             { id: 'ent_pip', name: 'Pip', type: 'npc', startLocation: 'loc_square', description: 'A quick, small stable-hand of maybe eleven winters, all elbows and vigilance.', persona: 'Talks fast, trusts slow, prices information in copper and honey-bread. Sees everything in Emberwick and forgets none of it.', goal: 'Learn who is moving through Emberwick and sell the truth to someone trustworthy.', goalSteps: ['started keeping a tally of every horse that comes up the south road', 'was caught on the Griffin\'s roof at dusk and would not say why', 'followed Silas Quill to the fountain and hid behind the water trough', 'began asking, very casually, what a stranger\'s silence is worth', 'packed a small bundle and hid it in the stable straw, ready to run'], goalPool: [{ goal: 'Sell what Pip knows to the right buyer without getting caught', steps: ['made two copies of everything, in a child\'s careful cipher', 'hid one copy somewhere in the chapel during evening service', 'tested the waters by selling Maera a small, true, harmless secret', 'started watching the south road for a buyer worth the big one'] }], goalAutonomy: 'high', schedule: [ { time: '06:00', locationId: 'loc_square', activity: 'Stable chores' }, { time: '10:00', locationId: 'loc_mine_road', activity: 'Spying on the surveyors' }, { time: '17:00', locationId: 'loc_griffin_tap', activity: 'Supper earned with errands' }, { time: '21:00', locationId: 'loc_square', activity: 'Hayloft, one eye open' } ], secrets: [ { label: 'Small Witness', hint: 'Pip sees everyone come and go, and nobody ever sees Pip.', truth: 'At dusk on the day the reeve died, Pip saw Silas Quill hand a purse to a rider at the crossroads — and saw under the rider\'s hood: a man with candle-pale skin, covered in tattooed writing. Pip also knows about Quill\'s loose brick by the fountain.' } ] },
             { id: 'ent_grizzel', name: 'Grizzel of the Broken Warren', type: 'npc', startLocation: 'loc_whisper_edge', description: 'A grey-muzzled redcap matriarch in a patched war-bonnet, leaning on a spear cut down to a walking stick.', persona: 'Blunt, proud, done running. Bargains hard and keeps every bargain to the letter. Will not set foot underground unless the player has earned her whole trust.', schedule: [ { time: '08:00', locationId: 'loc_whisper_edge', activity: 'Foraging lines and watch rotations' }, { time: '20:00', locationId: 'loc_whisper_edge', activity: 'Campfire, telling the young ones the old roads' } ], secrets: [ { label: 'Why the Warren Ran', hint: 'Her raiders steal bread and nails, never gold — and they refuse to go underground.', truth: 'Her warren lived the deep roads below Ironvein for nine generations. When the mine broke the Deepgate\'s seal, the Hollow Knights came through the dark and took her people\'s names — those taken now stand guard in the Barrow, answering to numbers. She fled with the young. She can draw the deep roads from memory: a back way into both the Vault of Embers and the Sunken Barrow.' } ] },
@@ -4017,7 +4120,7 @@ function normalizeWorldPresentation(world) {
         panelOpacity: livingClamp(raw.panelOpacity == null ? 88 : raw.panelOpacity, 35, 100),
         backgroundDim: livingClamp(raw.backgroundDim == null ? 68 : raw.backgroundDim, 0, 95),
         mapSkinAssetId: String(raw.mapSkinAssetId || '').slice(0, 160),
-        imageProvider: ['inherit', 'openrouter', 'gptproto', 'nanogpt', 'fal'].includes(raw.imageProvider) ? raw.imageProvider : 'inherit',
+        imageProvider: ['inherit', 'openrouter', 'gptproto', 'nanogpt', 'horde', 'fal'].includes(raw.imageProvider) ? raw.imageProvider : 'inherit',
         imageModel: String(raw.imageModel || 'google/gemini-3.1-flash-lite-image').slice(0, 500)
     });
     world.presentation = raw;
@@ -4188,11 +4291,11 @@ function normalizeProviderCatalogModel(model, textCatalog = false) {
     return { ...model, name: typeof model.name === 'string' ? model.name : model.id, pricing, architecture, supported_parameters: parameters };
 }
 
-async function getOpenRouterModels() {
+async function getOpenRouterModels(force = false) {
     const provider = normalizedProviderId(state.globalSettings.apiProvider);
     const source = providerApiBase(provider);
-    if (openRouterModels.length && modelCatalogSource === source && Date.now() - modelCatalogFetchedAt < 300000) return openRouterModels;
-    const models = await getCompanionOutputModels('text', false, provider);
+    if (!force && openRouterModels.length && modelCatalogSource === source && Date.now() - modelCatalogFetchedAt < 300000) return openRouterModels;
+    const models = await getCompanionOutputModels('text', force, provider);
     // A provider switch during discovery must not poison the next catalog.
     if (provider === normalizedProviderId(state.globalSettings.apiProvider) && source === apiBase()) {
         openRouterModels = models;
@@ -4687,13 +4790,13 @@ async function setupAIBuilderLogic() {
 
     const searchChar = document.getElementById('builder-model-search');
     if (searchChar) {
-        const defaultCharModel = state.editingChar?.model || 'google/gemini-2.5-pro';
+        const defaultCharModel = state.editingChar?.model || state.globalSettings.defaultModel || '';
         searchChar.value = defaultCharModel;
     }
 
     const searchWorld = document.getElementById('w-builder-model-search');
     if (searchWorld) {
-        const defaultWorldModel = state.editingWorld?.model || 'google/gemini-2.5-pro';
+        const defaultWorldModel = state.editingWorld?.model || state.globalSettings.defaultModel || '';
         searchWorld.value = defaultWorldModel;
     }
 
@@ -4705,7 +4808,8 @@ async function setupAIBuilderLogic() {
 
             if (!hasApiCredentials()) return showToast(`API Key is missing. Add your ${cloudProviderName()} key in Settings.`, "error");
 
-            const modelId = document.getElementById('builder-model-search').value.trim() || 'google/gemini-2.5-pro';
+            const modelId = document.getElementById('builder-model-search').value.trim() || String(state.editingChar?.model || state.globalSettings.defaultModel || '').trim();
+            if (!modelId) return showToast('Select a generator model or set a default text model in Settings.', 'error');
 
             btnGenChar.disabled = true;
             btnGenChar.textContent = "⚡ Building Persona...";
@@ -4904,7 +5008,8 @@ Ensure the JSON is strictly formatted and parsable. Make the character feel rich
 
             if (!hasApiCredentials()) return showToast(`API Key is missing. Add your ${cloudProviderName()} key in Settings.`, "error");
 
-            const modelId = document.getElementById('w-builder-model-search').value.trim() || 'google/gemini-2.5-pro';
+            const modelId = document.getElementById('w-builder-model-search').value.trim() || String(state.editingWorld?.model || state.globalSettings.defaultModel || '').trim();
+            if (!modelId) return showToast('Select a generator model or set a default text model in Settings.', 'error');
 
             btnGenWorld.disabled = true;
             btnGenWorld.textContent = "⚡ Constructing Universe...";
@@ -4945,19 +5050,28 @@ SCHEMA SPECIFICATION:
       "id": "loc_unique_id",
       "name": "Location Name",
       "region": "Optional Region/Area Name",
+      "regionId": "existing region ID when extending a world",
+      "parentLocationId": "containing building/floor ID when this is a room",
+      "mapType": "region|building|outdoor|room|area|route|transit",
       "description": "Vivid sensory description of what a player sees, hears, and smells upon arrival.",
-      "exits": ["to Location Name B", "to Location Name C"],
+      "appearance": "Specific visual layout and features",
+      "items": ["Objects permanently or initially present here"],
+      "access": {"default":"open","npcs":{"existing_person_id":"deny"},"factions":{"existing_faction_id":"allow"}},
+      "exits": [{"targetLocationId":"existing_or_generated_location_id","text":"to Location Name B","travelTime":5,"mode":"walk","isOneWay":false,"lockState":"unlocked"}],
       "secrets": []
     }
   ],
+  "regions": [{"id":"reg_unique_id","name":"Region Name","description":"..."}],
   "entities": [
     {
       "id": "ent_unique_id",
       "name": "Entity Name",
       "type": "npc" | "item",
+      "locationId": "existing or generated location ID for an item",
       "description": "Vivid description of the NPC or item, outlining behavior, dialogue style, or item attributes."
     }
   ],
+  "factions": [{"id":"fac_unique_id","name":"Faction Name","description":"..."}],
   "lorebook": [
     {
       "keyword": "A key term (magic, faction, event, place, etc.)",
@@ -4967,7 +5081,7 @@ SCHEMA SPECIFICATION:
 }
 
 CRITICAL STRUCTURAL RULE:
-In the locations exits array, list paths linking locations together in a logical, navigable way. Ensure exits are bi-directional (e.g. if A has an exit to B, B should have an exit to A). All location exits must correspond to locations created in the same JSON.
+When extending the open world in Horde Studio, the existing world index below is canon. Reuse exact existing IDs and never create duplicates. The user's brief may explicitly request changing existing canon: in that case update the matching record rather than adding a duplicate, and return the full revised values for every changed field. Preserve unrelated authored fields and all world data not represented in your output. Every exit target must resolve to an existing or generated location. Routes are bidirectional unless the fiction makes them one-way. Default access is open to everyone. Add an explicit person/faction denial only when the brief or canon clearly requires it; individual person rules override faction rules. Doors may be locked without inventing keys or required items. Set appearance, items, access and lockState only when supported by the request or supplied world canon. For an entirely new world without an existing index, create a coherent map and cast.
 
 Respond ONLY with a valid JSON block.`;
 
@@ -4981,7 +5095,7 @@ Respond ONLY with a valid JSON block.`;
                     model: modelId,
                     messages: [
                         { role: 'system', content: systemPrompt },
-                        { role: 'user', content: promptText }
+                        { role: 'user', content: `USER BRIEF:\n${promptText}\n\nEXISTING HORDE WORLD CANON (authoritative; preserve and reuse exact IDs when extending):\n${state.editingWorld ? worldArchitectIndex(state.editingWorld) : 'No existing world is being edited. Create a new world.'}` }
                     ],
                     temperature: 0.7,
                     stream: true
@@ -5113,14 +5227,17 @@ Respond ONLY with a valid JSON block.`;
             if (!state.generatedWorld) return;
             
             const g = state.generatedWorld;
-            state.editingWorld.name = g.name || state.editingWorld.name;
-            state.editingWorld.description = g.description || state.editingWorld.description;
-            state.editingWorld.dmPrompt = g.dmPrompt || state.editingWorld.dmPrompt;
-            state.editingWorld.authorNote = g.authorNote || state.editingWorld.authorNote;
+            const current = state.editingWorld;
             
-            state.editingWorld.locations = g.locations || [];
-            state.editingWorld.entities = g.entities || [];
-            state.editingWorld.lorebook = g.lorebook || [];
+            // This action is an explicit full replacement of authored world
+            // canon. Keep only identity and local runtime/save metadata.
+            const replacement = safeJsonClone(g);
+            const preserve = ['id', 'createdAt'];
+            preserve.forEach(key => { if (current[key] !== undefined) replacement[key] = safeJsonClone(current[key]); });
+            replacement.authoringRevision = (Number(current.authoringRevision) || 0) + 1;
+            Object.keys(current).forEach(key => { if (!(key in replacement)) delete current[key]; });
+            Object.assign(current, replacement);
+            globalThis.HordeWorldLore?.generate(current);
 
             openWorldStudio();
 
@@ -5140,33 +5257,134 @@ Respond ONLY with a valid JSON block.`;
             const g = state.generatedWorld;
             const current = state.editingWorld;
 
-            const currentLocNames = (current.locations || []).map(l => l.name.toLowerCase());
-            (g.locations || []).forEach(newLoc => {
-                if (!currentLocNames.includes(newLoc.name.toLowerCase())) {
-                    current.locations.push(newLoc);
-                } else {
-                    const existingLoc = current.locations.find(l => l.name.toLowerCase() === newLoc.name.toLowerCase());
-                    if (existingLoc) {
-                        const mergedExits = Array.from(new Set([...(existingLoc.exits || []), ...(newLoc.exits || [])]));
-                        existingLoc.exits = mergedExits;
+            current.regions ||= []; current.locations ||= []; current.entities ||= []; current.factions ||= []; current.lorebook ||= [];
+            const uniqueId = (items, preferred, prefix, name) => {
+                const base = String(preferred || `${prefix}_${worldDirectorySlug(name, prefix)}`).slice(0, 100);
+                if (!items.some(item => item.id === base)) return base;
+                let suffix = 2; while (items.some(item => item.id === `${base}_${suffix}`)) suffix++;
+                return `${base}_${suffix}`;
+            };
+            const sameRecord = (items, item) => items.find(existing => existing.id === item.id
+                || String(existing.name || '').trim().toLowerCase() === String(item.name || '').trim().toLowerCase());
+            const overwriteRecord = (target, incoming, exclusions = []) => {
+                const excluded = new Set(['id', ...exclusions]);
+                Object.entries(incoming).forEach(([key, value]) => { if (!excluded.has(key)) target[key] = safeJsonClone(value); });
+            };
+            const regionIds = new Map();
+            (g.regions || []).forEach(incoming => {
+                const existing = sameRecord(current.regions, incoming);
+                if (existing) { regionIds.set(incoming.id, existing.id); overwriteRecord(existing, incoming, ['access']); return; }
+                const copy = safeJsonClone(incoming); copy.id = uniqueId(current.regions, copy.id, 'reg', copy.name);
+                regionIds.set(incoming.id, copy.id); current.regions.push(copy);
+            });
+            const locationIds = new Map();
+            (g.locations || []).forEach(incoming => {
+                const existing = sameRecord(current.locations, incoming);
+                if (existing) { locationIds.set(incoming.id, existing.id); overwriteRecord(existing, incoming); return; }
+                const copy = safeJsonClone(incoming); copy.id = uniqueId(current.locations, copy.id, 'loc', copy.name);
+                locationIds.set(incoming.id, copy.id); current.locations.push(copy);
+            });
+            const factionIds = new Map();
+            (g.factions || []).forEach(incoming => {
+                const existing = sameRecord(current.factions, incoming);
+                if (existing) { factionIds.set(incoming.id, existing.id); overwriteRecord(existing, incoming); return; }
+                const copy = safeJsonClone(incoming); copy.id = uniqueId(current.factions, copy.id, 'fac', copy.name);
+                factionIds.set(incoming.id, copy.id); current.factions.push(copy);
+            });
+            const entityIds = new Map();
+            (g.entities || []).forEach(incoming => {
+                const existing = sameRecord(current.entities, incoming);
+                if (existing && existing.type === incoming.type) {
+                    entityIds.set(incoming.id, existing.id);
+                    overwriteRecord(existing, incoming);
+                    return;
+                }
+                const copy = safeJsonClone(incoming);
+                copy.id = uniqueId(current.entities, copy.id, copy.type === 'item' ? 'item' : 'ent', copy.name);
+                if (locationIds.has(copy.startLocation)) copy.startLocation = locationIds.get(copy.startLocation);
+                if (locationIds.has(copy.homeLocation)) copy.homeLocation = locationIds.get(copy.homeLocation);
+                if (locationIds.has(copy.locationId)) copy.locationId = locationIds.get(copy.locationId);
+                if (locationIds.has(copy.location)) copy.location = locationIds.get(copy.location);
+                if (factionIds.has(copy.factionId)) copy.factionId = factionIds.get(copy.factionId);
+                if (Array.isArray(copy.factionIds)) copy.factionIds = copy.factionIds.map(id => factionIds.get(id) || id);
+                if (Array.isArray(copy.schedule)) copy.schedule = copy.schedule.map(block => ({ ...block, locationId: locationIds.get(block.locationId) || block.locationId }));
+                entityIds.set(incoming.id, copy.id); current.entities.push(copy);
+            });
+            (g.regions || []).forEach(incoming => {
+                const target = current.regions.find(item => item.id === regionIds.get(incoming.id));
+                if (!target || !incoming.access) return;
+                target.access = safeJsonClone(incoming.access);
+                for (const bucket of ['npcs', 'factions']) {
+                    const idMap = bucket === 'factions' ? factionIds : entityIds;
+                    target.access[bucket] = Object.fromEntries(Object.entries(target.access[bucket] || {})
+                        .map(([id, decision]) => [idMap.get(id) || id, decision]));
+                }
+            });
+            (g.locations || []).forEach(incoming => {
+                const target = current.locations.find(item => item.id === locationIds.get(incoming.id));
+                if (!target) return;
+                // Matched records now take the builder's authored values;
+                // runtime additions outside these authored fields are kept.
+                if (incoming.description !== undefined) target.description = incoming.description;
+                if (incoming.appearance !== undefined || incoming.visualDescription !== undefined) {
+                    target.appearance = incoming.appearance || incoming.visualDescription;
+                }
+                if (incoming.items !== undefined || incoming.contents !== undefined) {
+                    target.items = [...new Set([...(incoming.items || incoming.contents || [])]
+                        .map(item => typeof item === 'string' ? item : item?.name || item?.id).filter(Boolean))];
+                }
+                if (incoming.access) target.access = safeJsonClone(incoming.access);
+                if (incoming.access && target.access) {
+                    for (const bucket of ['npcs', 'factions']) {
+                        const idMap = bucket === 'factions' ? factionIds : entityIds;
+                        target.access[bucket] = Object.fromEntries(Object.entries(target.access[bucket] || {})
+                            .map(([id, decision]) => [idMap.get(id) || id, decision]));
                     }
                 }
-            });
-
-            const currentEntNames = (current.entities || []).map(e => e.name.toLowerCase());
-            (g.entities || []).forEach(newEnt => {
-                if (!currentEntNames.includes(newEnt.name.toLowerCase())) {
-                    newEnt.id = "ent_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
-                    current.entities.push(newEnt);
+                if (target.access && incoming.access) {
+                    for (const bucket of ['npcs', 'factions']) {
+                        target.access[bucket] ||= {};
+                        const idMap = bucket === 'factions' ? factionIds : entityIds;
+                        Object.entries(incoming.access[bucket] || {}).forEach(([id, decision]) => {
+                            const mappedId = idMap.get(id) || id;
+                            if (target.access[bucket][mappedId] == null) target.access[bucket][mappedId] = decision;
+                        });
+                    }
                 }
+                if (incoming.regionId) target.regionId = regionIds.get(incoming.regionId) || incoming.regionId;
+                if (incoming.parentLocationId) target.parentLocationId = locationIds.get(incoming.parentLocationId) || incoming.parentLocationId;
+                if (incoming.mapType) target.mapType = incoming.mapType;
+                if (Array.isArray(incoming.exits)) target.exits = incoming.exits.map(exit => {
+                    if (typeof exit === 'string') return exit;
+                    const copy = safeJsonClone(exit);
+                    if (locationIds.has(copy.targetLocationId)) copy.targetLocationId = locationIds.get(copy.targetLocationId);
+                    return copy;
+                });
             });
 
-            const currentLoreKeywords = (current.lorebook || []).map(l => l.keyword.toLowerCase());
+            (g.entities || []).forEach(incoming => {
+                const target = current.entities.find(item => item.id === entityIds.get(incoming.id));
+                if (!target) return;
+                for (const key of ['startLocation', 'homeLocation', 'locationId', 'location']) {
+                    if (locationIds.has(target[key])) target[key] = locationIds.get(target[key]);
+                }
+                for (const key of ['factionId']) if (factionIds.has(target[key])) target[key] = factionIds.get(target[key]);
+                for (const key of ['factionIds', 'groupIds']) if (Array.isArray(target[key])) target[key] = target[key].map(id => factionIds.get(id) || id);
+                if (Array.isArray(target.schedule)) target.schedule = target.schedule.map(block => ({
+                    ...block, locationId: locationIds.get(block.locationId) || block.locationId
+                }));
+            });
+
+            const currentLoreByKeyword = new Map((current.lorebook || []).map(entry => [String(entry.keyword || '').trim().toLowerCase(), entry]));
             (g.lorebook || []).forEach(newL => {
-                if (!currentLoreKeywords.includes(newL.keyword.toLowerCase())) {
-                    current.lorebook.push(newL);
-                }
+                const key = String(newL.keyword || '').trim().toLowerCase();
+                const existing = currentLoreByKeyword.get(key);
+                if (existing) overwriteRecord(existing, newL);
+                else { const copy = safeJsonClone(newL); current.lorebook.push(copy); currentLoreByKeyword.set(key, copy); }
             });
+
+            globalThis.HordeMapEditor?.merge(current, g.mapLayout, locationIds);
+            globalThis.HordeWorldLore?.generate(current);
 
             openWorldStudio();
 
@@ -5713,6 +5931,11 @@ function switchView(viewName) {
     if (viewName !== 'manual' && location.hash.startsWith('#manual/')) history.replaceState(null, '', location.pathname + location.search);
     if(viewName!=='companionChat'&&typeof closeCompanionSocialDrawer==='function'&&!document.getElementById('companion-social-panel')?.classList.contains('hidden'))closeCompanionSocialDrawer();
     state.view = viewName;
+    if (previousView === 'worldPlay' && viewName !== 'worldPlay') {
+        import('./worlds/bgm-player.js').then(module => {
+            if (state.view !== 'worldPlay') module.stopBgm();
+        });
+    }
     
     // Update Nav Buttons
     const navParent = {
@@ -6545,7 +6768,7 @@ function normalizeChatCreatorCapabilities(raw) {
         videoUpload: value.videoUpload === true,
         webSearch: value.webSearch === true,
         imageGeneration: value.imageGeneration === true,
-        imageProvider: ['inherit', 'openrouter', 'gptproto', 'nanogpt', 'fal', 'local'].includes(value.imageProvider)
+        imageProvider: ['inherit', 'openrouter', 'gptproto', 'nanogpt', 'horde', 'fal', 'local'].includes(value.imageProvider)
             ? value.imageProvider : 'inherit',
         imageModel: String(value.imageModel || '').trim().slice(0, 500)
     };
@@ -9579,11 +9802,13 @@ async function handleChat(isReroll = false, specificCharId = null) {
             if (config.includeReasoning) requestBody.include_reasoning = true;
         }
 
-        const { response } = await HordeWorldModelClient.stream({ url: originApiUrl, body: requestBody, init: {
-            method: 'POST',
-            headers: originHeaders,
-            signal: generationController.signal
-        } });
+        const { response } = originProvider === 'horde'
+            ? { response: await requestHordeCompletion(requestBody, generationController.signal) }
+            : await HordeWorldModelClient.stream({ url: originApiUrl, body: requestBody, init: {
+                method: 'POST',
+                headers: originHeaders,
+                signal: generationController.signal
+            } });
 
         if (!response.ok) {
             const rawError = await HordeWorldModelClient.readText(response, generationController.signal);
@@ -9784,7 +10009,7 @@ async function handleChat(isReroll = false, specificCharId = null) {
 const ENGINE_STATE_KEYS = Object.freeze([
     'location_id', 'location_introduced', 'location_state_updates', 'npc_moves', 'stat_changes',
     'stat_change_cause', 'capability_progress', 'transactions', 'checks', 'player_condition_updates', 'inventory_add',
-    'inventory_remove', 'npc_observations', 'npc_introduced', 'npc_goal_updates',
+    'inventory_remove', 'npc_observations', 'npc_introduced', 'npc_goal_updates', 'access_grants',
     'npc_disposition_changes', 'npc_relationship_updates', 'npc_status_changes', 'schedule_updates',
     'world_events', 'faction_updates', 'economy_updates', 'player_preference_updates',
     'player_identity_update', 'threads_update', 'time_skip_minutes', 'ledger_update', 'quests_update', 'outfit_update'
@@ -9871,17 +10096,25 @@ function accumulateWorldToolCall(streamedToolCalls, tc) {
         function: { name: '', arguments: '' }
     };
     if (tc.id) existing.id = tc.id;
-    if (tc.function?.name) existing.function.name = tc.function.name;
+    if (tc.function?.name) {
+        const name = String(tc.function.name);
+        if (!existing.function.name || name.startsWith(existing.function.name)) existing.function.name = name;
+        else if (existing.function.name !== name) existing.function.name += name;
+    }
     if (tc.function?.arguments !== undefined && tc.function?.arguments !== null) {
         const fragment = typeof tc.function.arguments === 'string'
             ? tc.function.arguments : JSON.stringify(tc.function.arguments);
         // Some OpenAI-compatible providers resend the entire arguments object
         // on every delta instead of sending fragments. Prefer the complete
         // object rather than producing `{"x":1}{"x":1}`.
-        if (fragment && existing.function.arguments && safeParseJSONRepair(fragment)
-            && fragment.trim().startsWith('{')) {
+        const completeObject = value => {
+            try { const parsed = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed); }
+            catch { return false; }
+        };
+        if (fragment && existing.function.arguments && completeObject(fragment)
+            && (fragment.startsWith(existing.function.arguments) || completeObject(existing.function.arguments))) {
             existing.function.arguments = fragment;
-        } else if (fragment && fragment !== existing.function.arguments) {
+        } else if (fragment) {
             existing.function.arguments += fragment;
         }
     }
@@ -9968,7 +10201,7 @@ function buildWorldSceneFrame(world, sess) {
     };
 }
 
-function buildKernelLocationManifest(world, sess, userInput) {
+function buildKernelLocationManifest(world, sess, userInput, useMovementParser = true) {
     const view = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
     const locations = view.locations;
     const kernel = normalizeWorldKernelConfig(world);
@@ -10013,7 +10246,7 @@ function buildKernelLocationManifest(world, sess, userInput) {
             if ((name.length > 2 && ` ${input} `.includes(` ${name} `))
                 || (id.length > 2 && ` ${input} `.includes(` ${id} `))) add(location, 980, 'player_reference');
         });
-        const movementPhrase = extractUserMovementTarget(userInput);
+        const movementPhrase = useMovementParser ? extractUserMovementTarget(userInput) : '';
         const movementTarget = movementPhrase
             ? resolveWorldMovementTarget(typeof worldForSession === 'function' ? worldForSession(world, sess) : world, sess.playerLocation, movementPhrase, true, sess) : null;
         if (movementTarget) add(movementTarget, 990, 'movement_target');
@@ -10062,13 +10295,78 @@ function compactWorldToolContract(tools) {
         // The draft protocol's response excerpts, provenance and absolute
         // time fields need their instructions. Stripping them recreates the
         // opaque-schema failure this protocol replaces.
-        if (tool.function?.parameters?.properties?.protocol?.enum?.includes('scene_draft_v2')) return;
+        if (tool.function?.parameters?.properties?.protocol?.enum?.some(value => ['scene_draft_v2', 'scene_draft_v3'].includes(value))) return;
         strip(tool.function?.parameters, ['parameters']);
         if (tool.function) tool.function.description = name === 'commit_world_turn'
             ? 'Commit the canonical ending scene and only completed durable changes.'
             : 'Reveal one gated secret that the player actually investigated.';
     });
     return tools;
+}
+
+function normalizeUnambiguousWorldEventTypes(rawReceipt) {
+    if (!isPlainObject(rawReceipt) || !Array.isArray(rawReceipt.events)) return rawReceipt;
+    let changed = false;
+    const events = rawReceipt.events.map(event => {
+        if (!isPlainObject(event)) return event;
+        // Local models sometimes use the inventory verb as the event type.
+        // Salvage only a clearly actor-scoped player item gain; the normal
+        // inventory reducer still verifies completion, refusal, and rules.
+        if (['gain', 'take'].includes(event.type)
+            && /^(?:player|user|pc|protagonist)$/i.test(String(event.actor_id || '').trim())
+            && typeof event.item === 'string' && event.item.trim()
+            && (!event.action || ['add', 'gain', 'take'].includes(String(event.action).toLowerCase()))) {
+            changed = true;
+            return { ...event, type: 'inventory', action: event.action || (event.type === 'take' ? 'take' : 'add') };
+        }
+        // Some OpenAI-compatible local models abbreviate the canonical type.
+        // Normalize only when the actor and destination are explicit; the
+        // ordinary route, permission, door and time checks still decide canon.
+        if (event.type === 'move' && event.actor_id
+            && (event.to_location_id || event.to || event.location_id)) {
+            changed = true;
+            return { ...event, type: 'movement' };
+        }
+        // A completed, explicitly described pose is the actor's current
+        // activity. Preserve its wording; never infer one from scene prose or
+        // discard additional proposed state from an ambiguous event.
+        if (event.type === 'posture' && typeof event.actor_id === 'string'
+            && event.actor_id.trim() && event.status === 'completed'
+            && Object.keys(event).every(key => [
+                'id', 'type', 'actor_id', 'status', 'activity', 'posture', 'action',
+                'evidence', 'passage_id', 'participants', 'witnessed_by', 'visibility'
+            ].includes(key))) {
+            const descriptions = [event.activity, event.posture, event.action]
+                .filter(value => typeof value === 'string' && value.trim())
+                .map(value => value.trim());
+            if (descriptions.length === 1) {
+                changed = true;
+                return { ...event, type: 'activity', activity: descriptions[0] };
+            }
+        }
+        // A status event without next_status/value has no lifecycle change to
+        // apply. Keep an actor-scoped, non-mutating annotation only when it has
+        // no other mechanical payload or claim of death/departure. Anything
+        // ambiguous still reaches the strict validator as invalid_status.
+        if (event.type === 'status' && !String(event.next_status ?? '').trim()
+            && !String(event.value ?? '').trim()
+            && event.actor_id && Object.keys(event).every(key => [
+                'id', 'type', 'actor_id', 'status', 'next_status', 'value', 'action', 'evidence', 'passage_id',
+                'cause', 'reason', 'participants', 'witnessed_by', 'visibility'
+            ].includes(key))
+            && !/\b(?:die|dies|died|dying|dead|death|kill(?:ed|s)?|slain|resurrect(?:ed)?|gone|depart(?:ed|s)?|leave(?:s)? permanently)\b/i
+                .test([event.action, event.evidence, event.cause, event.reason].join(' '))) {
+            changed = true;
+            return { ...event, type: 'other' };
+        }
+        if (event.type) return event;
+        const movement = !!(event.actor_id && event.from_location_id && event.to_location_id);
+        const inventory = !!(event.actor_id && event.item && ['add', 'remove'].includes(event.action));
+        if (movement === inventory) return event;
+        changed = true;
+        return { ...event, type: movement ? 'movement' : 'inventory' };
+    });
+    return changed ? { ...rawReceipt, events } : rawReceipt;
 }
 
 function normalizeWorldTurnReceipt(world, sess, rawReceipt) {
@@ -10124,6 +10422,26 @@ function normalizeWorldTurnReceipt(world, sess, rawReceipt) {
     };
 }
 
+function recoverActorScopedWorldAttempt(receipt, context = {}) {
+    const resolution = receipt?.action_resolution;
+    if (resolution?.kind !== 'physical' || resolution.status !== 'attempted'
+        || !String(context.playerInput || '').trim()
+        || !String(context.narrativeText || '').trim()
+        || !Array.isArray(receipt.events)
+        || receipt.events.some(event => String(event?.actor_id || '').toLowerCase() === 'player'
+            && ['attempted', 'in_progress', 'failed'].includes(event.status))
+        || Array.isArray(receipt.state_updates?.checks) && receipt.state_updates.checks.length) return false;
+    const compact = value => String(value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const outcome = compact(resolution.outcome);
+    if (outcome.length < 12 || !compact(context.narrativeText).includes(outcome)) return false;
+    // The model already marked this as an attempt and the exact outcome is in
+    // its narrative. Record only that actor-scoped attempt, never a success or
+    // a lasting state change.
+    receipt.events.push({ type: 'interaction', actor_id: 'player', status: 'attempted',
+        action: String(context.playerInput).slice(0, 180), evidence: String(resolution.outcome).slice(0, 400) });
+    return true;
+}
+
 // A valid transaction can still be the wrong answer to the player's turn.
 // Keep the player's input outside model authority and require a small,
 // typed disposition before accepting a new player-action receipt. This does
@@ -10132,7 +10450,10 @@ function worldActionResolutionFailures(receipt, playerInput, context = {}) {
     if (!String(playerInput || '').trim() || context.specialCommand) return [];
     const resolution = receipt?.action_resolution;
     const fail = (reason, detail) => [{ index: -1, type: 'action_resolution',
-        reason, actor_id: 'player', detail }];
+        reason, actor_id: 'player', detail,
+        ...(Number.isInteger(context.actionIndex) ? { actionIndex: context.actionIndex,
+            actionRequest: String(playerInput).slice(0, 180) } : {}),
+        ...(context.proofStatus ? { proofStatus: context.proofStatus } : {}) }];
     if (!isPlainObject(resolution)) return fail('missing_action_resolution',
         'The receipt did not say how the current player action was handled.');
     const kinds = new Set(['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other']);
@@ -10182,8 +10503,10 @@ function worldActionResolutionFailures(receipt, playerInput, context = {}) {
         return fail('unacknowledged_action_check', 'A proposed check has no result until the engine resolves it.');
     if (resolution.kind === 'physical' && resolution.status === 'resolved'
         && !checks.length && !playerEvents.some(event => event.status === 'completed')
-        && !context.precommittedAction)
-        return fail('uncommitted_player_action', 'A completed physical action needs a completed player event or check.');
+        && !context.precommittedAction && !context.verifiedLocalInteraction)
+        return fail('uncommitted_player_action', context.proofStatus === 'invalid'
+            ? 'A proposed player event did not pass validation or did not match this action passage; no valid completed proof remains.'
+            : 'No completed player event or check was supplied for this action.');
     if (resolution.kind === 'physical' && resolution.status === 'attempted'
         && !checks.length && !playerEvents.some(event =>
             ['attempted', 'in_progress', 'failed'].includes(event.status)))
@@ -10625,6 +10948,7 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
         }
     }
     if (!context.engineScene) {
+        recoverActorScopedWorldAttempt(receipt, context);
         recoverActorScopedWorldPickup(world, sess, receipt, context);
         recoverWorldRestraintRelease(world, sess, receipt, context);
         recoverWorldEscortHandoff(world, sess, receipt, context);
@@ -10634,6 +10958,8 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
     const informationalEvents = [];
     const entityPatches = [];
     const projectedNpcConditions = new Map();
+    let projectedPlayerConditions = Array.isArray(sess.playerState?.conditions)
+        ? [...sess.playerState.conditions] : [];
     const legacyArgs = { ...receipt.state_updates };
     // A provider can return syntactically valid JSON containing invented
     // fields (for example player_health or inventory_updates). Ignoring those
@@ -10644,7 +10970,7 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
     const arrayStateKeys = new Set([
         'location_introduced', 'location_state_updates', 'npc_moves', 'capability_progress',
         'transactions', 'checks', 'player_condition_updates', 'inventory_add',
-        'inventory_remove', 'npc_observations', 'npc_introduced', 'npc_goal_updates',
+        'inventory_remove', 'npc_observations', 'npc_introduced', 'npc_goal_updates', 'access_grants',
         'npc_disposition_changes', 'npc_relationship_updates', 'npc_status_changes',
         'schedule_updates', 'world_events', 'faction_updates', 'economy_updates',
         'player_preference_updates', 'threads_update', 'quests_update'
@@ -10824,6 +11150,7 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 ...base,
                 from_location_id: fromLoc?.id || '',
                 to_location_id: toLoc?.id || '',
+                explore: actorId !== 'player' && event.explore === true,
                 movement_mode: ['voluntary', 'forced', 'carried', 'vehicle', 'fall', 'teleport']
                     .includes(event.movement_mode) ? event.movement_mode : 'voluntary',
                 caused_by_actor_id: resolveWorldActorId(world, sess, event.caused_by_actor_id)
@@ -10845,6 +11172,13 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 if (toLoc.id !== sess.playerLocation) {
                     reject(index, event, 'introduced_actor_outside_scene', toLoc.id);
                 }
+                return;
+            }
+            // Reporting the actor at their existing mapped place is not travel.
+            // Providers often emit this redundant event even on a greeting.
+            const actualPlace = actorId === 'player' ? sess.playerLocation : sess.entityStates?.[actorId]?.location;
+            if (actualPlace === toLoc.id && (!fromLoc || fromLoc.id === actualPlace)) {
+                informationalEvents.push(movement);
                 return;
             }
             if (actorId === 'player') {
@@ -10880,6 +11214,10 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 reject(index, event, 'inactive_or_missing_actor', actorId);
                 return;
             }
+            if (!proposedDestination.introduced && !worldNpcCanMove(world, sess, actorId, toLoc.id, movement.movement_mode === 'teleport', movement.explore)) {
+                reject(index, event, 'npc_access_denied', 'The actor has no permitted route to this place.');
+                return;
+            }
             const declaredSkip = Math.max(0, Math.min(14400, parseInt(receipt.state_updates.time_skip_minutes) || 0),
                 ...receipt.events.filter(item => item?.type === 'time' && item.status === 'completed')
                     .map(item => Math.max(0, Math.min(14400, parseInt(item.minutes_elapsed ?? item.minutes) || 0))));
@@ -10896,14 +11234,14 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 return;
             }
             if (!proposedDestination.introduced && actualFrom && actualFrom.id !== toLoc.id
-                && !findWorldTravelPath(typeof worldForSession === 'function' ? worldForSession(world, sess) : world, actualFrom.id, toLoc.id)
+                && !findWorldTravelPath(typeof worldForSession === 'function' ? worldForSession(world, sess) : world, actualFrom.id, toLoc.id, { npcId: actorId, session: sess, explore: movement.explore })
                 && movement.movement_mode !== 'teleport') {
                 reject(index, event, 'unreachable_npc_destination', `${actualFrom.id} → ${toLoc.id}`);
                 return;
             }
             if (!npcState.journey && actualFrom && !proposedDestination.introduced && movement.movement_mode !== 'teleport') {
                 const view = worldForSession(world, sess);
-                const route = findWorldTravelPath(view, actualFrom.id, toLoc.id);
+                const route = findWorldTravelPath(view, actualFrom.id, toLoc.id, { npcId: actorId, session: sess, explore: movement.explore });
                 if (route && getWorldPathTravelTime(view, route) > declaredSkip + clock.timeStep) {
                     reject(index, event, 'insufficient_travel_time', 'Record the elapsed journey time before claiming arrival.');
                     return;
@@ -10912,7 +11250,8 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
             acceptedNpcMoves.push({
                 npc_id: actorId,
                 target_location_id: toLoc.id,
-                reason: movement.cause
+                reason: movement.cause,
+                explore: movement.explore
             });
             projectedLocations.set(actorId, toLoc.id);
             acceptedEvents.push({ ...movement, from_location_id: actualFrom?.id || movement.from_location_id });
@@ -11016,7 +11355,18 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
             const action = ['remove', 'clear', 'recover'].includes(String(event.action || '').toLowerCase())
                 ? 'remove' : 'add';
             if (!condition) {
-                reject(index, event, 'missing_condition');
+                reject(index, event, 'missing_condition',
+                    'A condition event needs a named lasting condition. For removal, use an exact existing condition of this actor; otherwise omit this event or record the physical interaction/activity without claiming the condition ended.');
+                return;
+            }
+            const current = actorId === 'player' ? projectedPlayerConditions
+                : projectedNpcConditions.get(actorId)
+                    || (Array.isArray(sess.entityStates?.[actorId]?.conditions)
+                        ? sess.entityStates[actorId].conditions : []);
+            if (action === 'remove' && !current.some(value =>
+                value.toLowerCase() === condition.toLowerCase())) {
+                reject(index, event, 'unknown_condition',
+                    `No recorded condition named ${condition} exists for this actor.`);
                 return;
             }
             if (actorId === 'player') {
@@ -11024,13 +11374,13 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                     ...(Array.isArray(legacyArgs.player_condition_updates) ? legacyArgs.player_condition_updates : []),
                     { condition, action }
                 ];
+                projectedPlayerConditions = action === 'add'
+                    ? [...new Set([...current, condition])]
+                    : current.filter(value => value.toLowerCase() !== condition.toLowerCase());
             } else {
                 // Patches are applied only after the entire receipt validates.
                 // Fold this actor's events in order rather than deriving every
                 // patch from the same pre-turn array and losing earlier changes.
-                const current = projectedNpcConditions.get(actorId)
-                    || (Array.isArray(sess.entityStates?.[actorId]?.conditions)
-                        ? sess.entityStates[actorId].conditions : []);
                 const next = action === 'add'
                     ? [...new Set([...current, condition])]
                     : current.filter(value => value.toLowerCase() !== condition.toLowerCase());
@@ -11071,6 +11421,25 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
         }
         if (type === 'observation' && actorId !== 'player') {
             const observation = String(event.observation || event.fact || '').trim().slice(0, 400);
+            const revealedPlace = event.place_id ? getLocationRef(worldForSession(world, sess), event.place_id) : null;
+            if (event.place_id && !revealedPlace) { reject(index, event, 'unknown_discovered_place', event.place_id); return; }
+            if (revealedPlace) {
+                const sourceId = resolveWorldActorId(world, sess, event.source_npc_id);
+                const recipientLocation = sess.entityStates?.[actorId]?.location;
+                const sourcePresent = sourceId === 'player'
+                    ? recipientLocation === sess.playerLocation
+                    : !!sourceId && !!recipientLocation && sess.entityStates?.[sourceId]?.location === recipientLocation;
+                const sourceKnows = sourceId === 'player' || (sourceId && globalThis.HordeWorldLore?.placeAwareness(
+                    worldForSession(world, sess), sourceId, revealedPlace.id, sess).known);
+                const saidByPlayer = sourceId !== 'player' || [revealedPlace.id, revealedPlace.name].some(label =>
+                    label && String(context.playerInput || '').toLowerCase().includes(String(label).toLowerCase()));
+                const narrated = [revealedPlace.id, revealedPlace.name].some(label => label &&
+                    String(context.narrativeText || '').toLowerCase().includes(String(label).toLowerCase()));
+                if (event.source_type !== 'told' || !sourcePresent || !sourceKnows || !saidByPlayer || !narrated || !base.evidence) {
+                    reject(index, event, 'unverified_place_disclosure', 'A present source who knows the place must explicitly tell this NPC.');
+                    return;
+                }
+            }
             if (observation) {
                 legacyArgs.npc_observations = [...(Array.isArray(legacyArgs.npc_observations) ? legacyArgs.npc_observations : []),
                     {
@@ -11084,14 +11453,14 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                         allowed_to_share: event.allowed_to_share !== false
                     }];
             }
-            acceptedEvents.push({ ...base, observation });
+            acceptedEvents.push({ ...base, observation, ...(revealedPlace ? { place_id: revealedPlace.id } : {}) });
             return;
         }
         if (type === 'status' && actorId !== 'player') {
-            const nextStatus = ['alive', 'dead', 'gone'].includes(event.next_status || event.value)
-                ? (event.next_status || event.value) : '';
-            if (!nextStatus) {
-                reject(index, event, 'invalid_status');
+            const rawStatus = event.next_status ?? event.value;
+            const nextStatus = typeof rawStatus === 'string' ? rawStatus.trim().toLowerCase() : '';
+            if (!['alive', 'dead', 'gone'].includes(nextStatus)) {
+                reject(index, event, 'invalid_status', `next_status=${String(rawStatus ?? '(missing)').slice(0, 80)}; allowed: alive, dead, gone`);
                 return;
             }
             legacyArgs.npc_status_changes = [...(Array.isArray(legacyArgs.npc_status_changes) ? legacyArgs.npc_status_changes : []),
@@ -11104,6 +11473,21 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
         // Specialized reducers still receive their established state fields via
         // state_updates. The event remains canonical evidence and provenance.
         acceptedEvents.push(base);
+    });
+
+    (Array.isArray(legacyArgs.access_grants) ? legacyArgs.access_grants : []).forEach((change, index) => {
+        const giver = resolveReceiptActor(change?.grantor_npc_id);
+        const recipient = resolveReceiptActor(change?.recipient_npc_id);
+        const place = getLocationRef(worldForSession(world, sess), change?.location_id);
+        const witnessed = acceptedEvents.some(event => event.type === 'interaction'
+            && event.status === 'completed' && event.actor_id === giver
+            && event.participants.includes(recipient) && event.evidence);
+        const narrative = String(context.narrativeText || '').toLowerCase();
+        const mentionedPlace = place && [place.id, place.name].some(label => label && narrative.includes(String(label).toLowerCase()));
+        const describedTransfer = /\b(?:grant|share|permission|access|erlaub|berechtig|zutritt|widerruf|revok)\w*\b/i.test(narrative);
+        if (!giver || !recipient || !place || !witnessed || !mentionedPlace || !describedTransfer)
+            rejectedEvents.push({ index, type: 'access_grants', reason: 'unverified_access_transfer', actor_id: giver || '',
+                detail: 'A completed interaction and narrative evidence of the permission transfer are required.' });
     });
 
     receipt.entity_updates.forEach((rawPatch, index) => {
@@ -11481,6 +11865,7 @@ function commitWorldTurnReceipt(world, sess, rawReceipt, context = {}, source = 
         }
     }
     const previousLocation = sess.playerLocation;
+    if (normalizeWorldKernelConfig(world).sceneLedger && sess.sceneRecord && Number(validation.legacyArgs.time_skip_minutes) > 0) sess.sceneRecord.hold_scene = false;
     const actionResult = processStructuredActions(validation.legacyArgs, world, sess, {
         deferFeedback: context.deferFeedback === true,
         completedNpcMoves: validation.acceptedEvents.filter(event => event.type === 'movement'
@@ -11489,6 +11874,8 @@ function commitWorldTurnReceipt(world, sess, rawReceipt, context = {}, source = 
             && event.movement_mode === 'teleport').map(event => event.actor_id)
     });
     applyWorldEntityPatches(world, sess, validation.entityPatches);
+    validation.acceptedEvents.filter(event => event.type === 'observation' && event.place_id && event.actor_id !== 'player')
+        .forEach(event => globalThis.HordeWorldLore?.rememberPlace(sess, event.actor_id, event.place_id));
     // Recover an omitted NPC movement only when two independent channels
     // agree: the structured ending checksum names the NPC and the visible
     // prose explicitly places that same named person in the player's scene.
@@ -11510,6 +11897,7 @@ function commitWorldTurnReceipt(world, sess, rawReceipt, context = {}, source = 
         const to = getLocationRef(world, sess.playerLocation);
         const sessionWorld = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
         if (!to || (from && from.id !== to.id && !findWorldTravelPath(sessionWorld, from.id, to.id))) return;
+        if (!worldNpcCanMove(world, sess, hit.id, to.id)) return;
         entState.location = to.id;
         entState.pinnedUntilTurn = (sess.turnCount || 1) + 6;
         recoveredPresence.push(hit.id);
@@ -11658,7 +12046,7 @@ function extractInlineWorldTurnReceipt(text) {
 function unwrapWorldTurnReceipt(value) {
     let parsed = typeof value === 'string' ? safeParseJSONRepair(value) : value;
     for (let depth = 0; depth < 3 && isPlainObject(parsed); depth++) {
-        if (parsed.protocol === 'scene_draft_v2') return parsed;
+        if (['scene_draft_v2', 'scene_draft_v3'].includes(parsed.protocol)) return parsed;
         if (isPlainObject(parsed.scene) && Array.isArray(parsed.events)
             && Array.isArray(parsed.entity_updates)) return parsed;
         const nested = parsed.commit_world_turn ?? parsed.receipt
@@ -11775,8 +12163,67 @@ function stripWorldCheckScaffolding(text) {
     return `${visible ? `${visible}\n\n` : ''}A check is ready. Use the 🎲 Check button to roll before continuing.`;
 }
 
-function worldUnverifiedTurnNotice() {
-    return 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.';
+// Compatibility for providers that answer a non-mechanical turn in prose.
+// No state is extracted from text: compile an empty-effects draft, then run
+// the same narrative/state, deadline and action validation as a normal draft.
+function worldConversationDraft(input, narrative, command = null, world = null, sess = null) {
+    const request = String(input || '').trim();
+    const visible = String(narrative || '').trim();
+    if (!hasReadableWorldNarrative(visible) || /<world_turn_receipt>|^[\s]*[\[{]/i.test(visible)) return null;
+    // This adapter has no mechanical payload. Do not label a plain-text
+    // gain, purchase, consumption or changed map position a no-change scene.
+    const account = stripSpokenDialogue(visible);
+    if (/\b(?:you|we)\s+(?:have\s+)?(?:receive[ds]?|(?:take|took)(?!\s+(?:in\b|(?:a\s+|one\s+)?(?:look|breath|moment|step)\b))|pocket(?:ed)?|collect(?:ed)?|gain(?:ed)?|acquire[ds]?|buy|bought|sell|sold|pay|paid|consume[ds]?|drink|drank|eat|ate|equip(?:ped)?)\b|\byour\s+(?:inventory|balance|health|hit points)\s+(?:now|increases?|decreases?)\b/i.test(account)) return null;
+    if (world && sess) {
+        const current = getLocationRef(worldForSession(world,sess),sess.playerLocation);
+        const other = sessionLocations(world,sess).some(place => {
+            if (place.id === sess.playerLocation || place.id === current?.parentLocationId) return false;
+            const name = String(place.name || '').trim();
+            if (name.length < 4) return false;
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(`\\byou(?:'re| are)\\s+(?:now\\s+)?(?:in|at|inside)\\s+(?:the\\s+)?${escaped}\\b`, 'i').test(account);
+        });
+        if (other) return null;
+    }
+    let kind = null;
+    if (['init', 'look', 'continue'].includes(command)) kind = 'command';
+    else if (request.length <= 600 && !/[;\n]|\b(?:and then|then I|then we)\b/i.test(request)) {
+        if (/^(?:(?:I|we)\s+)?(?:look around|look about|observe the surroundings|listen|examine the surroundings)[.!? ]*$/i.test(request)) kind = 'observation';
+        else if (/^(?:hello|hi|hey|good morning|good evening)[.!? ]*$/i.test(request)) kind = 'speech';
+        else if (/^(?:what|who|where|when|why|how)\b/i.test(request)
+            && !/\b(?:take|give|buy|sell|consume|drink|eat|attack|hit|unlock|open|close|move|go|walk|run|follow|travel|wait|roll|check|heal|pick up)\b/i.test(request)) kind = 'question';
+    }
+    if (!kind) return null;
+    return { protocol: 'scene_draft_v2', narrative: [{id:'conversation',text:visible}],
+        actions: kind === 'command' ? [] : [{request,kind,status:kind === 'question' ? 'answered' : 'resolved',response_id:'conversation'}],
+        events:[],effects:{},speech:[],commitments:[] };
+}
+
+function worldProvisionalNarrative(text, proposal = null) {
+    // Extract only explicitly authored prose. Never display a receipt/schema
+    // as fiction or derive mechanical operations from its wording.
+    const raw = proposal?.protocol === 'scene_draft_v2' ? proposal.narrative : null;
+    const candidate = Array.isArray(raw)
+        ? raw.map(p => typeof p?.text === 'string' ? p.text : '').filter(Boolean).join('\n\n')
+        : typeof raw === 'string' ? raw : text;
+    const visible = String(stripWorldLedgerDirective(scrubNarrativeArtifacts(candidate || '')) || '').trim();
+    return hasReadableWorldNarrative(visible) ? visible : '';
+}
+
+function worldUnverifiedTurnNotice(rejections = []) {
+    const notice = 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.';
+    const failures = Array.isArray(rejections) ? rejections.filter(item =>
+        item && typeof item.reason === 'string' && item.reason.trim()) : [];
+    const specific = failures.filter(item => item.reason !== 'missing_mandatory_receipt');
+    const reasons = [...new Set((specific.length ? specific : failures)
+        .map(item => item.reason.trim().slice(0, 120)))].slice(0, 3);
+    if (!reasons.length) return notice;
+    // Show validator codes, never rejected model prose, private prompts or keys.
+    // Codes remain searchable and distinguish transport errors from state conflicts.
+    const transport = reasons.some(reason => /protocol|transport|tool_arguments|missing_mandatory_receipt|missing_ending_scene/.test(reason));
+    return `${notice}\n\nVerification reason: ${reasons.join(', ')}.${transport
+        ? ' The model did not supply the required valid scene response. Check the selected World model/provider and include this reason when reporting the problem.'
+        : ' The proposed scene failed validation. Include this reason when reporting the problem; repeated rerolls may repeat the same failure.'}`;
 }
 
 function parseExplicitWorldWaitMinutes(input, currentTotalMinutes = null) {
@@ -12175,6 +12622,7 @@ function worldNpcHasWhereaboutsEvidence(world, sess, speaker, target, location) 
     const person = new RegExp(`\\b(?:${escapedRefs.join('|')})\\b`, 'i');
     const place = new RegExp(`\\b(?:${escapedLocations.join('|')})\\b`, 'i');
     const own = [speaker.description, speaker.persona,
+        ...(globalThis.HordeWorldLore?.knowledge(world, speaker.id) || []).map(f => f.text),
         ...(sess.entityStates?.[speaker.id]?.observations || [])
             .filter(item => typeof item === 'string' || (item?.contradicted !== true
                 && !['suspected', 'believed', 'inferred'].includes(String(item?.sourceType || item?.source || '').toLowerCase())))
@@ -12354,7 +12802,7 @@ function worldNarratedUrgentClockClaim(narrative) {
 // The mandatory receipt may be accepted before a tool-only response receives
 // its final prose. Compare that *final* text with the pre-turn and committed
 // state, without replaying the receipt or giving prose mutation authority.
-function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrative, playerInput = '', receipt = null) {
+function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrative, playerInput = '', receipt = null, committedDoor = null) {
     if (!beforeSession || !afterSession) return [];
     const modules = normalizeWorldGameRules(world).modules;
     const sentences = worldNarrativeSentences(scrubNarrativeArtifacts(narrative));
@@ -12364,6 +12812,13 @@ function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrat
     }, narrative));
     const lockedExitClaim = worldLockedExitClaimConflict(world, afterSession, narrative);
     if (lockedExitClaim) conflicts.push(lockedExitClaim);
+    if (committedDoor?.action === 'locked' && committedDoor.committed) {
+        const account = stripSpokenDialogue(narrative);
+        const inventedOneWayLock = /\b(?:lock|bolt|mechanism)\b[^.!?]{0,65}\bone[ -]?way\b|\bsecured\s+only\s+from\b[^.!?]{0,70}\bside\b/i.test(account)
+            && !/\b(?:no|not|never)\s+(?:a\s+)?one[ -]?way\b/i.test(account);
+        if (inventedOneWayLock || /\b(?:key|lock|bolt)\b[^.!?]{0,100}\b(?:refuses? to (?:turn|rotate|lock)|fails? to (?:turn|rotate|lock)|cannot (?:turn|rotate|lock)|won'?t (?:turn|rotate|lock)|stays? (?:stationary|open)|remains? (?:stationary|open))\b|\bdoor\b[^.!?]{0,100}\b(?:remains?|stays?)\s+(?:open|unlocked|a\s+(?:gap|yawning\s+gap))\b/i.test(account))
+            conflicts.push({ reason: 'contradicted_precommitted_door', detail: committedDoor.toId });
+    }
     worldNarratedUncommittedRouteClosures(world, afterSession, narrative)
         .forEach(location => conflicts.push({ reason: 'uncommitted_route_closure', detail: location.id }));
     // The receipt, not its presentation writer, decides who entered the scene.
@@ -13635,6 +14090,9 @@ function setupGlobalSettings() {
         state.bedrockApiKey = document.getElementById('global-bedrock-key').value.trim();
         if (state.bedrockApiKey) sessionStorage.setItem('horde_bedrock_api_key', state.bedrockApiKey);
         else sessionStorage.removeItem('horde_bedrock_api_key');
+        state.hordeApiKey = document.getElementById('global-horde-key')?.value.trim() || '';
+        if (state.hordeApiKey) sessionStorage.setItem('horde_horde_api_key', state.hordeApiKey);
+        else sessionStorage.removeItem('horde_horde_api_key');
         state.customApiKey = document.getElementById('global-custom-api-key').value.trim();
         if (state.customApiKey) sessionStorage.setItem('horde_custom_api_key', state.customApiKey);
         else sessionStorage.removeItem('horde_custom_api_key');
@@ -13741,7 +14199,7 @@ function setupGlobalSettings() {
         syncCompanionAlwaysOnRuntime({ announce: true }).catch(() => {});
         const enteredCloudKey = !!(state.apiKey || state.gptprotoApiKey || state.nanogptApiKey
             || state.nvidiaApiKey || state.bedrockApiKey || state.customApiKey
-            || state.evolinkApiKey || state.wavespeedApiKey || state.falApiKey || state.hotapiApiKey);
+            || state.hordeApiKey || state.evolinkApiKey || state.wavespeedApiKey || state.falApiKey || state.hotapiApiKey);
         showToast(enteredCloudKey && !state.globalSettings.rememberApiKey
             ? 'Settings saved. API keys remain in this tab only; enable “Remember API keys” to keep them after closing the browser.'
             : 'Settings saved for future sessions.', 'success');
@@ -13799,8 +14257,10 @@ function setupGlobalSettings() {
     if (providerSel) {
         providerSel.onchange = () => {
             const local = providerSel.value === 'local';
+            const horde = providerSel.value === 'horde';
             refreshSettingsProviderCards(providerSel.value);
             document.getElementById('local-provider-fields').style.display = local ? 'block' : 'none';
+            document.getElementById('horde-provider-fields').style.display = horde ? 'block' : 'none';
             document.getElementById('openrouter-key-block').style.display = 'block';
             document.getElementById('gptproto-key-block').style.display = 'block';
             document.getElementById('nanogpt-key-block').style.display = 'block';
@@ -13813,7 +14273,7 @@ function setupGlobalSettings() {
         };
     }
     ['global-api-key', 'global-gptproto-key', 'global-fal-key', 'global-hotapi-key', 'global-nanogpt-key', 'global-nvidia-key',
-        'global-bedrock-key', 'global-custom-api-key'].forEach(inputId => {
+        'global-bedrock-key', 'global-horde-key', 'global-custom-api-key'].forEach(inputId => {
         document.getElementById(inputId)?.addEventListener('input', () => refreshSettingsProviderCards(providerSel?.value));
     });
 
@@ -14669,6 +15129,7 @@ function showGlobalSettings() {
         document.getElementById('global-nanogpt-key').value = state.nanogptApiKey;
         document.getElementById('global-nvidia-key').value = state.nvidiaApiKey;
         document.getElementById('global-bedrock-key').value = state.bedrockApiKey;
+        document.getElementById('global-horde-key').value = state.hordeApiKey || '';
         document.getElementById('global-custom-api-key').value = state.customApiKey;
         document.getElementById('global-bedrock-region').value = normalizedBedrockRegion(state.globalSettings.bedrockRegion);
         document.getElementById('global-bedrock-base-url').value = state.globalSettings.bedrockBaseUrl || '';
@@ -14683,6 +15144,7 @@ function showGlobalSettings() {
             ? state.globalSettings.apiProvider : 'openrouter';
         document.getElementById('global-api-provider').value = provider;
         refreshSettingsProviderCards(provider);
+        document.getElementById('horde-provider-fields').style.display = provider === 'horde' ? 'block' : 'none';
         document.getElementById('global-local-url').value = state.globalSettings.localBaseUrl || '';
         document.getElementById('global-local-key').value = state.globalSettings.localApiKey || '';
         document.getElementById('global-local-generation-timeout').value = String(
@@ -14759,6 +15221,20 @@ function showToast(msg, type = 'info') {
     toast.textContent = msg;
     document.getElementById('toast-container').appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+}
+
+function clearWorldTurnError() {
+    document.getElementById('world-turn-error')?.classList.add('hidden');
+}
+
+function showWorldTurnError(message) {
+    const alert = document.getElementById('world-turn-error');
+    const text = document.getElementById('world-turn-error-text');
+    if (!alert || !text) return showToast(message, 'error');
+    text.textContent = message;
+    alert.classList.remove('hidden');
+    const dismiss = document.getElementById('world-turn-error-dismiss');
+    if (dismiss) dismiss.onclick = clearWorldTurnError;
 }
 
 function numericVersionParts(value) {
@@ -15596,6 +16072,8 @@ function createNewWorld() {
     };
     applyWorldRuleProfile(state.editingWorld, 'adventure');
     openWorldStudio();
+    // A new world gets its AI place index without a model call.
+    queueWorldStructureSync(state.editingWorld);
     document.querySelector('.world-studio-tab[data-tab="w-overview"]')?.click();
 }
 
@@ -15630,6 +16108,7 @@ function setupWorldStudioTabs() {
 function renderWorldStudioPanel(target) {
     if (!state.editingWorld) return;
     const renderers = {
+        'w-overview': renderWorldStructureStatus,
         'w-visuals': renderWorldVisuals,
         'w-locations': renderWorldLocations,
         'w-entities': renderWorldEntities,
@@ -15648,15 +16127,41 @@ function setupWorldStudioLogic() {
 
     setupWorldArchitectLogic();
 
+    // Check after each editor handler mutates the draft. This also catches
+    // programmatic map and architect edits routed through editor buttons.
+    let structureEditTimer;
+    const scheduleStructureEditCheck = event => {
+        if (!event.target.closest('#tab-w-locations, #tab-w-visual-map, #tab-w-entities, #tab-w-factions, #tab-w-items, #tab-w-architect-agent, #world-record-overlay')) return;
+        const world = state.editingWorld;
+        clearTimeout(structureEditTimer);
+        structureEditTimer = setTimeout(() => {
+            if (state.editingWorld === world) syncEditedWorldStructure(world)
+                .catch(error => showToast(`World structure could not be updated: ${error.message || error}`, 'error'));
+        }, 80);
+    };
+    for (const type of ['change', 'click']) document.addEventListener(type, scheduleStructureEditCheck);
+
     const recordOverlay = document.getElementById('world-record-overlay');
     document.getElementById('world-record-close').onclick = closeWorldRecordInspector;
     document.getElementById('world-record-done').onclick = closeWorldRecordInspector;
     recordOverlay.onclick = event => { if (event.target === recordOverlay) closeWorldRecordInspector(); };
 
     document.getElementById('close-world-studio-btn').onclick = () => switchView('worlds');
-    document.getElementById('save-world-btn').onclick = saveWorld;
+    document.getElementById('save-world-btn').onclick = async () => {
+        try {
+            await saveWorld();
+        } catch (error) {
+            console.error('Save World failed:', error);
+            showToast(`World could not be saved: ${error.message || error}`, 'error');
+        }
+    };
     document.getElementById('save-play-world-btn').onclick = async () => {
-        if (await saveWorld() !== false && state.editingWorld?.id) enterWorld(state.editingWorld.id);
+        try {
+            if (await saveWorld() !== false && state.editingWorld?.id) enterWorld(state.editingWorld.id);
+        } catch (error) {
+            console.error('Save & Enter World failed:', error);
+            showToast(`World could not be saved: ${error.message || error}`, 'error');
+        }
     };
     document.getElementById('delete-world-btn').onclick = deleteWorld;
     
@@ -15701,6 +16206,14 @@ function setupWorldStudioLogic() {
         document.getElementById('world-audit-overlay').classList.remove('hidden');
         renderWorldAudit();
     };
+    document.querySelectorAll('[data-generate-world-structure]').forEach(button => {
+        button.onclick = generateWorldStructure;
+    });
+    document.querySelectorAll('[data-clear-world-structure]').forEach(button => {
+        button.onclick = clearGeneratedWorldStructure;
+    });
+    renderWorldStructureStatus();
+    renderWorldLoreModelControls();
     document.getElementById('close-audit-btn').onclick = () => document.getElementById('world-audit-overlay').classList.add('hidden');
     
     document.getElementById('export-world-btn').onclick = () => {
@@ -16131,6 +16644,7 @@ function openWorldStudio(worldId = null) {
     }
 
     const w = state.editingWorld;
+    globalThis.HordeBackgroundSim?.normalizeSettings(w);
     normalizeWorldStartingQuests(w);
     document.getElementById('w-studio-name').value = w.name || '';
     document.getElementById('w-studio-desc').value = w.description || '';
@@ -16164,6 +16678,7 @@ function openWorldStudio(worldId = null) {
     document.getElementById('w-kernel-enabled').checked = kernelConfig.enabled;
     document.getElementById('w-kernel-location-limit').value = kernelConfig.sceneLocationLimit;
     document.getElementById('w-kernel-memory-mode').value = kernelConfig.memoryMode;
+    document.getElementById('w-kernel-scene-mode').value = kernelConfig.sceneLedger ? 'ledger' : kernelConfig.sceneDraftProtocol === 'scene_draft_v3' ? 'linked' : 'strict';
     document.getElementById('w-kernel-repair-mode').value = kernelConfig.repairMode;
     document.getElementById('w-kernel-compact-tools').checked = kernelConfig.compactTools;
 
@@ -16200,6 +16715,8 @@ function openWorldStudio(worldId = null) {
     document.getElementById('w-hud-start-weekday').value = WORLD_WEEKDAYS.includes(w.hudConfig.startWeekday) ? w.hudConfig.startWeekday : 'Monday';
     document.getElementById('w-hud-show-days').checked = w.hudConfig.showDays || false;
     document.getElementById('w-hud-enable-schedules').checked = !!w.hudConfig.enableSchedules;
+    const awayTime = document.getElementById('w-time-advances-away');
+    if (awayTime) awayTime.checked = w.settings?.timeAdvancesWhenAway === true;
     renderWorldStudioStats();
     loadWorldGameRuleControls(w);
 
@@ -16212,6 +16729,11 @@ function openWorldStudio(worldId = null) {
     // AI Config, HUD and notes are plain controls already populated above.
     const activeTab = document.querySelector('.world-studio-tab.active')?.dataset.tab || 'w-basics';
     renderWorldStudioPanel(activeTab);
+    // World Structure options also live in the Overview, which is not hydrated
+    // by renderWorldLore(). Rebuild both shared option hosts whenever a world
+    // is opened so the Overview card never keeps its initial empty markup.
+    renderWorldStructureStatus();
+    renderWorldLoreModelControls();
 
     const cachedWorldModel = openRouterModels.find(model => model.id === w.model);
     if (cachedWorldModel) {
@@ -16225,6 +16747,7 @@ async function saveWorld() {
     const w = state.editingWorld;
     if (!w) return;
     if (!validateWorldStartingQuestDrafts(w)) return false;
+    globalThis.HordeWorldLore?.migrate(w);
 
     w.name = document.getElementById('w-studio-name').value.trim();
     w.description = document.getElementById('w-studio-desc').value.trim();
@@ -16243,8 +16766,11 @@ async function saveWorld() {
         enabled: document.getElementById('w-kernel-enabled').checked,
         sceneLocationLimit: document.getElementById('w-kernel-location-limit').value,
         memoryMode: document.getElementById('w-kernel-memory-mode').value,
+        sceneLedger: document.getElementById('w-kernel-scene-mode').value === 'ledger',
+        sceneDraftProtocol: document.getElementById('w-kernel-scene-mode').value === 'linked' ? 'scene_draft_v3' : 'scene_draft_v2',
         repairMode: document.getElementById('w-kernel-repair-mode').value,
-        compactTools: document.getElementById('w-kernel-compact-tools').checked
+        compactTools: document.getElementById('w-kernel-compact-tools').checked,
+        effectMode: w.kernel?.effectMode
     } });
     const requestedTemperature = parseFloat(document.getElementById('w-studio-temp').value);
     w.temp = Number.isFinite(requestedTemperature) ? requestedTemperature : 0.9;
@@ -16275,12 +16801,38 @@ async function saveWorld() {
         ? document.getElementById('w-hud-start-weekday').value : 'Monday';
     w.hudConfig.showDays = document.getElementById('w-hud-show-days').checked;
     w.hudConfig.enableSchedules = document.getElementById('w-hud-enable-schedules').checked;
+    globalThis.HordeBackgroundSim?.normalizeSettings(w);
+    w.settings ||= {};
+    w.settings.timeAdvancesWhenAway = document.getElementById('w-time-advances-away')?.checked === true;
     const statIdRenames = syncWorldStudioStatsFromDOM(w);
     saveWorldGameRuleControls(w, statIdRenames);
     // Half-written rows and references to things deleted this session must not
     // reach storage — otherwise the world is only repaired at the next reload,
     // and an export taken before then carries the damage to whoever opens it.
     normalizeAuthoredWorld(w);
+    ensureWorldDoorIds(w);
+    try {
+        if (pendingWorldStructureSyncWorld === w) await pendingWorldStructureSync;
+        await ensureWorldLoreModules();
+        const lore = globalThis.HordeWorldLore;
+        const saved = state.worlds.find(world => world.id === w.id);
+        const comparableSaved = saved && safeJsonClone(saved);
+        if (comparableSaved) {
+            lore.migrate(comparableSaved);
+            normalizeAuthoredWorld(comparableSaved);
+            ensureWorldDoorIds(comparableSaved);
+        }
+        // An unchanged older world keeps its missing index. New and edited
+        // worlds get one, including edits a UI path did not refresh promptly.
+        const edited = !saved || lore.fingerprint(w) !== lore.fingerprint(comparableSaved);
+        if ((w.worldStructure && lore.structureStatus(w).state !== 'current') ||
+            (!w.worldStructure && edited)) {
+            lore.generate(w);
+        }
+    } catch (error) {
+        showToast(`World structure could not be updated: ${error.message || error}`, 'error');
+        return false;
+    }
 
     const idx = state.worlds.findIndex(world => world.id === w.id);
     if (idx !== -1) {
@@ -16331,10 +16883,10 @@ async function deleteWorld() {
     switchView('worlds');
 }
 
-function addWorldLocation(position = 'bottom', regionId = '', parentLocationId = '', mapType = '') {
-    const region = (state.editingWorld?.regions || []).find(item => item.id === regionId);
+function createWorldLocationRecord(world, regionId = '', parentLocationId = '', mapType = '') {
+    const region = (world?.regions || []).find(item => item.id === regionId);
     const loc = {
-        id: 'loc_' + Date.now(),
+        id: `loc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         name: '',
         regionId: region?.id || '',
         region: region?.name || '',
@@ -16346,11 +16898,17 @@ function addWorldLocation(position = 'bottom', regionId = '', parentLocationId =
         exits: [],
         secrets: []
     };
+    return loc;
+}
+
+function addWorldLocation(position = 'bottom', regionId = '', parentLocationId = '', mapType = '') {
+    const loc = createWorldLocationRecord(state.editingWorld, regionId, parentLocationId, mapType);
     if (position === 'top') {
         state.editingWorld.locations.unshift(loc);
     } else {
         state.editingWorld.locations.push(loc);
     }
+    queueWorldStructureSync(state.editingWorld);
     worldStudioListState.locations.query = '';
     worldStudioListState.locations.page = 0;
     openWorldRecordInspector('location', loc.id);
@@ -16364,6 +16922,7 @@ function addWorldRegion() {
     let id = `reg_${Date.now()}`;
     while (world.regions.some(region => region.id === id)) id = `reg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     world.regions.push({ id, name: 'New region', description: '', tags: [] });
+    queueWorldStructureSync(world);
     openWorldRecordInspector('region', id);
     showToast('New region ready. Add its first location when you are ready.', 'success');
 }
@@ -16421,7 +16980,7 @@ function normalizeLocationSearchText(value) {
         .toLowerCase()
         .replace(/[’']/g, '')
         .replace(/[^a-z0-9]+/g, ' ')
-        .replace(/^(?:the|a|an)\s+/, '')
+        .replace(/^(?:the|a|an|den|die|das|dem|der|einen|eine|ein)\s+/, '')
         .trim();
 }
 
@@ -16514,17 +17073,122 @@ function worldExitUnlockKey(fromLocationId, toLocationId) {
     return from && to ? `${from}::${to}` : '';
 }
 
-function worldExitRequirement(sess, exit, fromLocationId = '') {
-    const requiredItem = typeof exit === 'object'
-        ? String(exit?.requiredItem || '').trim().slice(0, 160) : '';
-    const allowCheckUnlock = typeof exit === 'object' && exit?.allowCheckUnlock === true;
+function ensureWorldDoorIds(world, sess = null) {
+    const locations = Array.isArray(world?.locations) ? world.locations : [];
+    const byId = new Map();
+    const byName = new Map();
+    locations.forEach(location => {
+        const id = String(location.id || '').trim().toLowerCase();
+        if (id) byId.set(id, byId.has(id) ? null : location);
+        const name = String(location.name || '').trim().toLowerCase();
+        if (name) byName.set(name, byName.has(name) ? null : location);
+    });
+    const edges = new Map();
+    const targetOf = exit => {
+        const ref = String(getExitTargetName(exit) || '').trim().toLowerCase();
+        return byId.has(ref) ? byId.get(ref) : byName.get(ref) || null;
+    };
+    locations.forEach(from => (from.exits || []).forEach((entry, index) => {
+        const to = targetOf(entry);
+        if (!to || to.id === from.id) return;
+        const exit = typeof entry === 'string' ? (from.exits[index] = { text: entry }) : entry;
+        if (!exit || typeof exit !== 'object') return;
+        const key = `${from.id}\u0000${to.id}`;
+        if (!edges.has(key)) edges.set(key, []);
+        edges.get(key).push({ from, to, exit, index });
+    }));
+    const handled = new Set();
+    for (const group of edges.values()) for (const edge of group) {
+        if (handled.has(edge.exit)) continue;
+        const reverse = edges.get(`${edge.to.id}\u0000${edge.from.id}`) || [];
+        // Directional travel metadata does not make two reciprocal records
+        // separate physical locks. Only an absent or ambiguous reverse edge
+        // prevents pairing; route permissions remain checked independently.
+        const paired = group.length === 1 && reverse.length === 1 ? reverse[0] : null;
+        const sortedIds = [edge.from.id, edge.to.id].sort();
+        const baseId = `door:${sortedIds.map(encodeURIComponent).join('::')}`;
+        const previousIds = [edge.exit.doorId, paired?.exit.doorId]
+            .map(value => String(value || '').trim()).filter(Boolean);
+        const id = previousIds[0]
+            || (paired ? baseId : `${baseId}:${encodeURIComponent(edge.from.id)}:${edge.index}`);
+        edge.exit.doorId = id;
+        handled.add(edge.exit);
+        if (paired) {
+            paired.exit.doorId = id;
+            handled.add(paired.exit);
+            const key = String(edge.exit.requiredItem || paired.exit.requiredItem || '').trim();
+            if (key) {
+                if (!String(edge.exit.requiredItem || '').trim()) edge.exit.requiredItem = key;
+                if (!String(paired.exit.requiredItem || '').trim()) paired.exit.requiredItem = key;
+            }
+            if (edge.exit.lockState === 'locked' || paired.exit.lockState === 'locked') {
+                edge.exit.lockState = 'locked';
+                paired.exit.lockState = 'locked';
+            }
+            if (edge.exit.allowCheckUnlock === true && paired.exit.allowCheckUnlock == null) paired.exit.allowCheckUnlock = true;
+            if (paired.exit.allowCheckUnlock === true && edge.exit.allowCheckUnlock == null) edge.exit.allowCheckUnlock = true;
+        }
+        if (sess && isPlainObject(sess.unlockedExits)) {
+            const legacy = [
+                worldExitUnlockKey(edge.from.id, edge.to.id),
+                worldExitUnlockKey(edge.from.id, edge.exit.targetLocationId || getExitTargetName(edge.exit)),
+                ...(paired ? [
+                    worldExitUnlockKey(edge.to.id, edge.from.id),
+                    worldExitUnlockKey(edge.to.id, paired.exit.targetLocationId || getExitTargetName(paired.exit))
+                ] : [])
+            ].filter(Boolean);
+            const oldKeys = [...new Set([...legacy, ...previousIds])].filter(key => key !== id);
+            if (oldKeys.some(key => sess.unlockedExits[key] === true)) sess.unlockedExits[id] = true;
+            oldKeys.forEach(key => { delete sess.unlockedExits[key]; });
+        }
+    }
+}
+
+function worldPlayerHoldsExitItem(sess, exit) {
+    const requiredItem = worldExitLockConfig(exit).requiredItem;
+    if (!requiredItem) return false;
+    const key = questTextKey(requiredItem);
+    return Array.isArray(sess?.inventory) && sess.inventory.some(item => {
+        const name = globalThis.HordeRpgMechanics?.itemName(item) || String(item || '');
+        return questTextKey(name) === key && (typeof item !== 'object' || Number(item.quantity ?? 1) > 0);
+    });
+}
+
+function worldExitDoorKeys(world, from, to, exit) {
+    if (String(exit?.doorId || '').trim()) return [String(exit.doorId).trim()];
+    const reverse = (to.exits || []).find(candidate => candidate && typeof candidate === 'object'
+        && resolveWorldExitTarget(world, candidate)?.id === from.id
+        && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim());
+    const directions = [{ from: from.id, to: to.id, exit }];
+    if (reverse) directions.push({ from: to.id, to: from.id, exit: reverse });
+    return [...new Set(directions.flatMap(direction => [
+        worldExitUnlockKey(direction.from, direction.to),
+        worldExitUnlockKey(direction.from,
+            direction.exit.targetLocationId || getExitTargetName(direction.exit))
+    ]))].filter(Boolean);
+}
+
+function worldExitLockConfig(exit) {
+    const configuredLock = exit?.lockable === true && exit?.lockState === 'locked';
+    return {
+        requiredItem: String(exit?.requiredItem || (configuredLock ? exit.lockKeyItem : '') || '').trim().slice(0, 160),
+        allowCheckUnlock: exit?.allowCheckUnlock === true || (configuredLock && exit.lockAllowCheckUnlock === true)
+    };
+}
+
+function worldExitRequirement(sess, exit, fromLocationId = '', npcId = '') {
+    const { requiredItem, allowCheckUnlock } = worldExitLockConfig(exit);
     const unlockKey = worldExitUnlockKey(fromLocationId,
         typeof exit === 'object' ? (exit?.targetLocationId || getExitTargetName(exit)) : getExitTargetName(exit));
-    const unlocked = !!(allowCheckUnlock && unlockKey && sess?.unlockedExits?.[unlockKey] === true);
+    const doorId = String(exit?.doorId || '').trim();
+    const unlocked = !!((requiredItem || allowCheckUnlock || exit?.lockState === 'locked')
+        && ((doorId && sess?.unlockedExits?.[doorId] === true)
+            || (unlockKey && sess?.unlockedExits?.[unlockKey] === true)));
     if (unlocked) return { ok: true, requiredItem, allowCheckUnlock, unlocked: true };
-    if (!requiredItem && !allowCheckUnlock) return { ok: true, requiredItem: '', allowCheckUnlock: false };
+    if (!requiredItem && !allowCheckUnlock && exit?.lockState !== 'locked') return { ok: true, requiredItem: '', allowCheckUnlock: false };
     const key = questTextKey(requiredItem);
-    const held = !!requiredItem && Array.isArray(sess?.inventory) && sess.inventory.some(item => {
+    const carried = npcId ? sess?.entityStates?.[npcId]?.inventory : sess?.inventory;
+    const held = !!requiredItem && Array.isArray(carried) && carried.some(item => {
         const name = globalThis.HordeRpgMechanics?.itemName(item) || String(item || '');
         return questTextKey(name) === key && (typeof item !== 'object' || Number(item.quantity ?? 1) > 0);
     });
@@ -16571,6 +17235,12 @@ function resolveWorldContainmentParent(world, location) {
 }
 
 function findWorldTravelPath(world, fromLocationId, toLocationId, options = {}) {
+    return world && options.npcId && globalThis.HordeWorldLore?.withIndex
+        ? globalThis.HordeWorldLore.withIndex(world, () => findWorldTravelPathCore(world, fromLocationId, toLocationId, options))
+        : findWorldTravelPathCore(world, fromLocationId, toLocationId, options);
+}
+
+function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = {}) {
     if (!world || !Array.isArray(world.locations)) return null;
     const locationById = new Map();
     const locationsByName = new Map();
@@ -16593,26 +17263,13 @@ function findWorldTravelPath(world, fromLocationId, toLocationId, options = {}) 
     if (!from || !to) return null;
     if (from.id === to.id) return [from.id];
 
-    // Containment index, built once. Uses the same maps as the walk, so name
-    // collisions resolve to null exactly as resolveWorldContainmentParent does,
-    // and the whole thing stays O(n) instead of scanning per location.
-    const parentOf = location => {
-        for (const ref of [location.parentLocationId, location.region]) {
-            const key = String(ref || '').trim().toLowerCase();
-            if (!key) continue;
-            const parent = locationById.get(key) || locationsByName.get(key);
-            if (parent && parent.id !== location.id) return parent;
-        }
-        return null;
-    };
-    const childrenOf = new Map();
-    world.locations.forEach(location => {
-        const parent = parentOf(location);
-        if (!parent) return;
-        if (!childrenOf.has(parent.id)) childrenOf.set(parent.id, []);
-        childrenOf.get(parent.id).push(location);
-    });
-
+    // Preserve v18.3.6 containment-only maps on the existing execution mode.
+    // Linked preview requires explicit edges; never bypass any authored door.
+    const legacyChildren = new Map();
+    if (world.kernel?.sceneDraftProtocol !== 'scene_draft_v3') for (const place of world.locations) {
+        const parent = resolveWorldContainmentParent(world, place);
+        if (parent) legacyChildren.set(parent.id, [...(legacyChildren.get(parent.id) || []), place]);
+    }
     // Dijkstra: minimize elapsed travel time, then hops for zero-time legacy
     // links. A heap keeps large, sparse worlds responsive on the main thread.
     let sequence = 0;
@@ -16662,7 +17319,7 @@ function findWorldTravelPath(world, fromLocationId, toLocationId, options = {}) 
         if (!current) continue;
         const neighbors = new Map();
         for (const exit of current.exits || []) {
-            if (!options.ignoreRequirements && !worldExitRequirement(options.session, exit, current.id).ok) continue;
+            if (!options.ignoreRequirements && !worldExitRequirement(options.session, exit, current.id, options.npcId).ok) continue;
             const key = String(getExitTargetName(exit) || '').trim().toLowerCase();
             const target = locationById.has(key) ? locationById.get(key) : locationsByName.get(key);
             if (!target) continue;
@@ -16671,22 +17328,19 @@ function findWorldTravelPath(world, fromLocationId, toLocationId, options = {}) 
                 neighbors.set(target.id, { target, minutes });
             }
         }
-        // Preserve legacy implicit containment until definitions are migrated
-        // to explicit traversal edges. An authored edge keeps its own duration.
-        const parent = parentOf(current);
-        for (const target of [parent, ...(childrenOf.get(current.id) || [])].filter(Boolean)) {
-            // Legacy containment supplies implicit doors, but must not create
-            // an invisible shortcut around an explicitly guarded door.
-            if (!options.ignoreRequirements && (
-                (current.exits || []).some(exit =>
-                    resolveWorldExitTarget(world, exit)?.id === target.id
-                    && !worldExitRequirement(options.session, exit, current.id).ok)
-                || (target.exits || []).some(exit =>
-                    resolveWorldExitTarget(world, exit)?.id === current.id
-                    && !worldExitRequirement(options.session, exit, target.id).ok))) continue;
-            if (!neighbors.has(target.id)) neighbors.set(target.id, { target, minutes: 0 });
+        if (world.kernel?.sceneDraftProtocol !== 'scene_draft_v3') {
+            const parent = resolveWorldContainmentParent(world, current);
+            for (const target of [parent, ...(legacyChildren.get(current.id) || [])].filter(Boolean)) {
+                const authored = (current.exits || []).some(exit => resolveWorldExitTarget(world,exit)?.id === target.id)
+                    || (target.exits || []).some(exit => resolveWorldExitTarget(world,exit)?.id === current.id);
+                if (!authored && !neighbors.has(target.id)) neighbors.set(target.id,{target,minutes:0});
+            }
         }
         for (const { target, minutes } of neighbors.values()) {
+            if (options.npcId && !worldNpcAccess(world, options.npcId, target.id, options.session).ok) continue;
+            if (options.npcId && globalThis.HordeWorldLore
+                && !globalThis.HordeWorldLore.placeAwareness(world, options.npcId, target.id, options.session).known
+                && !(options.explore === true && current.id === from.id && target.id === to.id)) continue;
             if (!options.ignoreRequirements && worldLocationTravelBlock(options.session, target.id)) continue;
             const candidate = { minutes: step.minutes + minutes, hops: step.hops + 1 };
             const old = best.get(target.id);
@@ -16719,9 +17373,11 @@ function resolveWorldMovementTarget(world, fromLocationId, targetPhrase, allowPr
             .map(exit => resolveWorldExitTarget(world, exit)).filter(Boolean));
         if (authoredDirectTarget) return authoredDirectTarget;
         const authoredGlobalTarget = findFuzzyLocation(targetPhrase, world.locations);
-        if (authoredGlobalTarget && authoredGlobalTarget.id !== from.id
-            && findWorldTravelPath(world, from.id, authoredGlobalTarget.id, { session })) {
-            return authoredGlobalTarget;
+        if (authoredGlobalTarget && authoredGlobalTarget.id !== from.id) {
+            // A named destination with no valid route must not become a
+            // different room through the generic place-kind fallback.
+            return findWorldTravelPath(world, from.id, authoredGlobalTarget.id, { session })
+                ? authoredGlobalTarget : null;
         }
     }
 
@@ -17087,6 +17743,11 @@ function syncExitConnection(sourceLoc, exitText, isOneWay, travelTime, isDeleted
             allowCheckUnlock: sourceExit?.allowCheckUnlock === true,
             isOneWay: false
         };
+        if (sourceExit?.lockable !== undefined) {
+            reverseExitObj.lockable = sourceExit.lockable === true;
+            reverseExitObj.lockKeyItem = String(sourceExit.lockKeyItem || '').slice(0, 160);
+            reverseExitObj.lockAllowCheckUnlock = sourceExit.lockAllowCheckUnlock === true;
+        }
         
         if (existingIndex === -1) {
             targetLoc.exits.push(reverseExitObj);
@@ -17102,9 +17763,15 @@ function syncExitConnection(sourceLoc, exitText, isOneWay, travelTime, isDeleted
                 targetLoc.exits[existingIndex].cost = reverseExitObj.cost;
                 targetLoc.exits[existingIndex].requiredItem = reverseExitObj.requiredItem;
                 targetLoc.exits[existingIndex].allowCheckUnlock = reverseExitObj.allowCheckUnlock;
+                if (reverseExitObj.lockable !== undefined) {
+                    targetLoc.exits[existingIndex].lockable = reverseExitObj.lockable;
+                    targetLoc.exits[existingIndex].lockKeyItem = reverseExitObj.lockKeyItem;
+                    targetLoc.exits[existingIndex].lockAllowCheckUnlock = reverseExitObj.lockAllowCheckUnlock;
+                }
             }
         }
     }
+    ensureWorldDoorIds(state.editingWorld);
 }
 
 
@@ -17127,8 +17794,8 @@ async function renderWorldVisualModelSearch(world, force = false) {
     if (!world || !input || !results || !status) return;
     const renderId = ++worldVisualModelSearchRenderId;
     const provider = worldVisualProvider(world);
-    if (!['openrouter', 'gptproto', 'nanogpt', 'fal'].includes(provider)) {
-        status.textContent = 'The inherited provider does not expose a cloud image catalog. Choose OpenRouter, GPTProto, NanoGPT or Fal, or enter the exact model ID used by your provider.';
+    if (!['openrouter', 'gptproto', 'nanogpt', 'horde', 'fal'].includes(provider)) {
+        status.textContent = 'The inherited provider does not expose a cloud image catalog. Choose OpenRouter, GPTProto, NanoGPT, AI Horde or Fal, or enter the exact model ID used by your provider.';
         results.innerHTML = '<div class="smart-input-empty">Choose a catalog-backed image provider to browse compatible models.</div>';
         setCompanionSearchOpen(input, results, true);
         return;
@@ -17189,7 +17856,7 @@ function renderWorldVisuals() {
     byId('w-visual-opacity-value').textContent = `${presentation.panelOpacity}%`;
     const summary = worldMediaSummary(world);
     byId('w-visual-media-summary').textContent = `${summary.count} asset${summary.count === 1 ? '' : 's'} · ${formatByteSize(summary.bytes)}`;
-    const mapSkin = worldMediaSource(world, presentation.mapSkinAssetId);
+    const mapSkin = world.media?.mapBackground || worldMediaSource(world, presentation.mapSkinAssetId);
     const mapPreview = byId('w-visual-map-skin-preview');
     mapPreview.style.backgroundImage = mapSkin ? `url('${cssUrl(mapSkin)}')` : 'none';
     mapPreview.textContent = mapSkin ? '' : 'No map skin';
@@ -17203,6 +17870,8 @@ function renderWorldVisuals() {
         try {
             const image = await normalizeUploadedImage(file, 1600, 0.76);
             presentation.mapSkinAssetId = addWorldMediaAsset(world, image, 'map_skin', `${world.name} map skin`);
+            if (!isPlainObject(world.media)) world.media = {};
+            world.media.mapBackground = image;
             pruneWorldMediaAssets(world);
             renderWorldVisuals();
             showToast('Map skin embedded in this world.', 'success');
@@ -17216,6 +17885,8 @@ function renderWorldVisuals() {
         button.textContent = 'Generating…';
         try {
             presentation.mapSkinAssetId = await generateWorldMapSkin(world);
+            if (!isPlainObject(world.media)) world.media = {};
+            world.media.mapBackground = worldMediaSource(world, presentation.mapSkinAssetId);
             pruneWorldMediaAssets(world);
             renderWorldVisuals();
             showToast('Generated map skin embedded in this world.', 'success');
@@ -17228,6 +17899,7 @@ function renderWorldVisuals() {
     };
     byId('w-visual-map-skin-clear').onclick = () => {
         presentation.mapSkinAssetId = '';
+        if (world.media) delete world.media.mapBackground;
         pruneWorldMediaAssets(world);
         renderWorldVisuals();
     };
@@ -17272,8 +17944,8 @@ function renderWorldVisuals() {
     byId('w-visual-refresh-models').onclick = async event => {
         const button = event.currentTarget;
         const provider = worldVisualProvider(world);
-        if (!['openrouter', 'gptproto', 'nanogpt', 'fal'].includes(provider)) {
-            return showToast('Choose OpenRouter, GPTProto, NanoGPT or Fal to browse cloud image models.', 'info');
+        if (!['openrouter', 'gptproto', 'nanogpt', 'horde', 'fal'].includes(provider)) {
+            return showToast('Choose OpenRouter, GPTProto, NanoGPT, AI Horde or Fal to browse cloud image models.', 'info');
         }
         button.disabled = true;
         button.textContent = '↻ Loading…';
@@ -17575,7 +18247,9 @@ function upgradeWorldSchemaData(sourceWorld, { source = 'manual' } = {}) {
 
 function upgradeBundledWorldDefinition(world) {
     try {
-        return upgradeWorldSchemaData(world, { source: 'bundled' }).world;
+        const upgraded=upgradeWorldSchemaData(world, { source: 'bundled' }).world;
+        globalThis.HordeBundledContent?.update(upgraded);
+        return upgraded;
     } catch (error) {
         console.error(`Bundled world “${world?.name || 'Untitled'}” could not be upgraded:`, error);
         return world;
@@ -17586,6 +18260,7 @@ function normalizeWorldDirectoryData(world) {
     if (!world) return world;
     world.regions = (Array.isArray(world.regions) ? world.regions : [])
         .filter(isPlainObject).map((region, index) => ({
+            ...region,
             id: String(region.id || `reg_${worldDirectorySlug(region.name, String(index + 1))}`).slice(0, 100),
             name: String(region.name || 'Unnamed region').slice(0, 120),
             description: String(region.description || '').slice(0, 1200),
@@ -17623,6 +18298,7 @@ function normalizeWorldDirectoryData(world) {
             return record;
         });
     });
+    ensureWorldDoorIds(world);
 
     world.groups = (Array.isArray(world.groups) ? world.groups : [])
         .filter(isPlainObject).map((group, index) => ({
@@ -17736,7 +18412,7 @@ function renderWorldInspectorTabs(kind, record) {
     const tabs = kind === 'region'
         ? [['overview', 'Overview'], ['locations', 'Locations'], ['travel', 'Travel links']]
         : kind === 'location'
-        ? [['overview', 'Overview'], ['map', 'Rooms & map'], ['connections', 'Connections'], ['simulation', 'Opening state'], ['commerce', 'Commerce'], ['secrets', 'Secrets'], ['visuals', 'Visuals']]
+        ? [['overview', 'Overview'], ['access', 'Access'], ['map', 'Rooms & map'], ['connections', 'Connections'], ['simulation', 'Opening state'], ['commerce', 'Commerce'], ['secrets', 'Secrets'], ['visuals', 'Visuals']]
         : record?.type === 'item'
             ? [['overview', 'Overview'], ['placement', 'Placement'], ['secrets', 'Knowledge & secrets']]
         : [['overview', 'Overview'], ['persona', 'Persona & voice'], ['relationships', 'Relationships'], ['simulation', 'Life & autonomy'], ['secrets', 'Knowledge & secrets'], ['visuals', 'Visuals']];
@@ -17846,6 +18522,7 @@ function renameWorldLocationId(world, location, requestedId) {
         throw new Error(`Another location already uses “${newId}”.`);
     }
     location.id = newId;
+    globalThis.HordeWorldLore?.rewriteReferences(world, 'location', oldId, newId);
     if (world.startLocationId === oldId) world.startLocationId = newId;
     (world.locations || []).forEach(candidate => {
         if (candidate.parentLocationId === oldId) candidate.parentLocationId = newId;
@@ -17993,6 +18670,7 @@ function removeWorldLocationRecord(world, locationId) {
     });
     if (world.startLocationId === locationId) world.startLocationId = world.locations[0]?.id || '';
     migrateWorldSessionLocationReferences(world, locationId, '', removed?.name || '');
+    queueWorldStructureSync(world);
 }
 
 function removeWorldGroupRecord(world, groupId) {
@@ -18063,6 +18741,7 @@ function upsertWorldTravelConnection(world, origin, target, details = {}) {
         if (reverse && typeof reverse === 'object') Object.assign(reverse, makeExit(target, origin), { isOneWay: false });
         else (target.exits ||= []).push({ ...makeExit(target, origin), isOneWay: false });
     }
+    ensureWorldDoorIds(world);
 }
 
 function renderWorldRegionLocationTreeHTML(world, locations) {
@@ -18089,6 +18768,137 @@ function renderWorldRegionLocationTreeHTML(world, locations) {
     return html;
 }
 
+function createWorldBgmPanel(record) {
+    const bgmPanel = document.getElementById('room-bgm-template').content.firstElementChild.cloneNode(true);
+    bgmPanel.dataset.inspectorSection = 'overview';
+    const srcEl = bgmPanel.querySelector('#roomBgmSrc');
+    const volEl = bgmPanel.querySelector('#roomBgmVol');
+    const volValueEl = bgmPanel.querySelector('#roomBgmVolValue');
+    const loopEl = bgmPanel.querySelector('#roomBgmLoop');
+    const dropEl = bgmPanel.querySelector('#bgmDropzone');
+    const fileEl = bgmPanel.querySelector('#bgmFileInput');
+    const curEl = bgmPanel.querySelector('#bgmCurrent');
+    const renderBgmInfo = () => {
+        curEl.textContent = record.bgm?.src ? `Aktuell: ${record.bgm.src}` : 'Keine BGM';
+    };
+    srcEl.value = record.bgm?.src || '';
+    volEl.value = record.bgm?.volume ?? 0.4;
+    const renderBgmVolume = () => { volValueEl.textContent = `${Math.round(Number(volEl.value) * 100)}%`; };
+    renderBgmVolume();
+    loopEl.checked = record.bgm?.loop !== false;
+    renderBgmInfo();
+    const revokeLocalBgm = bgm => {
+        if (bgm?._blobUrl) setTimeout(() => URL.revokeObjectURL(bgm._blobUrl), 1000);
+    };
+    const saveBgm = () => {
+        const src = srcEl.value.trim();
+        if (!src) {
+            revokeLocalBgm(record.bgm);
+            delete record.bgm;
+        } else {
+            const previous = record.bgm || {};
+            if (previous.src !== src) revokeLocalBgm(previous);
+            record.bgm = { ...(previous.src === src ? previous : {}), src,
+                volume: parseFloat(volEl.value), loop: loopEl.checked, crossfade: 600 };
+        }
+        if (typeof markWorldDirty === 'function') markWorldDirty();
+        renderBgmInfo();
+    };
+    const handleBgmFile = async file => {
+        if (!file) return;
+        const safe = file.name.replace(/[^a-z0-9._-]/gi, '_').replace(/^[._-]+/, '');
+        if (!/^[a-z0-9][a-z0-9._-]*\.(ogg|mp3|wav|flac)$/i.test(safe)
+            || file.size > 100 * 1024 * 1024) {
+            showToast('Choose an .ogg, .mp3, .wav or .flac file smaller than 100 MB.', 'error');
+            return;
+        }
+        const target = `assets/bgm/${safe}`;
+        try {
+            let copied = false;
+            if (window.hordeBridge?.saveAsset) {
+                await window.hordeBridge.saveAsset(target, await file.arrayBuffer());
+                copied = true;
+            } else {
+                const response = await fetch(`/world-bgm/assets/${encodeURIComponent(safe)}`,
+                    { method: 'POST', body: await file.arrayBuffer() }).catch(() => null);
+                if (response?.ok) copied = true;
+                else if (response && ![404, 405, 501].includes(response.status)) {
+                    throw new Error((await response.json().catch(() => ({}))).error
+                        || `Upload failed (${response.status})`);
+                }
+            }
+            revokeLocalBgm(record.bgm);
+            if (copied) {
+                record.bgm = { src: target, volume: parseFloat(volEl.value),
+                    loop: loopEl.checked, crossfade: 600 };
+            } else {
+                record.bgm = { src: target, _blobUrl: URL.createObjectURL(file),
+                    _isLocal: true, volume: parseFloat(volEl.value),
+                    loop: loopEl.checked, crossfade: 600 };
+                showToast('Preview only: the local server is needed to copy BGM into assets/bgm/.', 'info');
+            }
+            srcEl.value = target;
+            saveBgm();
+            await import('./worlds/bgm-player.js').then(module => module.playBgm(record.bgm));
+        } catch (error) {
+            showToast(`BGM upload failed: ${error.message || error}`, 'error');
+        } finally {
+            fileEl.value = '';
+        }
+    };
+    dropEl.onclick = () => fileEl.click();
+    dropEl.ondragover = event => { event.preventDefault(); dropEl.style.borderColor = '#0af'; };
+    dropEl.ondragleave = () => { dropEl.style.borderColor = '#555'; };
+    dropEl.ondrop = event => {
+        event.preventDefault();
+        dropEl.style.borderColor = '#555';
+        void handleBgmFile(event.dataTransfer?.files?.[0]);
+    };
+    fileEl.onchange = () => { void handleBgmFile(fileEl.files?.[0]); };
+    srcEl.onchange = saveBgm;
+    volEl.oninput = () => {
+        renderBgmVolume();
+        saveBgm();
+        const activeSrc = document.getElementById('worldBgm')?.getAttribute('src');
+        if (record.bgm?.src && activeSrc === (record.bgm._blobUrl || record.bgm.src)) {
+            import('./worlds/bgm-player.js').then(module => module.playBgm(record.bgm));
+        }
+    };
+    loopEl.onchange = saveBgm;
+    bgmPanel.querySelector('#roomBgmPreview').onclick = () =>
+        import('./worlds/bgm-player.js').then(module => module.playBgm(record.bgm));
+    bgmPanel.querySelector('#roomBgmStop').onclick = () =>
+        import('./worlds/bgm-player.js').then(module => module.stopBgm());
+    bgmPanel.querySelector('#roomBgmClearAssign').onclick = () => {
+        srcEl.value = '';
+        saveBgm();
+        import('./worlds/bgm-player.js').then(module => module.stopBgm());
+    };
+    bgmPanel.querySelector('#roomBgmDeleteFile').onclick = async () => {
+        const bgm = record.bgm;
+        if (!bgm?.src || !confirm(`Löschen?\n${bgm.src}`)) return;
+        try {
+            if (window.hordeBridge?.deleteAsset) {
+                await window.hordeBridge.deleteAsset(bgm.src);
+            } else if (!bgm._blobUrl) {
+                const filename = bgm.src.startsWith('assets/bgm/')
+                    ? bgm.src.slice('assets/bgm/'.length) : '';
+                if (!filename) throw new Error('Only local assets/bgm/ files can be deleted.');
+                const response = await fetch(`/world-bgm/delete/${encodeURIComponent(filename)}`,
+                    { method: 'POST' });
+                if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error
+                    || `Delete failed (${response.status})`);
+            }
+            srcEl.value = '';
+            saveBgm();
+            (await import('./worlds/bgm-player.js')).stopBgm();
+        } catch (error) {
+            showToast(`BGM deletion failed: ${error.message || error}`, 'error');
+        }
+    };
+    return bgmPanel;
+}
+
 function renderWorldRegionInspector() {
     const world = state.editingWorld;
     const region = worldDirectoryRecord('region', worldRecordInspector.id);
@@ -18102,6 +18912,12 @@ function renderWorldRegionInspector() {
             <div class="world-region-form-grid"><label><span class="form-label">Region name</span><input class="form-input region-name" value="${escapeHTML(region.name)}"></label>
             <label><span class="form-label">Tags</span><input class="form-input region-tags" value="${escapeHTML((region.tags || []).join(', '))}" placeholder="coastal, urban, dangerous…"></label></div>
             <label><span class="form-label">Description</span><textarea class="form-textarea region-description" rows="7" placeholder="What makes this region distinct?">${escapeHTML(region.description || '')}</textarea></label>
+            <details class="lore-disclosure" style="margin-top:12px;"><summary>Who knows this area?</summary><div class="secret-group" style="border-color:var(--border);margin-top:8px;">
+                <p class="form-hint">Unknown by default. These rules can also apply to places inside the region.</p>
+                <label style="display:flex;align-items:center;gap:8px;margin:8px 0;"><input type="checkbox" class="region-awareness-children" ${region.placeAwareness?.includeChildren ? 'checked' : ''}>Include places inside this area</label>
+                <strong>Factions</strong><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;margin:8px 0;">${(world.factions || []).map(faction => `<label>${escapeHTML(faction.name || faction.id)}<select class="form-select region-awareness-faction" data-faction-id="${escapeHTML(faction.id)}"><option value="inherit" ${!region.placeAwareness?.factions?.[faction.id] ? 'selected' : ''}>Default</option><option value="know" ${region.placeAwareness?.factions?.[faction.id] === 'know' ? 'selected' : ''}>Knows</option><option value="unknown" ${region.placeAwareness?.factions?.[faction.id] === 'unknown' ? 'selected' : ''}>Does not know</option></select></label>`).join('') || '<span class="form-hint">No factions yet.</span>'}</div>
+                <strong>People</strong><input type="search" class="form-input region-awareness-search" placeholder="Find a person…" aria-label="Filter people by name" style="margin:8px 0;"><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;margin:8px 0;">${(world.entities || []).filter(person => person.type !== 'item').map(person => `<label class="region-awareness-row">${escapeHTML(person.name || person.id)}<select class="form-select region-awareness-person" data-person-id="${escapeHTML(person.id)}"><option value="inherit" ${!region.placeAwareness?.npcs?.[person.id] ? 'selected' : ''}>Default</option><option value="know" ${region.placeAwareness?.npcs?.[person.id] === 'know' ? 'selected' : ''}>Knows</option><option value="unknown" ${region.placeAwareness?.npcs?.[person.id] === 'unknown' ? 'selected' : ''}>Does not know</option></select></label>`).join('') || '<span class="form-hint">No people yet.</span>'}</div>
+            </div></details>
             <div class="world-region-stat-row"><span><b>${locations.length}</b> locations</span><span><b>${travelLinks.length}</b> outgoing travel links</span></div>
             <button type="button" class="btn btn-danger region-delete">Delete region</button>
         </section>
@@ -18124,6 +18940,7 @@ function renderWorldRegionInspector() {
             <div class="world-travel-list">${travelLinks.map(({ origin, target, exit, exitIndex }) => `<article><div><strong>${escapeHTML(origin.name || origin.id)} → ${escapeHTML(target.name || target.id)}</strong><span>${escapeHTML(formatWorldTravelMode(exit.mode))} · ${Number(exit.travelTime) || 0} min${exit.routeName ? ` · ${escapeHTML(exit.routeName)}` : ''}${exit.cost ? ` · ${escapeHTML(exit.cost)}` : ''}</span></div><button type="button" class="tool-btn" data-remove-region-travel="${escapeHTML(origin.id)}:${exitIndex}">Remove</button></article>`).join('') || '<div class="world-directory-empty">No cross-region travel yet. Players cannot naturally leave this region until you connect it.</div>'}</div>
         </section>
     </div>`;
+    container.querySelector('.region-description').closest('label').after(createWorldBgmPanel(region));
     container.querySelector('.region-name').onchange = event => {
         const oldName = region.name;
         region.name = event.target.value.trim() || 'Unnamed region';
@@ -18132,6 +18949,21 @@ function renderWorldRegionInspector() {
     };
     container.querySelector('.region-tags').onchange = event => { region.tags = event.target.value.split(',').map(value => value.trim()).filter(Boolean).slice(0, 30); };
     container.querySelector('.region-description').onchange = event => { region.description = event.target.value.slice(0, 1200); };
+    container.querySelector('.region-awareness-search').oninput = event => {
+        const query = event.target.value.trim().toLocaleLowerCase();
+        container.querySelectorAll('.region-awareness-row').forEach(row => { row.hidden = !!query && !row.textContent.toLocaleLowerCase().includes(query); });
+    };
+    const regionAwareness = () => region.placeAwareness ||= { includeChildren: false, npcs: {}, factions: {} };
+    container.querySelector('.region-awareness-children').onchange = event => { regionAwareness().includeChildren = event.target.checked; updateWorldTokenCount(); };
+    for (const [selector, bucket, key] of [['.region-awareness-faction', 'factions', 'factionId'], ['.region-awareness-person', 'npcs', 'personId']]) {
+        container.querySelectorAll(selector).forEach(select => select.onchange = event => {
+            const rule = regionAwareness(); rule[bucket] ||= {};
+            if (event.target.value === 'inherit') delete rule[bucket][event.target.dataset[key]];
+            else rule[bucket][event.target.dataset[key]] = event.target.value;
+            if (!rule.includeChildren && !Object.keys(rule.npcs || {}).length && !Object.keys(rule.factions || {}).length) delete region.placeAwareness;
+            updateWorldTokenCount();
+        });
+    }
     container.querySelector('.region-add-location').onclick = () => addWorldLocation('bottom', region.id);
     container.querySelectorAll('[data-region-location]').forEach(button => button.onclick = () => openWorldRecordInspector('location', button.dataset.regionLocation, 'overview', 'locations'));
     container.querySelector('.travel-connect').onclick = () => {
@@ -18168,6 +19000,7 @@ function renderWorldRegionInspector() {
         if (!confirm(`Delete “${region.name}”? Its ${locations.length} location${locations.length === 1 ? '' : 's'} will remain but become unassigned.`)) return;
         locations.forEach(location => { location.regionId = ''; location.region = ''; });
         world.regions = world.regions.filter(item => item.id !== region.id);
+        queueWorldStructureSync(world);
         closeWorldRecordInspector();
     };
     setWorldInspectorTab(worldRecordInspector.tab);
@@ -18409,6 +19242,61 @@ function renderWorldLocations() {
                 <div class="world-inspector-section" data-inspector-section="overview" style="margin-top:10px;">
                     <label class="form-label" style="font-size:.72rem;">Search tags <span class="form-hint">(comma separated; classification only—not links)</span></label>
                     <input class="form-input loc-tags" value="${escapeHTML((loc.tags || []).join(', '))}" placeholder="residential, restricted, haunted…">
+                </div>
+
+                <div class="secret-group world-inspector-section" data-inspector-section="access" style="border-color:var(--border);">
+                    <div class="secret-title" style="color:var(--text-2); margin-bottom:6px;">Who may enter?</div>
+                    <p class="form-hint" style="margin:0 0 8px;">Choose who may enter. Individual rules override faction rules. An NPC can still grant another person lasting access during play.</p>
+                    <label class="loc-access-default-wrap">Default access for this place
+                        <select class="form-select loc-access-default" aria-label="Default access for this place">
+                            <option value="open" ${!loc.access || loc.access.default !== 'restricted' ? 'selected' : ''}>Everyone may enter</option>
+                            <option value="restricted" ${loc.access?.default === 'restricted' ? 'selected' : ''}>Only selected people may enter</option>
+                        </select>
+                    </label>
+                    <div style="margin-top:12px;">
+                        <strong style="display:block;font-size:12px;margin-bottom:6px;">Faction access</strong>
+                        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;">
+                            ${(world.factions || []).map(faction => {
+                                const decision = loc.access?.factions?.[faction.id];
+                                return `<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+                                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(faction.name || faction.id)}</span>
+                                    <select class="form-select loc-access-faction" data-faction-id="${escapeHTML(faction.id)}" aria-label="Access for faction ${escapeHTML(faction.name || faction.id)}" style="width:auto;min-width:110px;padding:5px;">
+                                        <option value="inherit" ${!decision ? 'selected' : ''}>Default</option>
+                                        <option value="allow" ${decision === 'allow' ? 'selected' : ''}>Allowed</option>
+                                        <option value="deny" ${decision === 'deny' ? 'selected' : ''}>Denied</option>
+                                    </select>
+                                </label>`;
+                            }).join('') || '<span class="form-hint">Add a faction to this world to set faction access.</span>'}
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;">
+                        <strong style="display:block;font-size:12px;margin-bottom:6px;">Individual people</strong>
+                        <div class="loc-access-people" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;">
+                            ${world.entities.filter(person => person.type !== 'item').map(person => {
+                                const decision = loc.access?.npcs?.[person.id];
+                                return `<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;">
+                                    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(person.name || person.id)}</span>
+                                    <select class="form-select loc-access-person loc-access-choice ${decision === 'allow' ? 'is-allowed' : decision === 'deny' || (!decision && loc.access?.default === 'restricted') ? 'is-denied' : ''}" data-person-id="${escapeHTML(person.id)}" aria-label="Access for ${escapeHTML(person.name || person.id)}" style="width:auto;min-width:110px;padding:5px;">
+                                        <option value="inherit" ${!decision ? 'selected' : ''}>Default${!decision && loc.access?.default === 'restricted' ? ' · denied' : !decision ? ' · allowed' : ''}</option>
+                                        <option value="allow" ${decision === 'allow' ? 'selected' : ''}>Allowed</option>
+                                        <option value="deny" ${decision === 'deny' ? 'selected' : ''}>Denied</option>
+                                    </select>
+                                </label>`;
+                            }).join('') || '<span class="form-hint">Add people to this world to set individual access.</span>'}
+                        </div>
+                    </div>
+                    <details class="lore-disclosure" style="margin-top:12px;"><summary>Who knows this place exists?</summary><div style="padding-top:8px;">
+                    <p class="form-hint" style="margin:0 0 8px;">Unknown by default. Home, starting place and scheduled destinations are familiar to the person. Visits add knowledge only in that game.</p>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:8px;"><input type="checkbox" class="loc-awareness-children" ${loc.placeAwareness?.includeChildren ? 'checked' : ''}>Apply these knowledge rules to places inside this area</label>
+                    <strong style="display:block;font-size:12px;margin-bottom:6px;">Faction knowledge</strong>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;margin-bottom:10px;">
+                        ${(world.factions || []).map(faction => `<label style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(faction.name || faction.id)}</span><select class="form-select loc-awareness-faction" data-faction-id="${escapeHTML(faction.id)}" aria-label="Place knowledge for faction ${escapeHTML(faction.name || faction.id)}" style="width:auto;min-width:110px;padding:5px;"><option value="inherit" ${!loc.placeAwareness?.factions?.[faction.id] ? 'selected' : ''}>Default</option><option value="know" ${loc.placeAwareness?.factions?.[faction.id] === 'know' ? 'selected' : ''}>Knows</option><option value="unknown" ${loc.placeAwareness?.factions?.[faction.id] === 'unknown' ? 'selected' : ''}>Does not know</option></select></label>`).join('') || '<span class="form-hint">Add a faction to set knowledge.</span>'}
+                    </div>
+                    <strong style="display:block;font-size:12px;margin-bottom:6px;">Individual knowledge</strong>
+                    <input type="search" class="form-input loc-awareness-search" placeholder="Find a person…" aria-label="Filter people by name" style="margin-bottom:8px;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px;">
+                        ${world.entities.filter(person => person.type !== 'item').map(person => `<label class="loc-awareness-row" style="display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid var(--border);border-radius:8px;font-size:12px;"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHTML(person.name || person.id)}</span><select class="form-select loc-awareness-person" data-person-id="${escapeHTML(person.id)}" aria-label="Place knowledge for ${escapeHTML(person.name || person.id)}" style="width:auto;min-width:110px;padding:5px;"><option value="inherit" ${!loc.placeAwareness?.npcs?.[person.id] ? 'selected' : ''}>Default</option><option value="know" ${loc.placeAwareness?.npcs?.[person.id] === 'know' ? 'selected' : ''}>Knows</option><option value="unknown" ${loc.placeAwareness?.npcs?.[person.id] === 'unknown' ? 'selected' : ''}>Does not know</option></select></label>`).join('') || '<span class="form-hint">Add people to set individual knowledge.</span>'}
+                    </div></div></details>
                 </div>
 
                 <div class="world-media-editor world-inspector-section" data-inspector-section="visuals">
@@ -18728,6 +19616,9 @@ function renderWorldLocations() {
                 };
             });
 
+            const bgmPanel = createWorldBgmPanel(loc);
+            div.querySelector('.loc-desc').closest('.world-inspector-section').after(bgmPanel);
+
             const locationIdInput = div.querySelector('.loc-id');
             div.querySelector('.edit-loc-id').onclick = () => {
                 locationIdInput.readOnly = false;
@@ -18803,6 +19694,59 @@ function renderWorldLocations() {
                 loc.tags = [...new Set(e.target.value.split(',').map(tag => tag.trim()).filter(Boolean))].slice(0, 30);
                 updateWorldTokenCount();
             };
+            div.querySelector('.loc-access-default').onchange = event => {
+                const access = loc.access && typeof loc.access === 'object' ? loc.access : (loc.access = { default: 'open', npcs: {} });
+                access.default = event.target.value;
+                if (access.default === 'restricted') {
+                    access.npcs = access.npcs && typeof access.npcs === 'object' ? access.npcs : {};
+                    access.factions = access.factions && typeof access.factions === 'object' ? access.factions : {};
+                    world.entities.filter(person => person.type !== 'item').forEach(person => {
+                        if (!access.npcs[person.id]) access.npcs[person.id] = 'deny';
+                    });
+                    (world.factions || []).forEach(faction => {
+                        if (!access.factions[faction.id]) access.factions[faction.id] = 'deny';
+                    });
+                }
+                renderWorldLocations();
+                updateWorldTokenCount();
+            };
+            div.querySelectorAll('.loc-access-person').forEach(select => select.onchange = event => {
+                loc.access = loc.access && typeof loc.access === 'object' ? loc.access : { default: 'open', npcs: {} };
+                loc.access.npcs = loc.access.npcs && typeof loc.access.npcs === 'object' ? loc.access.npcs : {};
+                const personId = event.target.dataset.personId;
+                if (event.target.value === 'inherit') delete loc.access.npcs[personId];
+                else loc.access.npcs[personId] = event.target.value;
+                event.target.classList.toggle('is-allowed', loc.access.npcs[personId] === 'allow');
+                event.target.classList.toggle('is-denied', loc.access.npcs[personId] === 'deny' || (!loc.access.npcs[personId] && loc.access.default === 'restricted'));
+                if (!Object.keys(loc.access.npcs).length && loc.access.default === 'open') delete loc.access;
+                updateWorldTokenCount();
+            });
+            div.querySelectorAll('.loc-access-faction').forEach(select => select.onchange = event => {
+                loc.access = loc.access && typeof loc.access === 'object' ? loc.access : { default: 'open', factions: {} };
+                loc.access.factions = loc.access.factions && typeof loc.access.factions === 'object' ? loc.access.factions : {};
+                const factionId = event.target.dataset.factionId;
+                if (event.target.value === 'inherit') delete loc.access.factions[factionId];
+                else loc.access.factions[factionId] = event.target.value;
+                event.target.classList.toggle('is-allowed', loc.access.factions[factionId] === 'allow');
+                event.target.classList.toggle('is-denied', loc.access.factions[factionId] === 'deny' || (!loc.access.factions[factionId] && loc.access.default === 'restricted'));
+                if (!Object.keys(loc.access.factions).length && !Object.keys(loc.access.npcs || {}).length && loc.access.default === 'open') delete loc.access;
+                updateWorldTokenCount();
+            });
+            const awareness = () => loc.placeAwareness ||= { includeChildren: false, npcs: {}, factions: {} };
+            div.querySelector('.loc-awareness-search').oninput = event => {
+                const query = event.target.value.trim().toLocaleLowerCase();
+                div.querySelectorAll('.loc-awareness-row').forEach(row => { row.style.display = query && !row.textContent.toLocaleLowerCase().includes(query) ? 'none' : 'flex'; });
+            };
+            div.querySelector('.loc-awareness-children').onchange = event => { awareness().includeChildren = event.target.checked; updateWorldTokenCount(); };
+            for (const [selector, bucket, key] of [['.loc-awareness-faction', 'factions', 'factionId'], ['.loc-awareness-person', 'npcs', 'personId']]) {
+                div.querySelectorAll(selector).forEach(select => select.onchange = event => {
+                    const rule = awareness(); rule[bucket] ||= {};
+                    if (event.target.value === 'inherit') delete rule[bucket][event.target.dataset[key]];
+                    else rule[bucket][event.target.dataset[key]] = event.target.value;
+                    if (!rule.includeChildren && !Object.keys(rule.npcs || {}).length && !Object.keys(rule.factions || {}).length) delete loc.placeAwareness;
+                    updateWorldTokenCount();
+                });
+            }
             
             div.querySelectorAll('.exit-val').forEach(inp => {
                 inp.oninput = (e) => {
@@ -18938,6 +19882,7 @@ function renderWorldLocations() {
                     const index = Number(event.target.dataset.idx);
                     if (typeof loc.exits[index] === 'string') loc.exits[index] = { text: loc.exits[index] };
                     loc.exits[index].requiredItem = event.target.value.trim().slice(0, 160);
+                    if (loc.exits[index].lockable !== undefined) loc.exits[index].lockKeyItem = loc.exits[index].requiredItem;
                     syncExitConnection(loc, loc.exits[index].text,
                         loc.exits[index].isOneWay, loc.exits[index].travelTime, false);
                     renderWorldLocations();
@@ -18948,6 +19893,7 @@ function renderWorldLocations() {
                     const index = Number(event.target.dataset.idx);
                     if (typeof loc.exits[index] === 'string') loc.exits[index] = { text: loc.exits[index] };
                     loc.exits[index].allowCheckUnlock = event.target.checked;
+                    if (loc.exits[index].lockable !== undefined) loc.exits[index].lockAllowCheckUnlock = event.target.checked;
                     syncExitConnection(loc, loc.exits[index].text,
                         loc.exits[index].isOneWay, loc.exits[index].travelTime, false);
                     renderWorldLocations();
@@ -19851,17 +20797,59 @@ function focusWorldLocationCard(locationId) {
 
 function renderSemanticWorldMap(container, world, options = {}) {
     if (!container || !world) return null;
+    container._mapDispose?.();
     const ns = 'http://www.w3.org/2000/svg';
     const mode = options.mode || container.dataset.mapMode || 'map';
     const graph = buildSemanticWorldGraph(world);
     const layout = layoutSemanticWorldGraph(graph, options.currentLocationId || '');
+    if (mode === 'map' && globalThis.HordeMapEditor && (options.architect || world.mapLayout?.version === 1)) {
+        return globalThis.HordeMapEditor.render(container, world, layout, {
+            ...options, graph,
+            background: worldMediaSource(world, world.presentation?.mapSkinAssetId),
+            rerender: () => renderSemanticWorldMap(container, world, { ...options, mode: 'map' }),
+            onMode: next => renderSemanticWorldMap(container, world, { ...options, mode: next }),
+            onOpenLocation: id => focusWorldLocationCard(id),
+            onChange: structural => {
+                if (!options.architect || !structural) return;
+                ensureWorldDoorIds(world);
+                queueWorldStructureSync(world);
+                updateWorldTokenCount();
+            },
+            createLocation: name => {
+                if (!options.architect) throw new Error('This map is read-only.');
+                if ((world.locations || []).length >= 2000) throw new Error('The world already contains 2,000 locations.');
+                const location = createWorldLocationRecord(world, '', '', 'room');
+                location.name = name;
+                world.locations.push(location);
+                return location;
+            },
+            connect: (fromId, toId) => {
+                if (!options.architect) throw new Error('This map is read-only.');
+                const from = world.locations.find(location => location.id === fromId);
+                const to = world.locations.find(location => location.id === toId);
+                if (!from || !to || from === to) return;
+                // Upsert rewrites travel properties: use it only on a fresh pair.
+                if (globalThis.HordeMapEditor.connections(world).some(link =>
+                    [link.sourceId, link.targetId].includes(fromId) && [link.sourceId, link.targetId].includes(toId))) return;
+                if ((from.exits || []).length >= 500 || (to.exits || []).length >= 500) throw new Error('A location already contains 500 exits.');
+                const a = { id: from.id, name: from.name, exits: [] };
+                const b = { id: to.id, name: to.name, exits: [] };
+                upsertWorldTravelConnection({ locations: [a, b] }, a, b, { mode: 'walk', travelTime: 0 });
+                (from.exits ||= []).push(...a.exits);
+                (to.exits ||= []).push(...b.exits);
+            }
+        });
+    }
     container.replaceChildren();
     container.classList.add('semantic-map-host');
     container.classList.toggle('is-cartographic', mode === 'map');
     container.dataset.mapMode = mode;
+    // Older renderers painted the host behind both the toolbar and map.
+    container.style.backgroundImage = '';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'semantic-map-toolbar';
+    toolbar.style.backgroundImage = '';
     const summary = document.createElement('div');
     summary.className = 'semantic-map-summary';
     const hiddenLinks = Math.max(0, graph.collapsedConnectionCount - graph.displayEdges.length);
@@ -19912,6 +20900,19 @@ function renderSemanticWorldMap(container, world, options = {}) {
 
     const scroll = document.createElement('div');
     scroll.className = `semantic-map-scroll mode-${mode}`;
+    const mapBackground = world.media?.mapBackground
+        || worldMediaSource(world, world.presentation?.mapSkinAssetId);
+    if (mode === 'map' && mapBackground) {
+        scroll.style.backgroundImage = `url('${cssUrl(mapBackground)}')`;
+        scroll.style.backgroundSize = 'contain';
+        scroll.style.backgroundRepeat = 'no-repeat';
+        scroll.style.backgroundPosition = 'center';
+        scroll.style.backgroundColor = '#0a0a0a';
+        // Size and position against the scrolling content, so the floor plan
+        // travels with the SVG instead of remaining fixed to the viewport.
+        scroll.style.backgroundAttachment = 'local';
+        scroll.style.backgroundOrigin = 'content-box';
+    }
     const svg = document.createElementNS(ns, 'svg');
     svg.setAttribute('viewBox', `0 0 ${layout.width} ${layout.height}`);
     svg.setAttribute('role', 'img');
@@ -21215,7 +22216,410 @@ function addWorldLore() {
     renderWorldLore();
 }
 
+const worldLoreContextSnapshots = new Map();
+let worldLoreLoading = null;
+
+async function ensureWorldLoreModules() {
+    if (globalThis.HordeWorldLore && globalThis.HordeWorldLoreUI) return;
+    if (!worldLoreLoading) worldLoreLoading = (async () => {
+        for (const [name, file] of [['HordeWorldLore', 'world-lore.js'], ['HordeWorldLoreUI', 'world-lore-ui.js']]) {
+            if (globalThis[name]) continue;
+            await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = `assets/worlds/${file}?v=20261012-shared-door-id`;
+                const timeout = setTimeout(() => { script.remove(); reject(new Error('World Lore could not load. Reload the page and try again.')); }, 15000);
+                script.onload = () => { clearTimeout(timeout); globalThis[name] ? resolve() : reject(new Error('World Lore did not initialize. Reload the page and try again.')); };
+                script.onerror = () => { clearTimeout(timeout); script.remove(); reject(new Error('World Lore files could not be loaded from the local server. Reload the page and try again.')); };
+                document.head.appendChild(script);
+            });
+        }
+    })().finally(() => { worldLoreLoading = null; });
+    return worldLoreLoading;
+}
+
+let pendingWorldStructureSync = Promise.resolve();
+let pendingWorldStructureSyncWorld = null;
+let worldStructureSyncRevision = 0;
+async function syncEditedWorldStructure(world) {
+    if (!world || state.editingWorld !== world) return;
+    await ensureWorldLoreModules();
+    if (state.editingWorld !== world) return;
+    const lore = globalThis.HordeWorldLore;
+    if (world.worldStructure) {
+        if (lore.structureStatus(world).state !== 'current') queueWorldStructureSync(world);
+        return;
+    }
+    const saved = state.worlds.find(candidate => candidate.id === world.id);
+    if (!saved) return void queueWorldStructureSync(world);
+    const comparableSaved = safeJsonClone(saved);
+    lore.migrate(comparableSaved);
+    normalizeAuthoredWorld(comparableSaved);
+    ensureWorldDoorIds(comparableSaved);
+    if (lore.fingerprint(world) !== lore.fingerprint(comparableSaved)) queueWorldStructureSync(world);
+}
+function queueWorldStructureSync(world) {
+    const revision = ++worldStructureSyncRevision;
+    pendingWorldStructureSyncWorld = world;
+    pendingWorldStructureSync = (async () => {
+        await ensureWorldLoreModules();
+        if (state.editingWorld !== world || revision !== worldStructureSyncRevision) return;
+        // This index contains generated place data only. Authored locations,
+        // manual lore and AI proposals remain untouched.
+        ensureWorldDoorIds(world);
+        globalThis.HordeWorldLore.generate(world);
+        renderWorldStructureStatus();
+    })();
+    pendingWorldStructureSync.catch(error => showToast(`World structure could not be updated: ${error.message || error}`, 'error'));
+    return pendingWorldStructureSync;
+}
+
+function renderWorldStructureStatus() {
+    const world = state.editingWorld;
+    const saved = world && state.worlds.find(candidate => candidate.id === world.id);
+    // A previously saved generated index can be missing from an older editor
+    // draft. Report the saved index as present until the user explicitly resets it.
+    const statusWorld = world && !world.worldStructure && saved?.worldStructure
+        ? { ...world, worldStructure: saved.worldStructure } : world;
+    const status = statusWorld && globalThis.HordeWorldLore?.structureStatus(statusWorld);
+    document.querySelectorAll('[data-world-structure-status]').forEach(el => {
+        el.textContent = status?.message || 'Create your world records first.';
+    });
+    const hasStructure = !!(world?.worldStructure || saved?.worldStructure);
+    document.querySelectorAll('[data-clear-world-structure]').forEach(button => {
+        button.hidden = !hasStructure;
+        button.disabled = !!worldLoreGeneration;
+    });
+}
+
+async function clearGeneratedWorldStructure() {
+    const world = state.editingWorld;
+    if (!world) return;
+    const saved = state.worlds.find(candidate => candidate.id === world.id);
+    if (!world.worldStructure && !saved?.worldStructure) return;
+    const nodeCount = world.worldStructure?.nodes?.length || saved?.worldStructure?.nodes?.length || 0;
+    ++worldStructureSyncRevision; // Cancel an in-flight automatic refresh.
+    delete world.worldStructure;
+    delete world.worldStructureVersion;
+    if (saved) { delete saved.worldStructure; delete saved.worldStructureVersion; }
+    await saveState();
+    renderWorldStructureStatus();
+    showToast('Generated place index removed. Existing world data and lore were kept.', 'success');
+}
+
+let worldLoreGeneration = null;
+function worldLoreModelTimeoutMs(model = worldLoreModel()) {
+    // Respect the user's local-model deadline because cold starts can dominate
+    // generation time. Larger hosted models also get a longer first-response
+    // window; the app retries one timeout before surfacing an error.
+    if (isLocalProvider()) return localGenerationIdleTimeoutMs();
+    const parameterCount = Number(String(model || '').match(/(?:^|[^0-9])(\d{1,3})\s*b(?:[^a-z]|$)/i)?.[1]) || 0;
+    return parameterCount >= 30 ? 300000 : 180000;
+}
+function worldLoreModel(world = state.editingWorld) {
+    const settings = world?.loreGeneration || { mode: 'none' };
+    if (settings.mode === 'none') return '';
+    const model = settings.mode === 'custom' ? settings.model : (document.getElementById('w-studio-model') ? document.getElementById('w-studio-model').value.trim() : world.model) || state.globalSettings.defaultModel;
+    if (!model) throw new Error('Choose a model for World Lore first.');
+    return model;
+}
+function renderWorldLoreModelControls() {
+    const world = state.editingWorld;
+    if (!world) return;
+    const savedSettings = world.loreGeneration || {};
+    const settings = { ...savedSettings, mode: ['none', 'world', 'custom'].includes(savedSettings.mode) ? savedSettings.mode : 'none' };
+    document.querySelectorAll('[data-world-structure-mode-label]').forEach(label => {
+        const modeLabel = settings.mode === 'custom' ? `AI: ${settings.model || 'choose model'}` : settings.mode === 'world' ? 'AI: world model' : 'Without AI';
+        label.textContent = `${modeLabel} · options & status`;
+    });
+    document.querySelectorAll('[data-world-lore-model-controls]').forEach((host, index) => {
+        host.replaceChildren();
+        const label = document.createElement('label'); label.textContent = 'Structure generation';
+        const mode = document.createElement('select'); mode.className = 'form-select'; mode.setAttribute('aria-label', 'Structure generation');
+        for (const [value, text] of [['none', 'Without AI · existing data only'], ['world', 'Use world model'], ['custom', 'Choose another model']]) { const o = document.createElement('option'); o.value = value; o.textContent = text; mode.append(o); }
+        mode.value = settings.mode; mode.disabled = !!worldLoreGeneration;
+        mode.onchange = () => { world.loreGeneration = { ...settings, mode: mode.value }; renderWorldLoreModelControls(); }; label.append(mode); host.append(label);
+        if (settings.mode === 'custom') {
+            const input = document.createElement('input'); input.className = 'form-input'; input.placeholder = 'Choose a provider model…'; input.setAttribute('aria-label', 'World Lore model'); input.value = settings.model || ''; input.disabled = !!worldLoreGeneration;
+            const list = document.createElement('datalist'); list.id = `world-lore-models-${index}`; input.setAttribute('list', list.id);
+            input.onchange = () => { world.loreGeneration = { ...settings, model: input.value.trim() }; renderWorldLoreModelControls(); };
+            const refresh = document.createElement('button'); refresh.type = 'button'; refresh.className = 'btn btn-ghost'; refresh.textContent = 'Load available models';
+            refresh.onclick = async () => { refresh.disabled = true; try { const models = await getOpenRouterModels(); list.replaceChildren(); models.forEach(model => { const o = document.createElement('option'); o.value = model.id; o.textContent = model.name || model.id; list.append(o); }); refresh.textContent = `${models.length} models available`; } catch (e) { refresh.textContent = 'Retry loading models'; showToast(e.message, 'error'); } finally { refresh.disabled = false; } };
+            host.append(input, list, refresh);
+        }
+        const hint = document.createElement('p'); hint.className = 'form-hint'; hint.textContent = settings.mode === 'none'
+            ? 'Builds the place index from existing locations, connections, access rules and door states.'
+            : 'AI checks existing places, people and factions for explicit entry, door and place-knowledge rules. Suggestions need your review; places and lore are never invented or overwritten. Provider usage may incur costs.'; host.append(hint);
+        if (worldLoreGeneration) { const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'btn btn-ghost'; cancel.textContent = 'Stop after current batch'; cancel.onclick = () => { worldLoreGeneration.cancelled = true; cancel.disabled = true; }; host.append(cancel); }
+    });
+}
+
+async function generateWorldStructure() {
+    const world = state.editingWorld;
+    if (!world) return;
+    const buttons = [...document.querySelectorAll('[data-generate-world-structure]')];
+    if (worldLoreGeneration || buttons.some(b => b.disabled)) return;
+    let model;
+    try { model = worldLoreModel(world); if (model && !hasApiCredentials()) throw new Error('Configure model credentials in Settings first.'); } catch (e) { showToast(e.message, 'error'); return; }
+    const job = worldLoreGeneration = { cancelled: false }; renderWorldLoreModelControls();
+    buttons.forEach(b => { b.disabled = true; b.textContent = 'Generating World Structure…'; });
+    try {
+        await ensureWorldLoreModules();
+        // Let both buttons paint their busy state before indexing larger worlds.
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        // Build an additive index directly from the draft. Do not run general
+        // normalization here: it can truncate existing prose or repair fields
+        // unrelated to this action. Existing lore and explicit rules win.
+        ensureWorldDoorIds(world);
+        const structure = globalThis.HordeWorldLore.generate(world);
+        let proposalCount = 0, rejectedCount = 0;
+        if (model) {
+            const rows = globalThis.HordeWorldLore.records(world).filter(r => ['location', 'region'].includes(r.kind));
+            const catalogSize = JSON.stringify(rows.map(r => ({ kind: r.kind, id: r.id, name: r.name }))).length;
+            const batches = []; let batch = [], size = catalogSize;
+            for (const row of rows) {
+                const bytes = JSON.stringify({ kind: row.kind, id: row.id, data: row.data }).length + 2;
+                if (bytes + catalogSize > 64000) throw new Error(`Entry ${row.name} exceeds the AI context limit. Shorten it or assign its rules manually.`);
+                if (batch.length && (batch.length >= 12 || size + bytes > 64000)) { batches.push(batch); batch = []; size = catalogSize; }
+                batch.push(row); size += bytes;
+            }
+            if (batch.length) batches.push(batch);
+            for (let index = 0; index < batches.length && !job.cancelled; index++) {
+                if (state.editingWorld !== world) { job.cancelled = true; break; }
+                buttons.forEach(b => { b.textContent = `Reading world · batch ${index + 1}/${batches.length}…`; });
+                const result = await suggestWorldLoreBatch(world, batches[index], model);
+                proposalCount += result.added; rejectedCount += result.errors.length;
+            }
+        }
+        if (state.editingWorld !== world) return;
+        renderWorldLore();
+        renderWorldStructureStatus();
+        document.querySelectorAll('[data-world-structure-status]').forEach(el => {
+            el.textContent += ` Existing lore preserved.${model ? ` ${proposalCount} AI proposals ready for review; ${rejectedCount} invalid suggestions skipped.${job.cancelled ? ' Stopped early.' : ''}` : ''} Use Save World to keep the additions; World Health Check reviews gaps and conflicts.`;
+        });
+        showToast(`World structure generated: ${structure.nodes.length} records, ${structure.edges.length} relationships.`, 'success');
+    } catch (error) { if (state.editingWorld === world) renderWorldLore(); showToast(`${error.message || 'Generation failed.'} Existing structure and completed proposals remain in the draft.`, 'error'); }
+    finally { worldLoreGeneration = null; renderWorldLoreModelControls(); buttons.forEach(b => { b.disabled = false; b.textContent = 'Generate World Structure'; }); }
+}
+
+function worldNpcAccess(world, npcId, locationId, sess = null) {
+    if (sess?.placeAccessGrants?.[locationId]?.[npcId]) return { ok: true, reason: 'Durable access granted in this game' };
+    return globalThis.HordeWorldLore?.access(world, npcId, locationId) || { ok: true };
+}
+
+function worldNpcCanMove(world, sess, npcId, destinationId, teleport = false, explore = false) {
+    const view = worldForSession(world, sess);
+    const origin = sess.entityStates?.[npcId]?.location || sess.entityStates?.[npcId]?.journey?.originId;
+    if (origin === destinationId) return true;
+    if (!worldNpcAccess(view, npcId, destinationId, sess).ok) return false;
+    if (globalThis.HordeWorldLore && !globalThis.HordeWorldLore.placeAwareness(view, npcId, destinationId, sess).known && !explore) return false;
+    return teleport || (!!origin && !!findWorldTravelPath(view, origin, destinationId, { npcId, session: sess, explore }));
+}
+
+function buildWorldMovementOptions(world, sess, presentNpcIds = [], userInput = '', useMovementParser = true) {
+    if (!world || !sess || !globalThis.HordeWorldLore?.placeIndex) return [];
+    const view = worldForSession(world, sess);
+    const build = () => {
+        const actors = [{ id: 'player', from: String(sess.playerLocation || '') },
+            ...[...new Set(presentNpcIds)].map(id => ({ id, from: String(sess.entityStates?.[id]?.location || '') }))]
+            .filter(actor => actor.from);
+        const playerTargetPhrase = useMovementParser ? extractUserMovementTarget(userInput) : '';
+        const playerTarget = playerTargetPhrase
+            ? resolveWorldMovementTarget(view, sess.playerLocation, playerTargetPhrase, true, sess) : null;
+        const playerPath = playerTarget
+            ? findWorldTravelPath(view, sess.playerLocation, playerTarget.id, { session: sess }) : null;
+        return actors.map(actor => {
+            const origin = getLocationRef(view, actor.from);
+            if (!origin) return null;
+            let edges = [];
+            if (actor.id === 'player') {
+                const routeIds = Array.isArray(playerPath) && playerPath.length > 1
+                    ? new Set(playerPath.slice(1)) : null;
+                edges = (origin.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+                    .filter(({ exit, to }) => to && (!routeIds || routeIds.has(to.id))
+                        && !worldLocationTravelBlock(sess, to.id)
+                        && worldExitRequirement(sess, exit, origin.id).ok)
+                    .map(({ exit, to }) => ({ to: to.id,
+                        mode: String(exit?.mode || 'walk').slice(0, 32),
+                        minutes: Math.max(0, Number(exit?.travelTime) || 0) }));
+            } else {
+                edges = (origin.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+                    .filter(({ to }) => to && worldNpcJourneyEdge(view, sess, actor.id, origin.id, to.id))
+                    .map(({ exit, to }) => ({ to: to.id,
+                        mode: String(exit?.mode || 'walk').slice(0, 32),
+                        minutes: Math.max(0, Number(exit?.travelTime) || 0) }));
+            }
+            return { actor_id: actor.id, from: origin.id, allowed_next: edges.slice(0, 8) };
+        }).filter(Boolean);
+    };
+    return globalThis.HordeWorldLore.withIndex
+        ? globalThis.HordeWorldLore.withIndex(view, build) : build();
+}
+
+function buildLinkedSceneContext(world, sess, input = '') {
+    const view = worldForSession(world, sess);
+    const current = getLocationRef(view, sess.playerLocation);
+    if (!current) return { current_location_id: sess.playerLocation, reachable: [] };
+    const queue = [current];
+    const routes = new Map([[current.id, { location: current, depth: 0, parent: '' }]]);
+    while (queue.length && routes.size < 160) {
+        const location = queue.shift();
+        const depth = routes.get(location.id).depth;
+        if (depth >= 8) continue;
+        for (const exit of location.exits || []) {
+            const target = resolveWorldExitTarget(view, exit);
+            if (!target || routes.has(target.id)) continue;
+            routes.set(target.id, { location: target, depth: depth + 1, parent: location.id });
+            queue.push(target);
+        }
+    }
+    // Exact known names only select context. They never authorize a move or
+    // classify the player's verb; every edge is still validated in the reducer.
+    const request = String(input || '').normalize('NFKC').toLocaleLowerCase();
+    const selected = new Set([current.id]);
+    for (const [id, entry] of routes) {
+        if (selected.size >= 24) break;
+        const name = String(entry.location.name || '').normalize('NFKC').toLocaleLowerCase();
+        if (!request.includes(id.toLocaleLowerCase()) && !(name.length >= 4 && request.includes(name)))
+            continue;
+        let cursor = id;
+        while (cursor && !selected.has(cursor) && selected.size < 24) {
+            selected.add(cursor);
+            cursor = routes.get(cursor)?.parent;
+        }
+    }
+    for (const id of routes.keys()) {
+        if (selected.size >= 24) break;
+        selected.add(id);
+    }
+    const reachable = [];
+    for (const id of selected) {
+        const { location, depth } = routes.get(id);
+        const exits = (location.exits || []).map(exit => {
+            const target = resolveWorldExitTarget(view, exit);
+            if (!target) return null;
+            const requirement = worldExitRequirement(sess, exit, location.id);
+            return { to_location_id: target.id, door_id: String(exit?.doorId || ''),
+                state: requirement.ok ? 'passable' : 'blocked',
+                reason: requirement.reason || '', required_item: requirement.requiredItem || '' };
+        }).filter(Boolean).slice(0, 10);
+        const entities = (view.entities || []).filter(entity =>
+            sess.entityStates?.[entity.id]?.location === location.id)
+            .slice(0, 8).map(entity => ({ id: entity.id, name: entity.name,
+                type: entity.type || 'npc', interactable: entity.interactable || null }));
+        reachable.push({ id: location.id, name: location.name, depth,
+            exits, entities });
+    }
+    return { current_location_id: current.id, inventory: sess.inventory || [],
+        truncated: routes.size >= 160 || selected.size < routes.size, reachable };
+}
+
+async function suggestWorldLore(row) {
+    await ensureWorldLoreModules();
+    const world = state.editingWorld;
+    if (!world || !hasApiCredentials()) throw new Error('Configure model credentials in Settings first.');
+    const model = worldLoreModel(world);
+    if (!model) throw new Error('Choose Use world model or another model in Structure generation to request AI suggestions.');
+    return suggestWorldLoreBatch(world, [row], model);
+}
+
+async function suggestWorldLoreBatch(world, rows, model) {
+    const source = JSON.stringify(rows.map(row => ({ kind: row.kind, id: row.id, data: row.data })));
+    const catalog = globalThis.HordeWorldLore.records(world).filter(r => ['location', 'region'].includes(r.kind)).map(r => ({ kind: r.kind, id: r.id, name: r.name }));
+    const people = globalThis.HordeWorldLore.records(world).filter(r => r.kind === 'npc' && r.data.type !== 'item').map(r => ({
+        id: r.id, name: r.name, description: r.data.description || '', persona: r.data.persona || '',
+        factionId: r.data.factionId || '', factionIds: Array.isArray(r.data.factionIds) ? r.data.factionIds : []
+    }));
+    const factions = globalThis.HordeWorldLore.records(world).filter(r => r.kind === 'faction').map(r => ({
+        id: r.id, name: r.name, description: r.data.description || ''
+    }));
+    if (source.length + JSON.stringify(catalog).length + JSON.stringify(people).length + JSON.stringify(factions).length > 65000) throw new Error('This world exceeds the proposal context limit. Generate without AI or shorten authored descriptions.');
+    const request = {
+        url: apiBase() + '/chat/completions',
+        init: { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } },
+        body: { model, max_tokens: 6000,
+            messages: [{ role: 'system', content: 'You are checking an existing place map. Return JSON only: {"proposals":[]}. Propose only explicit denials of entry, explicit knowledge or ignorance of a place for an existing person or faction, or a locked state for an existing mapped door. Default access is allowed for everyone; place knowledge is separate from access and must never be inferred from access, school rules, tone, secrecy, or a mere description of a place. A knowledge proposal needs exact source text saying a named person or faction knows or does not know that place or area. Never invent places, paths, people, factions, keys or objects, and never alter descriptions. Use exact IDs from the supplied catalog. A proposal has kind:"location" or "region", targetId, field:"access" or "placeAwareness" or "exits", value, reason, evidence:{kind,id,field,quote}. Quote an exact excerpt from the selected place, person or faction; evidence.field must name a real quoted text field such as description or persona. access must preserve the complete existing access object and only add an explicitly denied person as npcs[id]="deny"; use default:"open" when no access rule exists. placeAwareness must preserve every existing rule and only add explicit npcs[id] or factions[id] values "know" or "unknown". For an area rule, includeChildren may be true only when the source expressly applies to the whole area and its places. exits must be the complete existing exits array with only lockState changed; preserve route order, destination, time and mode. Only mark a door locked when exact source text explicitly calls that mapped door locked. Do not use requiredItem or keys. Omit uncertain suggestions. Every proposal is reviewed before it becomes canon.' },
+                { role: 'user', content: JSON.stringify({ selected: JSON.parse(source), catalog, people, factions }) }] }
+    };
+    let response, data;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+            ({ response, data } = await HordeWorldModelClient.json({ ...request, timeoutMs: worldLoreModelTimeoutMs(model) }));
+            break;
+        } catch (error) {
+            if (attempt === 0 && error?.code === 'WORLD_MODEL_TIMEOUT') {
+                showToast('The model is taking longer than usual. Retrying this World Lore batch once…', 'info');
+                continue;
+            }
+            throw error;
+        }
+    }
+    if (!response.ok) throw new Error(data?.error?.message || response.statusText);
+    const parsed = extractJSON(data?.choices?.[0]?.message?.content || '');
+    if (!Array.isArray(parsed?.proposals)) throw new Error('Model returned no valid proposals array. Try another model.');
+    const snapshots = JSON.parse(source);
+    const proposals = parsed.proposals.filter(p => {
+        const before = snapshots.find(row => p.kind === row.kind && p.targetId === row.id);
+        const now = globalThis.HordeWorldLore.get(world, p.kind, p.targetId);
+        return before && now && JSON.stringify(before.data[p.field]) === JSON.stringify(now.data[p.field]);
+    });
+    const result = globalThis.HordeWorldLore.stageProposals(world, proposals);
+    result.errors.push(...parsed.proposals.filter(p => !proposals.includes(p)).map(() => 'Target changed during generation or was outside this batch.'));
+    return result;
+}
+
+async function testWorldLoreModel(button, status) {
+    const world = state.editingWorld;
+    if (!world || !button || !status) return;
+    let model;
+    try { model = worldLoreModel(world); }
+    catch (error) { status.textContent = error.message; return; }
+    if (!model) { status.textContent = 'World Lore is set to generate without AI. Choose an AI model in World Lore to test it.'; return; }
+    if (!hasApiCredentials()) { status.textContent = 'Set up provider credentials before testing this model.'; return; }
+    button.disabled = true; status.textContent = `Checking ${model} against the active provider and sending a small JSON test…`;
+    try {
+        const catalog = await getOpenRouterModels();
+        const listed = catalog.some(entry => entry.id === model);
+        const started = performance.now();
+        const { response, data } = await HordeWorldModelClient.json({
+            url: apiBase() + '/chat/completions', timeoutMs: 30000,
+            init: { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() } },
+            body: { model, max_tokens: 64, temperature: 0, response_format: { type: 'json_object' },
+                messages: [{ role: 'system', content: 'Return one valid JSON object only, with the boolean property ok set to true.' },
+                    { role: 'user', content: 'This is a connectivity test. Do not analyze world data.' }] }
+        });
+        if (!response.ok) throw new Error(data?.error?.message || `Provider returned HTTP ${response.status}.`);
+        const result = extractJSON(data?.choices?.[0]?.message?.content || '');
+        if (result?.ok !== true) throw new Error('The model responded, but did not return the expected JSON test result.');
+        const elapsed = Math.round(performance.now() - started);
+        status.textContent = `${listed ? 'Listed by the active provider' : 'Not listed in the active provider catalog, but it responded'} · valid JSON reply from ${model} in ${elapsed} ms.`;
+        status.className = 'form-hint world-lore-model-check is-success';
+    } catch (error) {
+        status.textContent = `Model test failed: ${error.message || 'Unknown provider error.'}`;
+        status.className = 'form-hint world-lore-model-check is-error';
+    } finally { button.disabled = false; }
+}
+
+function wireWorldLoreModelCheck(container) {
+    const button = container.querySelector('#test-world-lore-model-btn');
+    const status = container.querySelector('#test-world-lore-model-status');
+    if (button && status) button.onclick = () => testWorldLoreModel(button, status);
+}
+
+async function openWorldLoreDebug() {
+    try { await ensureWorldLoreModules(); } catch (error) { showToast(error.message, 'error'); return; }
+    const world = state.worlds.find(w => w.id === state.activeWorldId);
+    if (!world) return;
+    const session = getCurrentWorldSession();
+    globalThis.HordeWorldLoreUI.debug(worldForSession(world, session), { session, lastContext: worldLoreContextSnapshots.get(session?.id) });
+}
+
 function renderWorldLore() {
+    renderWorldStructureStatus();
+    renderWorldLoreModelControls();
+    const browser = document.getElementById('w-lore-browser');
+    if (browser && state.editingWorld && globalThis.HordeWorldLoreUI) {
+        globalThis.HordeWorldLoreUI.mount(browser, state.editingWorld, { suggest: suggestWorldLore, onChange: renderWorldStructureStatus });
+    }
     const container = document.getElementById('w-lore-list');
     if (!container) return;
     container.innerHTML = '';
@@ -21930,6 +23334,11 @@ async function correctWorldState(world, sess, correction) {
             oldMinute: oldTime, minute: correction.minute, reason, turn: sess.turnCount,
             version: sess.worldStateVersion
         }].slice(-50);
+        if (normalizeWorldKernelConfig(world).sceneLedger) {
+            const frame=buildWorldSceneFrame(world,sess);
+            const groups=sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [];
+            sess.sceneRecord={...HordeWorldSceneLedger.record(frame,groups,sess.worldStateVersion,sess.stateCorrections.at(-1).id),hold_scene:true};
+        }
         bumpMemoryEpoch(sess);
         sess._worldEpoch = (sess._worldEpoch || 0) + 1;
         await saveWorldsState({ worldId: world.id });
@@ -22057,16 +23466,22 @@ function renderWorldCheckPreview() {
     }
 }
 
+const linkedWorldHeldCheckRolls = new Map();
 async function resolveWorldCheckFromModal() {
     if (worldTurnInProgress || worldMutationInProgress) return;
     const world = state.worlds.find(item => item.id === state.activeWorldId);
     const sess = getCurrentWorldSession();
     if (!world || !sess) return;
+    const linkedCheck = world.kernel?.enabled !== false
+        && world.kernel?.sceneDrafts !== false
+        && !world.kernel?.sceneLedger && world.kernel?.sceneDraftProtocol === 'scene_draft_v3';
+    const heldRollKey = `${world.id}|${sess.id}`;
     const pending = (Array.isArray(sess.pendingChecks) ? sess.pendingChecks[0] : null) || sess.pendingCheck;
     const label = String(pending?.label || document.getElementById('world-check-label')?.value || 'Unspecified check').trim().slice(0, 120);
     if (!label) return showToast('Describe what is being attempted first.', 'info');
     const dice = normalizeWorldDiceConfig(world);
-    const remembered = sess.uncommittedCheckRoll;
+    const remembered = linkedCheck ? linkedWorldHeldCheckRolls.get(heldRollKey)
+        : sess.uncommittedCheckRoll;
     const matchingRoll = remembered?.turn === (sess.turnCount || 1)
         && remembered?.label === label && (!pending || remembered.id === pending.id)
         && Number.isFinite(Number(remembered.roll));
@@ -22087,12 +23502,14 @@ async function resolveWorldCheckFromModal() {
     };
     const manualExitOutcome = pending ? null : worldManualCheckExitUnlock(world, sess, label);
     const rememberRoll = () => {
-        sess.uncommittedCheckRoll = { id: check.id, label, roll, turn: sess.turnCount || 1 };
+        const held = { id: check.id, label, roll, turn: sess.turnCount || 1 };
+        if (linkedCheck) linkedWorldHeldCheckRolls.set(heldRollKey, held);
+        else sess.uncommittedCheckRoll = held;
     };
     let attempt;
     worldMutationInProgress = true;
     try {
-        attempt = attemptWorldStateMutation(world, sess, () => {
+        const resolveOn = (world, sess) => attemptWorldStateMutation(world, sess, () => {
             const checkBefore = check.outcome_contract === 'state_delta_v1' ? worldCheckStateProjection(sess, world) : null;
             const result = performAuthoritativeChecks(world, sess, [check],
                 { allowProvidedRoll: true, silent: true })[0];
@@ -22139,15 +23556,38 @@ async function resolveWorldCheckFromModal() {
                 : result.failureCost?.applied === true
                     ? 'The declared failure cost has been committed'
                     : 'No persistent consequence was specified';
-            addWorldMessage('system', `[WORLD KERNEL — AUTHORITATIVE CHECK RESULT]\n${result.label}: d${result.sides} rolled ${result.roll}${modifierText} = ${result.total} against difficulty ${result.difficulty}. Result: ${result.success ? 'SUCCESS' : 'FAILURE'}${result.critical ? ` (${result.critical.toUpperCase()} CRITICAL)` : ''}. ${consequenceStatus}${outcomeResult?.ledgerEntry ? `: ${outcomeResult.ledgerEntry}` : ''}.${exitStatus}${result.narrativeOutcome ? ` Committed narrative consequence: ${result.narrativeOutcome}.` : ''} Narrate this exact outcome now; do not request or invent another roll for this action.`, { location: sess.playerLocation, deferPersist: true });
+            addWorldMessage('system', `[WORLD KERNEL — AUTHORITATIVE CHECK RESULT]\n${result.label}: d${result.sides} rolled ${result.roll}${modifierText} = ${result.total} against difficulty ${result.difficulty}. Result: ${result.success ? 'SUCCESS' : 'FAILURE'}${result.critical ? ` (${result.critical.toUpperCase()} CRITICAL)` : ''}. ${consequenceStatus}${outcomeResult?.ledgerEntry ? `: ${outcomeResult.ledgerEntry}` : ''}.${exitStatus}${result.narrativeOutcome ? ` Committed narrative consequence: ${result.narrativeOutcome}.` : ''} Narrate this exact outcome now; do not request or invent another roll for this action.`,
+                { location: sess.playerLocation, deferPersist: true }, sess, world);
             delete sess.uncommittedCheckRoll;
             if (result.outcomeContract === 'state_delta_v1') addWorldMessage('system',
                 '[CHECK CONSEQUENCE AUTHORITY] Lasting consequences are limited to this applied state delta: '
                     + JSON.stringify(result.stateConsequences || [])
                     + '. Unchanged inventory, routes and conditions remain unchanged. Failure alone does not break equipment, jam locks or cause injury. Narrate effort and reactions without inventing collateral changes.',
-                {location:sess.playerLocation,deferPersist:true});
+                {location:sess.playerLocation,deferPersist:true}, sess, world);
             return { ok: true, result, outcomeResult };
         }, value => value?.ok === true);
+        if (linkedCheck) {
+            const working = HordeWorkingState.createWorkingState(world, sess);
+            try {
+                working.applyDetached((candidateWorld, candidateSession) => {
+                    attempt = resolveOn(candidateWorld, candidateSession);
+                    if (!attempt.accepted) throw new Error(attempt.result?.reason || 'unresolved_check');
+                    attempt.commit();
+                    candidateWorld.kernel = safeJsonClone(world.kernel);
+                });
+                await persistPreparedWorldTurn(world, sess, working);
+                linkedWorldHeldCheckRolls.delete(heldRollKey);
+                try { flushWorldActionFeedback(attempt.result.outcomeResult); }
+                catch (feedbackError) { console.warn('World check feedback failed after save:', feedbackError); }
+            } catch (error) {
+                working.rollback();
+                rememberRoll();
+                showToast(`Check not committed (${error?.message || 'invalid outcome'}). The roll is held; repair the consequence and retry.`, 'error');
+                renderWorldPlayState();
+                return;
+            }
+        } else {
+            attempt = resolveOn(world, sess);
         if (!attempt.accepted) {
             rememberRoll();
             showToast(`Check not committed (${attempt.result?.reason || 'invalid outcome'}). The roll is held; repair the consequence and retry.`, 'error');
@@ -22165,6 +23605,7 @@ async function resolveWorldCheckFromModal() {
             showToast('Check was not saved. Nothing was committed; retry after checking storage.', 'error');
             renderWorldPlayState();
             return;
+        }
         }
     } catch (error) {
         rememberRoll();
@@ -22978,7 +24419,15 @@ function renderWorldHistoryDirectory(world, sess) {
             const calls = Number(message.callAudit?.foregroundTotal) || 0;
             const elapsedMs = Number(message.turnDurationMs) || 0;
             meta.textContent = `${visibleChanges.length ? visibleChanges.join(' · ') + ' · ' : ''}${status}${calls ? ` · ${calls} foreground model call${calls === 1 ? '' : 's'}` : ''}${elapsedMs ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : ''}`;
-            card.append(title, detail, meta);
+            if (message.sceneRecord) {
+                const sceneLine=document.createElement('span');
+                sceneLine.className='world-insight-meta';
+                const record=message.sceneRecord;
+                const names=(Array.isArray(record.present_character_ids) ? record.present_character_ids : []).map(id=>sessionNpcs(world,sess).find(n=>n.id===id)?.name || id);
+                names.push(...HordeWorldSceneLedger.groups(record.groups).map(g=>`${g.label} (${g.count})`));
+                sceneLine.textContent=`Recorded cast: ${names.join(', ') || 'No other participants recorded'} · revision ${record.revision}`;
+                card.append(title,detail,sceneLine,meta);
+            } else card.append(title, detail, meta);
             card.onclick = () => jumpToWorldMessage(message.id);
             list.appendChild(card);
         });
@@ -23035,6 +24484,23 @@ function renderWorldDirectorPanel(world, sess) {
                 + `${Math.max(0, Number(totals.reportedInputTokens) || 0)} input / ${Math.max(0, Number(totals.reportedOutputTokens) || 0)} output tokens reported; `
                 + `${Math.max(0, Number(totals.usageUnknownAttempts) || 0)} attempt${Number(totals.usageUnknownAttempts) === 1 ? '' : 's'} without reported token usage. `
                 + 'This is not a bill; check your provider dashboard for charges, including failed or stopped calls.';
+    }
+    let latencySummary = document.getElementById('world-director-latency-summary');
+    if (!latencySummary && modelSummary) {
+        latencySummary = document.createElement('div');
+        latencySummary.id = 'world-director-latency-summary';
+        modelSummary.after(latencySummary);
+    }
+    if (latencySummary) {
+        latencySummary.replaceChildren();
+        for (const group of HordeWorldModelClient.latencySummary(sess.history || [])) {
+            const line = document.createElement('p');
+            line.className = 'world-director-fact';
+            line.textContent = `${group.provider} / ${group.model} / ${group.protocol}: ${group.measuredTurns} accepted timing samples. `
+                + (group.medianMs === null ? '' : `Median ${(group.medianMs / 1000).toFixed(2)}s, P95 ${(group.p95Ms / 1000).toFixed(2)}s. `)
+                + `${group.repairedTurns}/${group.turns} turns required correction; ${group.rejectedTurns} discarded.`;
+            latencySummary.appendChild(line);
+        }
     }
     let modelDetails = document.getElementById('world-director-model-attempts');
     if (!modelDetails && modelSummary) {
@@ -23117,6 +24583,31 @@ function renderWorldDirectorPanel(world, sess) {
         if (reply?.callAudit?.foregroundTotal) meta.push(`${reply.callAudit.foregroundTotal} foreground model calls`);
         if (reply?.turnDurationMs) meta.push(`${(reply.turnDurationMs / 1000).toFixed(1)}s`);
         if (meta.length) details.appendChild(text('p', meta.join(' · '), 'world-director-fact'));
+        if (audit?.unaddressed_player_request) details.appendChild(text('p',
+            `Action note: The reply did not confirm this part of your request: “${audit.unaddressed_player_request}”. Only verified changes were applied; check the current World state before continuing.`,
+            'world-director-fact is-rejected'));
+        const metrics = reply?.callAudit?.metrics;
+        if (metrics) {
+            const timings = [
+                metrics.estimatedInputTokens != null ? `~${metrics.estimatedInputTokens} input tokens (estimate: ${metrics.tokenEstimateMethod || 'characters / 3.2'})` : '',
+                metrics.firstTokenMs != null ? `First token ${(metrics.firstTokenMs / 1000).toFixed(2)}s` : '',
+                metrics.generationMs != null ? `Model requests ${(metrics.generationMs / 1000).toFixed(2)}s` : '',
+                metrics.localValidationMs != null ? `Validation ${metrics.localValidationMs}ms` : '',
+                metrics.acceptedDisplayMs != null ? `Accepted scene ${(metrics.acceptedDisplayMs / 1000).toFixed(2)}s` : '',
+                metrics.outputCharacters != null ? `${metrics.outputCharacters} output characters` : '',
+                metrics.earlyAbortReason ? `Early stop: ${metrics.earlyAbortReason}` : ''
+            ].filter(Boolean);
+            details.appendChild(text('p', timings.join(' · '), 'world-director-fact'));
+        }
+        (reply?.callAudit?.correctionReasons || []).forEach(failure => {
+            const part = Number.isInteger(failure.actionIndex)
+                ? ` · player part ${failure.actionIndex + 1}: “${failure.actionRequest || ''}”` : '';
+            const proof = failure.reason === 'uncommitted_player_action'
+                ? failure.proofStatus === 'invalid' ? ' · proposed event invalid or unmatched'
+                    : ' · completed player event missing' : '';
+            details.appendChild(text('p', `Correction: ${failure.reason}${part}${proof} · ${failure.detail || ''}`,
+                'world-director-fact'));
+        });
         const calls = Array.isArray(reply?.callAudit?.calls) ? reply.callAudit.calls : [];
         calls.slice(0, 8).forEach(call => {
             const usage = call.usage && typeof call.usage === 'object' ? call.usage : null;
@@ -23138,8 +24629,15 @@ function renderWorldDirectorPanel(world, sess) {
         });
         if (events.length > 8) details.appendChild(text('p', `${events.length - 8} more events in this turn.`, 'world-director-fact'));
         rejections.slice(0, 8).forEach(rejection => {
-            const why = String(rejection.detail || rejection.reason || 'Invalid world-state proposal').trim();
-            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${why}`, 'world-director-fact is-rejected'));
+            const reason = String(rejection.reason || 'invalid_world_state_proposal').replace(/_/g, ' ');
+            const detail = String(rejection.detail || '').trim();
+            const actor = String(rejection.actor_id || '').trim();
+            const part = Number.isInteger(rejection.actionIndex)
+                ? ` · player part ${rejection.actionIndex + 1}: “${rejection.actionRequest || ''}”` : '';
+            const proof = rejection.reason === 'uncommitted_player_action'
+                ? rejection.proofStatus === 'invalid' ? ' · proposed event invalid or unmatched'
+                    : ' · completed player event missing' : '';
+            details.appendChild(text('p', `Rejected · ${rejection.type || 'event'} — ${reason}${part}${proof}${actor ? ` (actor: ${actor})` : ''}${detail ? `: ${detail}` : ''}`, 'world-director-fact is-rejected'));
         });
         if (!events.length && !rejectedCount) details.appendChild(empty('No lasting change was proposed.'));
         receiptsList.appendChild(details);
@@ -23173,6 +24671,7 @@ function renderWorldDirectorPanel(world, sess) {
 }
 
 function setupWorldPlayLogic() {
+    document.getElementById('world-lore-debug-btn').onclick = openWorldLoreDebug;
     document.querySelectorAll('#world-play-view [data-world-status-tab]').forEach(button => {
         button.onclick = () => setWorldStatusTab(button.dataset.worldStatusTab);
     });
@@ -23667,6 +25166,20 @@ function setupWorldPlayLogic() {
         renderWorldPlayState();
     };
 
+    const backgroundOverride = document.getElementById('world-background-time-override');
+    if (backgroundOverride) backgroundOverride.onchange = async event => {
+        const sess = getCurrentWorldSession();
+        const world = state.worlds.find(item => item.id === state.activeWorldId);
+        if (!sess || !world || worldTurnInProgress || worldMutationInProgress) {
+            if (sess && backgroundOverride) backgroundOverride.value = sess.settings?.timeAdvancesWhenAway === true ? 'on' : sess.settings?.timeAdvancesWhenAway === false ? 'off' : 'inherit';
+            return showToast('Finish the current World action before changing background time.', 'info');
+        }
+        sess.settings = sess.settings && typeof sess.settings === 'object' ? sess.settings : {};
+        sess.settings.timeAdvancesWhenAway = event.target.value === 'on' ? true : event.target.value === 'off' ? false : null;
+        try { await saveWorldsState({ worldId: world.id }); }
+        catch (error) { sess.settings.timeAdvancesWhenAway = null; showToast('Background time setting was not saved.', 'error'); }
+    };
+
     document.getElementById('world-session-zero-btn').onclick = () => {
         if (worldTurnInProgress || worldMutationInProgress) return showToast('Finish the current World action before changing timeline setup.', 'info');
         openSessionZero(null);
@@ -23821,6 +25334,8 @@ function resetWorldTimeline(world, sess) {
         engineEvents: [],
         bonusTimeMinutes: 0,
         scheduledEvents: safeJsonClone(Array.isArray(world.scheduledEvents) ? world.scheduledEvents : []),
+        settings: { timeAdvancesWhenAway: null },
+        lastBackgroundSeenAt: null,
         locationStates: seedLocationStatesFromWorld(world),
         npcRelationships: seedRelationshipsFromWorld(world),
         npcScheduleOverrides: {},
@@ -24080,10 +25595,27 @@ function normalizeWorldKernelConfig(world) {
         // A hidden compatibility switch permits exact replay of older
         // transport fixtures while providers transition to the new contract.
         resolveFirst: raw.resolveFirst !== false,
-        sceneDrafts: raw.sceneDrafts !== false
+        sceneDrafts: raw.sceneDrafts !== false,
+        // Existing structured events remain the default. New execution is opt-in.
+        sceneLedger: raw.sceneLedger === true,
+        sceneDraftProtocol: raw.sceneLedger === true || raw.sceneDraftProtocol !== 'scene_draft_v3'
+            ? 'scene_draft_v2' : 'scene_draft_v3',
+        effectMode: raw.effectMode === 'effect_free' ? 'effect_free' : 'standard'
     };
     if (world) world.kernel = config;
     return config;
+}
+
+function worldReceiptRepairOutputLimit(configuredLimit, providerLimit = 0, contextLimit = 0, promptCharacters = 0) {
+    const configured = Math.max(1024, parseInt(configuredLimit, 10) || 4096);
+    const desired = Math.max(4096, Math.min(8192, configured * 2));
+    const providerCap = Number(providerLimit) > 0 ? Number(providerLimit) : Infinity;
+    const contextTokens = Number(contextLimit) > 0 ? Number(contextLimit) : Infinity;
+    const promptTokens = Math.ceil(Math.max(0, Number(promptCharacters) || 0) / 3.2);
+    const contextCap = Number.isFinite(contextTokens)
+        ? Math.max(256, contextTokens - promptTokens - Math.max(1000, Math.ceil(contextTokens * 0.01)))
+        : Infinity;
+    return Math.max(1, Math.floor(Math.min(desired, providerCap, contextCap)));
 }
 
 function normalizeWorldDiceConfig(world) {
@@ -26059,6 +27591,36 @@ function openNpcDossier(npcId) {
     overlay.classList.remove('hidden');
 }
 
+async function runWorldBackgroundCatchUp(world, sess) {
+    const simulator = globalThis.HordeBackgroundSim;
+    if (!simulator || !world || !sess || worldTurnInProgress || worldMutationInProgress) return { ok: false, reason: 'busy' };
+    const result = simulator.catchUp(world, sess, Date.now(), state.globalSettings?.timeAdvancesWhenAway === true);
+    const beforeTurn = Number(sess.turnCount) || 1;
+    const beforePlayerLocation = sess.playerLocation;
+    const attempt = attemptWorldStateMutation(world, sess, () => {
+        Object.keys(sess).forEach(key => { if (!(key in result.session)) delete sess[key]; });
+        Object.assign(sess, result.session);
+        // Background time is never a player turn and must not move the player.
+        sess.turnCount = beforeTurn;
+        sess.playerLocation = beforePlayerLocation;
+        return result;
+    }, value => value?.session?.playerLocation === beforePlayerLocation
+        && Number(value?.session?.turnCount) === beforeTurn);
+    if (!attempt.accepted) return { ok: false, reason: 'invalid_background_result' };
+    try {
+        await saveWorldsState({ worldId: world.id });
+        attempt.commit();
+        if (result.moved?.length) {
+            showToast(`Background time: ${result.moved.length} authored schedule move${result.moved.length === 1 ? '' : 's'} applied.`, 'info');
+        }
+        return { ok: true, ...result };
+    } catch (error) {
+        attempt.rollback();
+        console.warn('Background World time was not saved; rolled back.', error);
+        return { ok: false, reason: 'save_failed', error };
+    }
+}
+
 function enterWorld(worldId) {
     const world = state.worlds.find(w => w.id === worldId);
     if (!world) return;
@@ -26081,6 +27643,12 @@ function enterWorld(worldId) {
     const entryScheduleSync = syncNPCSchedules(world, sess);
     const entryQuests = evaluateQuestProgress(world, sess);
     if (entryScheduleSync.moves > 0 || entryQuests.changed) saveWorldsState().catch(() => {});
+    // Catch-up is deliberately after session preparation and before the first
+    // turn. A busy player turn simply leaves the lastSeen marker unchanged for
+    // the next safe entry; no background mutation can race a live turn.
+    runWorldBackgroundCatchUp(world, sess).then(result => {
+        if (result?.ok && state.activeWorldId === world.id && getCurrentWorldSession() === sess) renderWorldPlayState();
+    }).catch(error => console.warn('Background World catch-up failed:', error));
     
     document.getElementById('world-active-name').textContent = 'Living world';
     // On phones the status column otherwise consumes most of the story area.
@@ -26095,6 +27663,7 @@ function enterWorld(worldId) {
     }
     renderWorldPlayState();
     switchView('worldPlay');
+    playWorldLocationBgm(worldForSession(world, sess), sess);
     
     // If history is empty, run New Session Setup then trigger the DM intro.
     if (sess.history.length === 0) {
@@ -26151,6 +27720,7 @@ async function travelThroughWorldExit(world, sess, exit) {
                 : reason === 'impassable_destination' ? `${attempt.result.blockedLocationName || target.name} is impassable: ${attempt.result.blockedLabel || 'route closed'}.`
                 : reason === 'required_item' ? `You need ${attempt.result.requiredItem} to use this exit${attempt.result.allowCheckUnlock ? ', or you can try to open it with a check' : ''}.`
                 : reason === 'locked_exit' ? 'This exit is locked. Describe how you try to open it in chat.'
+                : reason === 'invalid_exit' ? 'This exit changed while the map was open. Refresh the world view and try again.'
                 : `${target.name} is not reachable from here.`, 'info');
             return { ok: false, reason };
         }
@@ -26163,6 +27733,7 @@ async function travelThroughWorldExit(world, sess, exit) {
             showToast('Travel was not saved. Your previous location is restored; retry after checking storage.', 'error');
             return { ok: false, reason: 'save_failed', error };
         }
+        playWorldLocationBgm(worldForSession(world, sess), sess);
         if (attempt.result.travelMinutes > 0) {
             showToast(`🕒 Travel time: +${attempt.result.travelMinutes}m`, 'info');
         }
@@ -26193,7 +27764,9 @@ function recordEngineWorldTravel(world, sess, movement) {
         movement_mode: 'voluntary', caused_by_actor_id: null,
         participants: ['player'], witnessed_by: witnesses,
         evidence: `${sessionNpcs(worldForSession(world, sess), sess).find(npc => npc.id === id)?.name || id} accompanied the player to ${getLocationRef(world, toId)?.name || toId}.`,
-        cause: 'Active escort followed the player through a mapped exit.'
+        cause: movement.explicitCompanionsMoved?.includes(id)
+            ? 'The player took this companion through a mapped exit.'
+            : 'Active escort followed the player through a mapped exit.'
     }))];
     const receipt = {
         version: 1, turn_id: `engine_travel_${version}`,
@@ -26293,6 +27866,26 @@ function worldPlayReadProjection(world, sess) {
     };
 }
 
+function playWorldLocationBgm(world, sess) {
+    if (state.view !== 'worldPlay' || state.activeWorldId !== world?.id
+        || getCurrentWorldSession()?.id !== sess?.id) return;
+    const locationId = sess.playerLocation;
+    const location = (world.locations || []).find(item => item.id === locationId);
+    const room = location?.mapType === 'room' ? location : null;
+    const place = room
+        ? (world.locations || []).find(item => item.id === room.parentLocationId)
+        : location;
+    const regionId = location?.regionId || place?.regionId;
+    const region = (world.regions || []).find(item => item.id === regionId);
+    import('./worlds/bgm-player.js').then(module => {
+        if (state.view === 'worldPlay' && state.activeWorldId === world.id
+            && getCurrentWorldSession()?.id === sess.id
+            && getCurrentWorldSession()?.playerLocation === locationId) {
+            module.playForLocation(room, place, world, region);
+        }
+    }).catch(error => console.warn('World BGM could not load:', error));
+}
+
 function renderWorldPlayState() {
     const sourceWorld = state.worlds.find(w => w.id === state.activeWorldId);
     const inst = state.worldInstances[state.activeWorldId];
@@ -26300,6 +27893,17 @@ function renderWorldPlayState() {
     if (!sourceWorld || !inst || !sourceSess) return;
     const { world, sess } = worldPlayReadProjection(sourceWorld, sourceSess);
     const ruleModules = normalizeWorldGameRules(world).modules;
+    const sceneSummary=document.getElementById('world-scene-record-summary');
+    if (sceneSummary) {
+        const enabled=normalizeWorldKernelConfig(world).sceneLedger;
+        const frame=buildWorldSceneFrame(world,sess);
+        const groups=sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [];
+        const labels=frame.present_character_ids.map(id=>sessionNpcs(world,sess).find(n=>n.id===id)?.name || id);
+        labels.push(...groups.map(g=>`${g.label} (${g.count})`));
+        const place=sessionLocations(world,sess).find(l=>l.id===frame.player_location_id)?.name || frame.player_location_id;
+        sceneSummary.textContent=`Scene record · ${place} · ${labels.join(', ') || 'No other participants recorded'}`;
+        sceneSummary.classList.toggle('hidden',!enabled);
+    }
 
     const urgentStakes = document.getElementById('world-urgent-stakes');
     if (urgentStakes) {
@@ -26340,6 +27944,9 @@ function renderWorldPlayState() {
     const requestedPresentation = ['classic', 'cinematic'].includes(sess.presentationMode)
         ? sess.presentationMode : (presentation.enabled ? presentation.mode : 'classic');
     const visualLocation = world.locations.find(location => location.id === sess.playerLocation);
+    if (state.view === 'worldPlay' && !worldTurnInProgress && !worldMutationInProgress) {
+        playWorldLocationBgm(world, sess);
+    }
     const locationBackground = worldMediaSource(world, visualLocation?.visuals?.backgroundAssetId);
     const background = requestedPresentation === 'classic' ? world.banner : (locationBackground || world.banner);
     const activePresentation = requestedPresentation !== 'classic';
@@ -26449,11 +28056,20 @@ function renderWorldPlayState() {
             const btn = document.createElement('button');
             btn.className = 'btn btn-ghost btn-full';
             btn.style.textAlign = 'left'; btn.style.fontSize = '0.8rem';
-            btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '')
-                + (requirement.unlocked ? ' · unlocked'
-                    : requirement.requiredItem ? ` · requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a check' : ''}`
-                    : requirement.allowCheckUnlock ? ' · locked; try a check' : '')
-                + (travelBlock ? ` · route closed: ${travelBlock.label}` : '');
+            btn.textContent = '→ ' + exitText + (oneWay ? ' [One-Way]' : '');
+            const exitDetails = [];
+            if (requirement.unlocked) exitDetails.push('🔓');
+            else if (requirement.requiredItem) exitDetails.push(requirement.ok
+                ? `${requirement.requiredItem} ready — door opens when you enter`
+                : `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
+            else if (requirement.allowCheckUnlock || exit?.lockState === 'locked') exitDetails.push('Door locked');
+            if (travelBlock) exitDetails.push(`Route closed: ${travelBlock.label}`);
+            if (exitDetails.length) {
+                btn.classList.add('world-exit-lock-indicator');
+                if (requirement.unlocked) btn.classList.add('is-unlocked');
+                btn.title = exitDetails.join(' · ');
+                btn.setAttribute('aria-label', `${btn.textContent}. ${requirement.unlocked ? '🔓' : '🔒'}${travelBlock ? `. Route closed: ${travelBlock.label}` : ''}`);
+            }
             
             btn.onclick = async () => {
                 const movement = await travelThroughWorldExit(sourceWorld, sourceSess, exit);
@@ -26466,7 +28082,7 @@ function renderWorldPlayState() {
                 btn.title = 'Broken exit reference — repair it in World Studio';
             } else if (travelBlock) {
                 btn.disabled = true;
-                btn.title = `${destination.name} is impassable: ${travelBlock.label}. Wait for the route to reopen or find another way.`;
+                btn.title = `${exitDetails.join(' · ')}. Wait for the route to reopen or find another way.`;
             } else if (!requirement.ok) {
                 btn.disabled = true;
                 btn.title = requirement.requiredItem
@@ -26895,6 +28511,11 @@ function renderWorldPlayState() {
             sessSelect.appendChild(opt);
         });
     }
+    const backgroundOverride = document.getElementById('world-background-time-override');
+    if (backgroundOverride) {
+        const value = sess.settings?.timeAdvancesWhenAway;
+        backgroundOverride.value = value === true ? 'on' : value === false ? 'off' : 'inherit';
+    }
 
     // Render World Ledger
     const ledgerContent = document.getElementById('world-ledger-content');
@@ -27303,6 +28924,12 @@ function reconcileWorldMessages(world, sess, presentationMode) {
         };
         desired.push(latest);
     }
+    const pending = worldPendingTurnUI;
+    if (pending?.world.id === world.id && pending.session.id === sess.id && worldMessageWindow.end === total) {
+        if (pending.userNode && !desired.some(node => node.dataset.worldMessageId === pending.userMessageId))
+            desired.push(pending.userNode);
+        desired.push(pending.statusNode);
+    }
     if (desired.length !== container.children.length
         || desired.some((node, index) => container.children[index] !== node)) {
         container.replaceChildren(...desired);
@@ -27347,11 +28974,17 @@ function appendWorldMessageUI(msg, index = null) {
     }
     if (msg.command) metaParts.push(`⚙️ ${escapeHTML(msg.command)}`);
     if (versions.length > 1) metaParts.push(`🔄 take ${currentVersionIdx + 1}/${versions.length}`);
+    if (msg.sceneRecord) {
+        const count=Array.isArray(msg.sceneRecord.present_character_ids) ? msg.sceneRecord.present_character_ids.length : 0;
+        const groups=HordeWorldSceneLedger.groups(msg.sceneRecord.groups);
+        metaParts.push(`Scene record · ${count} named participant${count === 1 ? '' : 's'}${groups.length ? ' · ' + groups.map(g=>`${escapeHTML(g.label)} (${g.count})`).join(', ') : ''}`);
+    }
     if (msg.ledgerEntry) metaParts.push(`📜 ${escapeHTML(msg.ledgerEntry)}`);
     // Whether this turn's world state actually landed, and how. Without this a
     // model that narrates changes but never records them fails invisibly.
     if (msg.role === 'dm' && msg.stateSource) {
         metaParts.push(msg.stateSource === 'tool_call' ? '⚙️ canonical turn committed'
+            : msg.stateSource === 'conversation_scene' ? '⚙️ unchanged scene validated by engine'
             : msg.stateSource === 'inline_rescue' ? '⚙️ tagged turn receipt recovered'
             : msg.stateSource === 'receipt_repair' ? '🩹 missing receipt repaired'
             : msg.stateSource === 'frozen_no_receipt' ? '🧊 unverified reply discarded — receipt missing'
@@ -27412,6 +29045,7 @@ function appendWorldMessageUI(msg, index = null) {
     div.innerHTML = `
         <div class="msg-bubble">
             <div class="msg-text">${messageHtml}</div>
+            ${msg.provisionalNarrative ? '<div class="form-hint world-provisional-notice" role="status">Provisional story — saved location, people and mechanics remain authoritative. Continue the conversation, or correct the scene if needed. <button type="button" class="btn btn-ghost world-provisional-correct">Correct scene…</button></div>' : ''}
             ${changesHtml}
             ${metaHtml}
             <textarea class="msg-edit-area hidden" style="width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:8px; margin-top:8px; font-family:inherit; font-size:inherit;"></textarea>
@@ -27435,6 +29069,8 @@ function appendWorldMessageUI(msg, index = null) {
         </div>
     `;
 
+    const provisionalCorrection = div.querySelector('.world-provisional-correct');
+    if (provisionalCorrection) provisionalCorrection.onclick = openWorldStateCorrection;
     if (index !== null) {
         const editBtn = div.querySelector('.msg-edit-btn');
         const delBtn = div.querySelector('.msg-del-btn');
@@ -27715,7 +29351,7 @@ function attemptWorldStateMutation(world, sess, apply, accepts = () => true) {
 }
 
 const WORLD_TAKE_METADATA_FIELDS = [
-    'location', 'witnesses', 'worldAudit', 'narrativeAuditWarnings',
+    'location', 'sceneRecord', 'witnesses', 'worldAudit', 'narrativeAuditWarnings', 'provisionalNarrative',
     'missingPlace', 'stateSource', 'stateFallbackArmed', 'ledgerStatus',
     'narratedMove', 'narratedPresence', 'narratedOutfit', 'visibleRelationshipChanges', 'turnChanges', 'sceneMemory'
 ];
@@ -27808,7 +29444,6 @@ function addWorldMessage(role, text, metadata = {}, targetSession = null, target
                             } else if (shouldObserve) {
                                 entState.observations = [{ role, text, msgId: lastMsg.id }];
                             }
-                            if (entState.observations?.length > 50) entState.observations.splice(0, entState.observations.length - 50);
                         }
                     });
                 }
@@ -27865,7 +29500,6 @@ function addWorldMessage(role, text, metadata = {}, targetSession = null, target
                     if (shouldObserve) {
                         entState.observations = entState.observations || [];
                         entState.observations.push({ role, text, msgId });
-                        if (entState.observations.length > 50) entState.observations.shift(); // Memory cap
                     }
                 }
             });
@@ -28031,10 +29665,16 @@ function getObservationWindow(npcId) {
     return (entState.observations || []).map(o => typeof o === 'string' ? { text: o } : o);
 }
 
+function normalizeWorldPlayerCommandPronoun(value) {
+    return String(value || '').replace(/^(\s*)you(?=i\b)/i, '$1')
+        .replace(/^(\s*)(?:y?you)(?:\s*y?you){0,3}\b/i, '$1You');
+}
+
 function extractUserMovementTarget(userInput) {
     const original = String(userInput || '').trim();
     if (!original) return '';
-    const text = original.replace(/[*_~]/g, ' ').replace(/\s+/g, ' ').trim();
+    const text = normalizeWorldPlayerCommandPronoun(original.replace(/[*_~]/g, ' '))
+        .replace(/\s+/g, ' ').trim();
     // Dialogue between action clauses is not part of the movement grammar.
     // Replace it with a sentence boundary so a later explicit player action
     // (… "wait" I enter the bathroom) can still be examined.
@@ -28115,6 +29755,12 @@ function extractUserMovementTarget(userInput) {
     // player moves just as surely as "I go to..." and must be committed before
     // narration begins, otherwise the prose and authoritative ledger diverge.
     const movementCandidates = [];
+    const draggedCompanion = worldDraggedCompanionIntent(actionText);
+    if (draggedCompanion) movementCandidates.push({ index: draggedCompanion.index, priority: 1,
+        target: trimTarget(draggedCompanion.target) });
+    const movingTogether = worldPlayerWithCompanionIntent(actionText);
+    if (movingTogether) movementCandidates.push({ index: movingTogether.index, priority: 1,
+        target: trimTarget(movingTogether.target) });
     const actorMovement = /(?:^|[.!?]\s+|,\s+(?:but\s+)?)(?:(?:then|so)\s+)?(?:(?:i|we)(?:(?:\s+(?:am|are))|['’]m)?\s+|let'?s\s+)(?:(?:turn(?:ed)?|start(?:ed)?|begin|began)\s+(?:to\s+|and\s+)?)?(?:go|went|walk(?:ed|ing)?|head(?:ed|ing)?|travel(?:l?ed|l?ing)?|moved?|moving|run|ran|running|ride|rode|riding|climb(?:ed|ing)?|return(?:ed|ing)?|enter(?:ed|ing)?|exit(?:ed|ing)?|leave|left|leaving|step(?:ped|ping)?|cross(?:ed|ing)?|ma[dk]e\s+(?:my|our)\s+way|sleep|slept)\b\s*(?:out\s+(?=(?:to|towards?)\b))?(?:(?:to|towards?|into|inside|through|across|up|down|for|in)\s+)?([^,.;!?]+)?/ig;
     for (const actorMatch of actionText.matchAll(actorMovement)) {
         const resolved = resolveMatch(actorMatch);
@@ -28150,6 +29796,18 @@ function extractUserMovementTarget(userInput) {
         for (const waypoint of route.matchAll(waypoints)) {
             const target = trimTarget(waypoint[1]);
             if (target) movementCandidates.push({ index: carry.index + carry[0].indexOf(route) + waypoint.index, target });
+        }
+    }
+
+    // Players also use direct second-person commands in the story composer:
+    // "You take Cassy with you into the round room" is a player move to that
+    // mapped room. The named companion is handled separately by the travel
+    // reducer; never treat "take Cassy with you" alone as a destination.
+    if (!/^["'“‘]/.test(original)) {
+        const accompaniedMove = /(?:^|[.!?]\s+)(?:i|we|you)\s+(?:take|bring|lead|escort)\s+[^,.;!?]{1,100}?\s+with\s+(?:me|us|you)\s+(?:to|towards?|into|through|out(?:side)?(?:\s+of)?|inside)\s+([^,.;!?]+)/ig;
+        for (const match of actionText.matchAll(accompaniedMove)) {
+            const target = trimTarget(match[1]);
+            if (target) movementCandidates.push({ index: match.index, target });
         }
     }
 
@@ -28193,7 +29851,7 @@ function extractUserMovementTarget(userInput) {
         }
     }
     if (movementCandidates.length) {
-        movementCandidates.sort((a, b) => a.index - b.index);
+        movementCandidates.sort((a, b) => a.index - b.index || (a.priority || 0) - (b.priority || 0));
         return movementCandidates[movementCandidates.length - 1].target;
     }
 
@@ -28208,6 +29866,251 @@ function extractUserMovementTarget(userInput) {
         }
     }
     return '';
+}
+
+function worldDraggedCompanionIntent(userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(String(userInput || '').replace(/[*_~]/g, ' ')).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
+    const coordinated = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:grab(?:bed)?|gab|seiz(?:e|ed)|take|took)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+(?:hand|arm|wrist|shoulder)\s+)?(?:,?\s*(?:and|then)\s+)(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led)\s+(?:him|her|them)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    if (coordinated) return { index: coordinated.index, person: coordinated[1].trim(), target: coordinated[2].trim() };
+    const direct = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:drag(?:ged)?|pull(?:ed)?|carr(?:y|ied)|haul(?:ed)?|lead|led|escort(?:ed)?)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    if (direct) return { index: direct.index, person: direct[1].trim(), target: direct[2].trim() };
+    // "You take Linda to the Round Room" commits the same accompanied trip.
+    // An article-led object such as "the key" belongs to carrying, not escort.
+    const taking = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:take|took|bring|brought)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through)\s+([^,.;!?]+)/i.exec(actionText);
+    if (!taking || /^(?:the|a|an|my|our|your|this|that)\s+/i.test(taking[1])) return null;
+    return { index: taking.index, person: taking[1].trim(), target: taking[2].trim() };
+}
+
+function worldPlayerWithCompanionIntent(userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ');
+    const patterns = [
+        // "I go with Linda" / "Ich gehe mit Linda an der Hand ..."
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|travel(?:l?ed)?|move(?:d)?|enter(?:ed)?|step(?:ped)?|gehe|gehen|laufe|laufen|betrete|betreten)\s+(?:with|mit)\s+([^,.;!?]{1,80}?)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "I take Linda by the hand and walk ..." / "Ich nehme Linda an der Hand und gehe ..."
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:take|took|hold|grab|nehme|nehmen|halte|halten|greife|greifen)\s+([^,.;!?]{1,80}?)\s+(?:by\s+the\s+hand|an\s+der\s+hand)\s+(?:and|und|then|dann)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "Linda follows me into the room" / "Linda folgt mir in den Raum"
+        /(?:^|[.!?]\s+)([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]+)/i,
+        // "I go into the room and Linda follows me" (also a second sentence).
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]{1,80}?)\s+(?:and|und)\s+([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))(?:[.!?]|$)/i,
+        /(?:^|[.!?]\s+)(?:i|we|you|ich|wir)\s+(?:go|went|walk(?:ed)?|head(?:ed)?|move(?:d)?|gehe|gehen|laufe|laufen)\s+(?:to|into|through|in|nach|zu|zum|zur|durch)\s+([^,.;!?]{1,80})[.!?]\s+([^,.;!?]{1,80}?)\s+(?:follows?\s+(?:me|us)|folgt\s+(?:mir|uns))(?:[.!?]|$)/i
+    ];
+    for (const [index, pattern] of patterns.entries()) {
+        const match = pattern.exec(actionText);
+        if (!match) continue;
+        const targetFirst = index >= 3;
+        const person = String(targetFirst ? match[2] : match[1])
+            .replace(/\s+(?:by\s+the\s+hand|an\s+der\s+hand)$/i, '').trim();
+        const target = String(targetFirst ? match[1] : match[2]).trim();
+        if (person && target) return { index: match.index, person, target };
+    }
+    return null;
+}
+
+function requestedWorldTravelCompanionIds(world, sess, userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return [];
+    const pairedMove = worldDraggedCompanionIntent(input) || worldPlayerWithCompanionIntent(input);
+    if (pairedMove) {
+        let matches = findReferencedWorldNpcs(world, sess, pairedMove.person);
+        // A one-letter slip in a single given name is safe only when exactly
+        // one present NPC matches. Never infer a distant or ambiguous escort.
+        if (!matches.length) {
+            const requested = normalizedNpcNameParts(pairedMove.person).clean;
+            const oneEdit = (left, right) => {
+                if (Math.abs(left.length - right.length) > 1) return false;
+                let i = 0, j = 0, edits = 0;
+                while (i < left.length && j < right.length) {
+                    if (left[i] === right[j]) { i++; j++; continue; }
+                    if (++edits > 1) return false;
+                    if (left.length >= right.length) i++;
+                    if (right.length >= left.length) j++;
+                }
+                return edits + (left.length - i) + (right.length - j) === 1;
+            };
+            if (requested.length >= 4 && !requested.includes(' ')) {
+                matches = sessionNpcs(world, sess).filter(npc =>
+                    sess.entityStates?.[npc.id]?.location === sess.playerLocation
+                    && npcReferenceVariants(npc).some(name => !name.includes(' ')
+                        && oneEdit(requested, name)));
+            }
+        }
+        return matches.length === 1 && sess.entityStates?.[matches[0].id]?.location === sess.playerLocation
+            ? [matches[0].id] : [];
+    }
+    const request = input.match(/(?:^|[.!?]\s+)(?:i|we|you)\s+(?:take|bring|lead|escort)\s+([^,.;!?]{1,100}?)\s+with\s+(?:me|us|you)\s+(?:to|towards?|into|through|out(?:side)?(?:\s+of)?|inside)\b/i);
+    if (!request) return [];
+    const matches = findReferencedWorldNpcs(world, sess, request[1]);
+    return matches.length === 1 && sess.entityStates?.[matches[0].id]?.location === sess.playerLocation
+        ? [matches[0].id] : [];
+}
+
+function userRequestsWorldDoorRelock(userInput) {
+    const input = String(userInput || '');
+    const match = /\b(?:re[ -]?lock(?:s|ed|ing)?|lock(?:s|ed|ing)?\s+(?:(?:the|a|that|this|it|door|gate|lock)\s+){0,5}(?:again|behind\s+(?:me|us|you)|after\s+(?:me|us|you)))\b/i.exec(input);
+    if (!match) return false;
+    const preceding = input.slice(Math.max(0, match.index - 35), match.index);
+    return !/\b(?:do\s+not|don't|did\s+not|didn't|never|without)\s+(?:\w+\s+){0,4}$/i.test(preceding);
+}
+
+function worldRequestedDoorTargetName(phrase) {
+    return normalizeLocationSearchText(String(phrase || '')
+        .split(/\s+(?:and|then|before|after|while)\b/i)[0]
+        .replace(/\s+(?:with|using)\s+(?:(?:the|a|an|my|your)\s+)?[^,.;!?]{1,60}?\b(?:key|keycard)\b.*$/i, ''));
+}
+
+function worldNamedDoorKey(phrase) {
+    const match = /\b(?:with|using|use|used|insert|inserted)\s+(?:(?:the|my|a|an)\s+)?([\w-]+(?:\s+[\w-]+){0,3}\s+key(?:card)?)\b/i.exec(String(phrase || ''));
+    const name = String(match?.[1] || '').replace(/^(?:the|my|a|an)\s+/i, '').trim();
+    return /^(?:key|keycard)$/i.test(name) ? '' : name;
+}
+
+function normalizeWorldPlayerDoorCommand(world, sess, userInput) {
+    let input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)
+        || /\b(?:if|unless|without|would|could|might|do not|don't|did not|didn't|never)\b/i.test(input)) return input;
+    const personaName = String(sess?.playerIdentity?.personaName || '').trim();
+    const knownNpc = personaName && sessionNpcs(world, sess).some(npc =>
+        String(npc.name || '').trim().toLowerCase() === personaName.toLowerCase());
+    if (personaName && !knownNpc) {
+        const escaped = personaName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const named = new RegExp(`^(?:the\\s+)?${escaped}\\s+(locks?|unlocks?|opens?|closes?)\\b`, 'i').exec(input);
+        if (named) input = `You ${named[1].toLowerCase().replace(/s$/, '')}${input.slice(named[0].length)}`;
+    }
+    input = input.replace(/^the\s+player\s+(locks?|unlocks?|opens?|closes?)\b/i,
+        (_, verb) => `You ${verb.toLowerCase().replace(/s$/, '')}`);
+    const inserted = /^(?:i|we|you)\s+insert(?:s|ed)?\s+(?:(?:the|a|an|my|your)\s+)?(?:[\w-]+\s+){0,3}key\b[^.!?]{0,80}?\s+and\s+turn(?:s|ed)?\s+it\s+to\s+(lock|unlock)\s+((?:(?:the|a|an)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b[^.!?]*)/i.exec(input);
+    if (inserted) return `You ${inserted[1]} ${inserted[2]}`;
+    const closed = /^(?:i|we|you)\s+close(?:s|d)?\s+((?:(?:the|a|an)\s+)?(?:door|gate|entrance|exit)\b[^.!?]*?)\s+and\s+lock(?:s|ed)?\s+it(?:\s+behind\s+(?:me|us|you))?\s*[.!?]?$/i.exec(input);
+    if (closed) return `You lock ${closed[1]}`;
+    if (/^(?:i|we|you)\s+turn(?:s|ed)?\s+(?:the|my|a)\s+key\s+in\s+(?:the|a)\s+lock\s*[.!?]?$/i.test(input)) {
+        const view = worldForSession(world, sess);
+        const from = getLocationRef(view, sess.playerLocation);
+        const doors = new Map((from?.exits || []).filter(exit => exit && typeof exit === 'object'
+            && worldExitLockConfig(exit).requiredItem).map(exit => [exit.doorId || getExitTargetName(exit), exit]));
+        if (doors.size === 1) {
+            const exit = doors.values().next().value;
+            const opened = sess.unlockedExits?.[exit.doorId] === true;
+            return `You ${opened ? 'lock' : 'unlock'} the door`;
+        }
+    }
+    return input;
+}
+
+function applyPlayerKeyDoorOpening(world, sess, userInput, keyPhrase = userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:(?:use|used)\s+[^.!?]{1,60}?\s+to\s+)?(?:open(?:s|ed)?|unlock(?:s|ed)?)\s+(?:(?:the|a|an|this|that)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    if (!match) return null;
+    const clause = actionText.slice(match.index).split(/[.!?]/)[0];
+    if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
+    const view = worldForSession(world, sess);
+    const from = getLocationRef(view, sess.playerLocation);
+    if (!from) return null;
+    const targetName = worldRequestedDoorTargetName(match[1]);
+    const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+        .filter(candidate => candidate.to && (!targetName
+            || normalizeLocationSearchText(candidate.to.name) === targetName
+            || normalizeLocationSearchText(candidate.to.id) === targetName));
+    const distinct = [...new Map(choices.map(candidate => [
+        `${candidate.to.id}::${String(candidate.exit?.requiredItem || '')}::${candidate.exit?.lockState || ''}::${candidate.exit?.allowCheckUnlock === true}`,
+        candidate
+    ])).values()];
+    if (distinct.length !== 1) return { matched: true, committed: false,
+        reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
+    const { exit, to } = distinct[0];
+    const namedKey = worldNamedDoorKey(keyPhrase);
+    const requiredKey = worldExitLockConfig(exit).requiredItem;
+    if (namedKey && requiredKey && questTextKey(namedKey) !== questTextKey(requiredKey))
+        return { matched: true, committed: false, reason: 'wrong_key',
+            targetName: to.name, requiredItem: requiredKey, providedItem: namedKey };
+    const blockedRoute = worldLocationTravelBlock(sess, to.id);
+    if (blockedRoute) return { matched: true, committed: false, reason: 'sealed_route',
+        targetName: to.name, detail: blockedRoute.label };
+    const requirement = worldExitRequirement(sess, exit, from.id);
+    if (!requirement.ok) return { matched: true, committed: false,
+        reason: requirement.reason, targetName: to.name, requiredItem: requirement.requiredItem,
+        allowCheckUnlock: requirement.allowCheckUnlock };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    const keys = typeof exit === 'object' && worldPlayerHoldsExitItem(sess, exit)
+        ? worldExitDoorKeys(view, from, to, exit) : [];
+    const changed = keys.some(key => sess.unlockedExits[key] !== true);
+    keys.forEach(key => { sess.unlockedExits[key] = true; });
+    return { matched: true, committed: true, changed, fromId: from.id,
+        toId: to.id, targetName: to.name, requiredItem: requirement.requiredItem };
+}
+
+function applyPlayerKeyDoorLocking(world, sess, userInput, keyPhrase = userInput) {
+    const input = normalizeWorldPlayerCommandPronoun(userInput).trim();
+    if (!input || /^["'“‘]/.test(input)) return null;
+    const actionText = input.replace(/[“"][^”"]*[”"]/g, '. ').replace(/\s+/g, ' ');
+    const match = /(?:^|[.!?]\s+)(?:i|we|you|youyou)\s+(?:lock(?:s|ed)?|relock(?:s|ed)?)\s+(?:(?:the|a|an|this|that)\s+)?(?:[\w-]+\s+){0,3}(?:door|gate|entrance|exit)\b(?:\s+(?:to|into|of)\s+([^,.;!?]+))?/i.exec(actionText);
+    if (!match) return null;
+    const clause = actionText.slice(match.index).split(/[.!?]/)[0];
+    if (/\b(?:if|unless|without|would|could|might)\b/i.test(clause)) return null;
+    const view = worldForSession(world, sess);
+    const from = getLocationRef(view, sess.playerLocation);
+    if (!from) return null;
+    const targetName = worldRequestedDoorTargetName(match[1]);
+    const namesCurrentRoom = targetName && [from.name, from.id]
+        .some(name => normalizeLocationSearchText(name) === targetName);
+    const choices = (from.exits || []).map(exit => ({ exit, to: resolveWorldExitTarget(view, exit) }))
+        .filter(candidate => candidate.to && typeof candidate.exit === 'object'
+            && (candidate.exit.requiredItem || candidate.exit.allowCheckUnlock || candidate.exit.lockState === 'locked')
+            && (!targetName || namesCurrentRoom
+                || normalizeLocationSearchText(candidate.to.name) === targetName
+                || normalizeLocationSearchText(candidate.to.id) === targetName));
+    const distinct = [...new Map(choices.map(candidate => [
+        `${candidate.to.id}::${String(candidate.exit.requiredItem || '')}::${candidate.exit.lockState || ''}`,
+        candidate
+    ])).values()];
+    if (distinct.length !== 1) return { matched: true, committed: false, action: 'locked',
+        reason: distinct.length ? 'ambiguous_door' : 'unknown_door', targetName: match[1] || '' };
+    const { exit, to } = distinct[0];
+    const namedKey = worldNamedDoorKey(keyPhrase);
+    const requiredKey = worldExitLockConfig(exit).requiredItem;
+    if (namedKey && requiredKey && questTextKey(namedKey) !== questTextKey(requiredKey))
+        return { matched: true, committed: false, action: 'locked', reason: 'wrong_key',
+            targetName: to.name, requiredItem: requiredKey, providedItem: namedKey };
+    if (!worldPlayerHoldsExitItem(sess, exit)) return { matched: true, committed: false,
+        action: 'locked', reason: 'required_item', targetName: to.name, requiredItem: exit.requiredItem };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    const keys = worldExitDoorKeys(view, from, to, exit);
+    const changed = keys.some(key => sess.unlockedExits[key] === true);
+    keys.forEach(key => { delete sess.unlockedExits[key]; });
+    return { matched: true, committed: true, changed, action: 'locked', fromId: from.id,
+        toId: to.id, targetName: namesCurrentRoom ? from.name : to.name,
+        requiredItem: exit.requiredItem };
+}
+
+function applyPlayerKeyDoorAction(world, sess, userInput) {
+    const command = normalizeWorldPlayerDoorCommand(world, sess, userInput);
+    return applyPlayerKeyDoorLocking(world, sess, command, userInput)
+        || applyPlayerKeyDoorOpening(world, sess, command, userInput);
+}
+
+function worldDoorOpeningContext(result) {
+    if (!result?.matched) return '';
+    if (result.action === 'locked') {
+        if (result.committed) return `\n[SYSTEM: The player locked the mapped door at ${result.targetName}${result.changed ? ' with the required item' : '; it was already locked'}. Its shared lock is secured from both mapped sides. The player remains at ${result.fromId}. This door action is already committed. Do not contradict it, invent a one-way lock, duplicate it as an effect, or narrate movement.]`;
+        const obstacle = result.reason === 'required_item'
+            ? `The player lacks ${result.requiredItem || 'the required key'}`
+            : result.reason === 'wrong_key'
+                ? `${result.providedItem} is not the mapped door's required key (${result.requiredItem})`
+            : 'There is no unique adjacent lockable door matching that request';
+        return `\n[SYSTEM: The requested door locking was not committed. ${obstacle}. Do not claim the door was locked; explain the obstacle.]`;
+    }
+    if (result.committed) return `\n[SYSTEM: The player opened the mapped door to ${result.targetName} from ${result.fromId}${result.changed ? ' with the required item; its lock is now unlocked' : '; its lock was already unlocked'}. The player remains at ${result.fromId}. This door action is already committed. Do not duplicate it as an effect or narrate arrival in ${result.targetName} without a separate valid move.]`;
+    const obstacle = result.reason === 'sealed_route' ? `The route is blocked by ${result.detail}`
+        : result.reason === 'required_item' ? `The player lacks ${result.requiredItem}`
+        : result.reason === 'wrong_key' ? `${result.providedItem} is not the mapped door's required key (${result.requiredItem})`
+        : result.reason === 'locked_exit' && result.allowCheckUnlock ? 'Opening this door requires a successful check'
+        : 'There is no unique adjacent door matching that request';
+    return `\n[SYSTEM: The requested door opening was not committed. ${obstacle}. Keep the player in the current place, do not claim the door opened, and explain the obstacle or propose the permitted next step.]`;
 }
 
 function buildWorldMicroFrameEnvelope(world, sess, userInput) {
@@ -28325,7 +30228,7 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
                 const blockedLocation = getLocationRef(view, blockedId);
                 const block = worldLocationTravelBlock(sess, blockedId);
                 showToast(`${blockedLocation?.name || blockedId} is impassable: ${block?.label || 'route closed'}.`, 'info');
-                return '';
+                return `\n[SYSTEM: The player tried to travel to ${knownButBlocked.name}, but ${blockedLocation?.name || blockedId} is impassable (${block?.label || 'route closed'}). No one moved. Explain this specific obstacle; do not narrate arrival or a completed passage.]`;
             }
             const guardedLeg = openWithoutRequirement?.slice(1).map((id, index) => {
                 const from = getLocationRef(view, openWithoutRequirement[index]);
@@ -28339,7 +30242,11 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
                 ? `${knownButBlocked.name} requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}.`
                 : requirement.allowCheckUnlock ? `${knownButBlocked.name} is locked. Describe how you try to open it.`
                 : `${knownButBlocked.name} has no valid route from here.`, 'info');
-            return '';
+            const obstacle = requirement.requiredItem
+                ? `the route requires ${requirement.requiredItem}`
+                : requirement.allowCheckUnlock ? 'the route requires a successful lock check'
+                : 'there is no connected route';
+            return `\n[SYSTEM: The player tried to travel to ${knownButBlocked.name}, but ${obstacle}. No one moved. Explain the specific obstacle; do not narrate arrival or a completed passage.]`;
         }
         // A line of roleplay is not a failed command. When the player is clearly
         // writing prose — dialogue, several clauses — the destination may simply
@@ -28359,19 +30266,40 @@ function applyUserDirectedMovement(world, sess, userInput, microCandidate = null
         }
         return '';
     }
-    const result = movePlayerAlongWorldPath(world, sess, targetLoc);
+    const companionIds = requestedWorldTravelCompanionIds(view, sess, userInput);
+    if ((worldDraggedCompanionIntent(userInput) || worldPlayerWithCompanionIntent(userInput)) && !companionIds.length) {
+        showToast('The named companion is not here or cannot be identified for this move.', 'info');
+        return `\n[SYSTEM: The player tried to travel with a named companion to ${targetLoc.name}, but that person is not present or cannot be identified. No one moved. Explain the obstacle; do not narrate arrival.]`;
+    }
+    const result = movePlayerAlongWorldPath(world, sess, targetLoc, {
+        companionIds, relockLastDoor: userRequestsWorldDoorRelock(userInput)
+    });
     if (!result.ok) {
         showToast(result.reason === 'impassable_destination'
             ? `${result.blockedLocationName || targetLoc.name} is impassable: ${result.blockedLabel || 'route closed'}.`
+            : result.reason === 'companion_unavailable'
+            ? `Your companion is not here or cannot travel with you right now.`
             : `${targetLoc.name} is not reachable from here.`, 'info');
-        return '';
+        const obstacle = result.reason === 'impassable_destination'
+            ? `${result.blockedLocationName || targetLoc.name} is impassable (${result.blockedLabel || 'route closed'})`
+            : result.reason === 'companion_unavailable' ? 'the named companion cannot travel right now'
+            : result.reason === 'required_item' ? `the route requires ${result.requiredItem}`
+            : result.reason === 'pending_check' ? 'a pending check must be resolved first'
+            : 'no valid route is currently available';
+        return `\n[SYSTEM: The player tried to travel to ${targetLoc.name}, but ${obstacle}. No one moved. Explain this specific obstacle; do not narrate arrival or a completed passage.]`;
     }
     if (!result.moved) return '';
     console.log(`Horde Engine: User-Initiated Move — ${targetLoc.name}`);
     showToast(`Heading to ${targetLoc.name}...`, 'info');
     rollForScenePopulation(sess.playerLocation, false);
     const routeDescription = (result.travelLegs || []).map(describeWorldTravelLeg).filter(Boolean).join('; ');
-    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''} Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
+    const companionNames = (result.explicitCompanionsMoved || []).map(id =>
+        sessionNpcs(view, sess).find(npc => npc.id === id)?.name || id);
+    const doorContext = result.doorChanges.length
+        ? ` Door state committed: ${result.doorChanges.map(change => `${change.action} ${change.from_location_id}::${change.to_location_id}`).join(', ')}.` : '';
+    const relockContext = result.relockRequested && !result.relocked
+        ? ' The requested re-lock could not be completed; do not claim the door was locked.' : '';
+    return `\n[SYSTEM: The player has just arrived at ${targetLoc.name}${routeDescription ? ` after travelling via ${routeDescription}` : ''}. ${companionNames.length ? `${companionNames.join(', ')} accompanied the player and is already present; do not emit another movement event for this companion.` : ''} ${result.travelMinutes ? `${result.travelMinutes} minutes elapsed.` : ''}${doorContext}${relockContext} A key-opened door stays unlocked unless an explicit re-lock was committed. These route and door steps are already applied; do not duplicate their state changes. Respect transport, fare and elapsed time. If this is familiar, uneventful travel, use one or two concise sentences; do not repeat unchanged scenery or old quest exposition. If people, danger, a deadline or a new consequence matter now, show that change clearly before scenic detail.]`;
 }
 
 function classifyWorldArrivalPacing(world, sess, location, snapshot, presentNpcs, absoluteMinute, hadEngineEvents = false) {
@@ -28411,6 +30339,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         showToast('The DM is still responding — please wait.', 'info');
         return;
     }
+    clearWorldTurnError();
     // Submitting an action opts back into the live end of the transcript.
     // A reader can still scroll away during generation without being pulled
     // back by streaming tokens or a later background World update.
@@ -28444,6 +30373,10 @@ async function executeWorldTurn(commandOrReroll = null) {
 
     let world = null;
     let sess = null;
+    let canonicalWorld = null;
+    let canonicalSess = null;
+    let linkedWorldTurn = false;
+    let linkedTurnFinalized = false;
     let locName = "Unknown";
     let locDesc = "";
     let command = (typeof commandOrReroll === 'string') ? commandOrReroll : null;
@@ -28451,6 +30384,30 @@ async function executeWorldTurn(commandOrReroll = null) {
     let turnSnapshot = null;
     let historyStartLength = null;
     let submittedInput = '';
+    let pendingTurnUI = null;
+    const showPendingTurn = (input = '') => {
+        if (state.activeWorldId !== world?.id || getCurrentWorldSession()?.id !== sess?.id) return;
+        const container = document.getElementById('world-messages-container');
+        const userNode = input ? appendWorldMessageUI({ role: 'user', text: input }) : null;
+        const statusNode = document.createElement('div');
+        statusNode.className = 'msg msg-dm';
+        statusNode.dataset.worldPendingStatus = 'true';
+        statusNode.setAttribute('role', 'status');
+        statusNode.innerHTML = '<div class="msg-bubble"><div class="msg-text"></div></div>';
+        statusNode.querySelector('.msg-text').textContent = 'Resolving your action…';
+        container.appendChild(statusNode);
+        pendingTurnUI = { world, session: sess, userNode, statusNode, userMessageId: null };
+        worldPendingTurnUI = pendingTurnUI;
+        if (worldMessageWindow?.followLatest) container.scrollTop = container.scrollHeight;
+    };
+    const setPendingStatus = label => {
+        if (pendingTurnUI) pendingTurnUI.statusNode.querySelector('.msg-text').textContent = label;
+    };
+    const clearPendingTurn = () => {
+        pendingTurnUI?.userNode?.remove();
+        pendingTurnUI?.statusNode.remove();
+        if (worldPendingTurnUI === pendingTurnUI) worldPendingTurnUI = null;
+    };
     let timeoutId = null;
     let hostedDeadlineId = null;
     let generationTimedOut = false;
@@ -28459,6 +30416,8 @@ async function executeWorldTurn(commandOrReroll = null) {
     let restoredRerollSnapshot = false;
     let failureRestoreSnapshot = null;
     let committedMovement = null;
+    let committedDoor = null;
+    let doorAttempt = null;
     let committedOutfit = null;
     let currentTotalMinutes = null; // pre-turn clock is also needed by failure recovery
     let turnCallAudit = null;
@@ -28477,6 +30436,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             try { flushWorldActionFeedback(committedFeedback); }
             catch (feedbackError) { console.warn('World feedback failed after a saved turn:', feedbackError); }
         }
+        if (world && sess) playWorldLocationBgm(worldForSession(world, sess), sess);
         return saved;
     };
     let labsWorldFrame = null;
@@ -28493,6 +30453,8 @@ async function executeWorldTurn(commandOrReroll = null) {
         } : null;
         const detail = {
             kind,
+            provider: turnProvider,
+            outcome,
             model: String(model || '').slice(0, 150),
             status: Number(status) || 0,
             durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
@@ -28500,32 +30462,61 @@ async function executeWorldTurn(commandOrReroll = null) {
                 ? reportedUsage : null
         };
         turnCallDetails.push(detail);
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.generationMs += detail.durationMs;
         recordWorldModelAttempt(world, sess, { ...detail, provider: turnProvider, usage, outcome }, false);
     };
     const fetchWorldTurnJSON = async (kind, body, init) => {
         const startedAt = performance.now();
+        if (kind === 'receiptRepair' && turnCallAudit?.metrics)
+            turnCallAudit.metrics.repairPromptCharacters += JSON.stringify({ messages: body.messages, tools: body.tools, response_format: body.response_format }).length;
         // A streaming inactivity deadline must not abort a later request.
         // Each JSON call has its own body deadline; the shared controller
         // still enforces user Stop and the overall hosted turn budget.
         if (timeoutId) clearTimeout(timeoutId);
         timeoutId = null;
-        return HordeWorldModelClient.json({
+        if (turnProvider === 'horde') {
+            const response = await requestHordeCompletion(body, init?.signal);
+            const data = await response.clone().json();
+            recordWorldCall(kind, body.model, response.status, startedAt, data?.usage, 'ok');
+            return { response, data };
+        }
+        const result = await HordeWorldModelClient.json({
             url: apiBase() + '/chat/completions', body, init,
             // Receipt repair is a non-streaming request. A provider can send
             // HTTP 200 and then leave its JSON body open forever; the model
             // client enforces this independently of the turn's idle timer.
-            timeoutMs: isLocalProvider() ? localGenerationIdleTimeoutMs() : 45000,
+            timeoutMs: kind === 'receiptRepair' && normalizeWorldKernelConfig(world).sceneLedger
+                ? 10000 : isLocalProvider() ? localGenerationIdleTimeoutMs() : 45000,
             onSettled: detail => recordWorldCall(kind, body.model, detail.status,
                 startedAt, detail.usage, detail.outcome)
         });
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.outputCharacters += (result.data?.choices || []).reduce((sum, choice) => {
+            const message = choice.message || choice.delta || {};
+            return sum + (typeof message.content === 'string' ? message.content.length : 0)
+                + (message.tool_calls || []).reduce((n, call) => n + String(call.function?.arguments || '').length, 0);
+        }, 0);
+        return result;
     };
     const fetchWorldTurnStream = async (kind, body, init) => {
         const startedAt = performance.now();
-        return HordeWorldModelClient.stream({
-            url: apiBase() + '/chat/completions', body, init,
-            onFailure: detail => recordWorldCall(kind, body.model, detail.status,
-                startedAt, null, detail.outcome)
-        });
+        if (turnProvider === 'horde') {
+            const response = await requestHordeCompletion(body, init?.signal);
+            recordWorldCall(kind, body.model, response.status, startedAt, null, 'ok');
+            return { response, startedAt, dispose: () => {}, abort: () => {} };
+        }
+        const streamController = new AbortController();
+        const forwardAbort = () => streamController.abort(init.signal.reason);
+        if (init.signal?.aborted) forwardAbort();
+        else init.signal?.addEventListener('abort', forwardAbort, { once: true });
+        const dispose = () => init.signal?.removeEventListener('abort', forwardAbort);
+        try {
+            const result = await HordeWorldModelClient.stream({
+                url: apiBase() + '/chat/completions', body, init: { ...init, signal: streamController.signal },
+                onFailure: detail => recordWorldCall(kind, body.model, detail.status,
+                    startedAt, null, detail.outcome)
+            });
+            return { ...result, dispose, abort: () => streamController.abort() };
+        } catch (error) { dispose(); throw error; }
     };
 
     try {
@@ -28534,6 +30525,19 @@ async function executeWorldTurn(commandOrReroll = null) {
         
         if (!world || !sess) {
             throw new Error("World state not initialized. Please ensure a world is selected.");
+        }
+        canonicalWorld = world;
+        canonicalSess = sess;
+        linkedWorldTurn = world.kernel?.enabled !== false
+            && world.kernel?.sceneDrafts !== false
+            && !world.kernel?.sceneLedger && world.kernel?.sceneDraftProtocol === 'scene_draft_v3'
+            && !['init', 'look', 'continue'].includes(command);
+        if (linkedWorldTurn) {
+            if (!globalThis.HordeWorkingState || !globalThis.HordeEffectRegistry
+                || !globalThis.HordeLinkedWorldActions)
+                throw new Error('Required World modules were not loaded. Restart the local HordeStudio server and reload this page before retrying.');
+            world = safeJsonClone(world);
+            sess = safeJsonClone(sess);
         }
         worldTurnPersistenceFence = {
             worldId: world.id,
@@ -28553,7 +30557,10 @@ async function executeWorldTurn(commandOrReroll = null) {
             receiptRepair: 0,
             narrativeFollowUp: 0,
             narrativeRescue: 0,
-            chronicleClassifier: 0
+            chronicleClassifier: 0,
+            metrics: { loreCharacters: 0, mainPromptCharacters: 0, repairPromptCharacters: 0,
+                firstTokenMs: null, localValidationMs: 0, generationMs: 0, outputCharacters: 0,
+                estimatedInputTokens: 0, tokenEstimateMethod: 'characters / 3.2', earlyAbortReason: null }
         };
         // A failed reroll must restore the currently selected take's live
         // state, not the old turn's pre-action snapshot.
@@ -28619,6 +30626,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         const lastUser = [...sess.history].reverse().find(m => m.role === 'user');
         userInput = lastUser ? lastUser.text : "Continue the adventure.";
         submittedInput = userInput;
+        showPendingTurn();
     } else {
         userInput = command || document.getElementById('world-user-input').value.trim();
         if (command !== "init" && !userInput) return;
@@ -28627,6 +30635,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         turnSnapshot = captureWorldTurnState(world, sess);
         historyStartLength = sess.history.length;
         if (!command) document.getElementById('world-user-input').value = '';
+        showPendingTurn(!['init', 'look', 'continue'].includes(command) ? userInput : '');
 
         // ⏩ Continue: silent directive — no user bubble, no movement detection
         if (command === "continue") {
@@ -28634,38 +30643,66 @@ async function executeWorldTurn(commandOrReroll = null) {
         }
 
         if (command !== "init" && command !== "look" && command !== "continue") {
-            labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
+            if (!linkedWorldTurn) labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
             const movementOrigin = sess.playerLocation;
+            const requestedCompanionIds = linkedWorldTurn ? []
+                : requestedWorldTravelCompanionIds(worldForSession(world, sess), sess, userInput);
             const originWitnesses = sessionNpcs(world, sess)
                 .filter(npc => sess.entityStates?.[npc.id]?.location === movementOrigin && isNpcActive(sess.entityStates[npc.id]))
                 .map(npc => npc.id);
-            arrivalContext = applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
+            arrivalContext = linkedWorldTurn ? ''
+                : applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
             if (sess.playerLocation !== movementOrigin) {
                 committedMovement = {
                     originId: movementOrigin,
-                    destinationId: sess.playerLocation
+                    destinationId: sess.playerLocation,
+                    companionIds: requestedCompanionIds,
+                    relockLastDoor: userRequestsWorldDoorRelock(userInput)
                 };
+            } else if (!linkedWorldTurn) {
+                const doorResult = applyPlayerKeyDoorAction(world, sess, userInput);
+                doorAttempt = doorResult;
+                if (doorResult?.committed) committedDoor = doorResult;
+                arrivalContext += worldDoorOpeningContext(doorResult);
             }
-            const outfitResult = applyPlayerOutfitIntent(sess, userInput)
+            const outfitResult = linkedWorldTurn ? null : applyPlayerOutfitIntent(sess, userInput)
                 || (labsWorldFrame?.candidate?.intent === 'outfit'
                     && labsWorldFrame.candidate.phase === 'completed'
                     && Number(labsWorldFrame.candidate.confidence) >= 0.72
                     ? applyPlayerOutfitIntent(sess, labsWorldFrame.candidate.evidence) : null);
             if (outfitResult) committedOutfit = outfitResult;
-            addWorldMessage('user', userInput, {
+            const playerMessage = addWorldMessage('user', userInput, {
                 location: movementOrigin,
                 witnesses: originWitnesses,
                 arrivalLocation: sess.playerLocation !== movementOrigin ? sess.playerLocation : undefined,
-                deferPersist: true
+                deferPersist: true, deferEmbedding: linkedWorldTurn
             }, sess, world);
+            if (pendingTurnUI) pendingTurnUI.userMessageId = playerMessage.id;
             // sess.turnCount increment moved to success block to prevent time-skip on failure
         }
     }
 
     if (isReroll && command !== "init" && command !== "look" && command !== "continue") {
-        labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
-        arrivalContext = applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
-        applyPlayerOutfitIntent(sess, userInput)
+        if (!linkedWorldTurn) labsWorldFrame = await requestWorldMicroFrame(world, sess, userInput);
+        const movementOrigin = sess.playerLocation;
+        const requestedCompanionIds = linkedWorldTurn ? []
+            : requestedWorldTravelCompanionIds(worldForSession(world, sess), sess, userInput);
+        arrivalContext = linkedWorldTurn ? ''
+            : applyUserDirectedMovement(world, sess, userInput, labsWorldFrame?.candidate);
+        if (sess.playerLocation !== movementOrigin) {
+            committedMovement = {
+                originId: movementOrigin,
+                destinationId: sess.playerLocation,
+                companionIds: requestedCompanionIds,
+                relockLastDoor: userRequestsWorldDoorRelock(userInput)
+            };
+        } else if (!linkedWorldTurn) {
+            const doorResult = applyPlayerKeyDoorAction(world, sess, userInput);
+            doorAttempt = doorResult;
+            if (doorResult?.committed) committedDoor = doorResult;
+            arrivalContext += worldDoorOpeningContext(doorResult);
+        }
+        if (!linkedWorldTurn) applyPlayerOutfitIntent(sess, userInput)
             || (labsWorldFrame?.candidate?.intent === 'outfit'
                 && labsWorldFrame.candidate.phase === 'completed'
                 && Number(labsWorldFrame.candidate.confidence) >= 0.72
@@ -28736,27 +30773,25 @@ async function executeWorldTurn(commandOrReroll = null) {
         ...(sess.quests || []).filter(quest => quest.status === 'active').map(quest => quest.title)
     ].join(' ');
     const recalledLedger = retrieveWorldLedgerArchive(sess, archiveQuery);
-    const sceneRecall = typeof HordeWorldTurnContext !== 'undefined'
-        ? HordeWorldTurnContext.recall(sess.history || [], archiveQuery, sess.playerLocation) : '';
+    // Fill recall after selecting the actual verbatim history window.
+    const sceneRecall = '__WORLD_SCENE_RECALL__';
     const ledgerPrompt = ((sess.ledger || recalledLedger)
         ? `\n\n[WORLD LEDGER: PERSISTENT HISTORY]\n${sess.ledger || ''}${recalledLedger ? `\n\n[RECALLED OLDER CANON — relevant to this scene]\n${recalledLedger}` : ''}\nUse this as the source of truth for past events. Older canon not recalled here still exists; do not contradict it.`
-        : "") + (sceneRecall ? `\n\n[SOURCE-LINKED SCENE MEMORY — past scenes, NOT current state]\n${sceneRecall}\nTestimony means somebody said it, not that it is true. Current engine state overrides old events. Do not grant this knowledge to an unwitnessing NPC.` : '');
-    // World Lore Injection
-    let relevantLore = "";
-    if (world.lorebook) {
-        const combinedContext = [
-            userInput, locName, locDesc,
-            ...presentNPCs.map(npc => `${npc.name} ${npc.role || ''}`),
-            ...(sess.quests || []).filter(quest => quest.status === 'active').map(quest => `${quest.title} ${quest.description || ''}`),
-            ...(sess.engineEvents || []).slice(-8)
-        ].join(' ').toLowerCase();
-        world.lorebook.forEach(entry => {
-            if (!entry.keyword || !entry.text) return;
-            const keywords = parseLoreKeywords(entry.keyword);
-            if (keywords.some(keyword => loreKeywordMatches(combinedContext, keyword))) {
-                relevantLore += `\n[LORE: ${entry.keyword}] ${entry.text}`;
-            }
-        });
+        : "") + (sceneRecall ? `\n\n[SOURCE-LINKED SCENE MEMORY — past scenes, NOT current state]\n${sceneRecall}\nTestimony means somebody said it, not that it is true. Narrative excerpts quote an older scene and may contain dialogue, intentions or uncertainty; they are not new verified state. Current engine state overrides old events. Do not grant recalled knowledge to an unwitnessing NPC.` : '');
+    // Shared authored knowledge: narrator facts and per-actor knowledge stay distinct.
+    let relevantLore = '';
+    if (globalThis.HordeWorldLore) {
+        const packet = globalThis.HordeWorldLore.context(worldForSession(world, sess), { locationId: sess.playerLocation,
+            npcIds: presentNPCs.map(n => n.id), query: userInput, session: sess });
+        packet.movementOptions = buildWorldMovementOptions(world, sess,
+            presentNPCs.map(n => n.id), userInput, !linkedWorldTurn);
+        worldLoreContextSnapshots.set(sess.id, packet);
+        relevantLore = '\n[WORLD LORE — authoritative map and movement rules. The CURRENT WORLD STATE Exits line and places[].connections list every authored exit from the current place; these are the physical exits that exist. movementOptions[].allowed_next lists only routes currently permitted for that actor and may be a subset, especially when the player named a destination. Never infer that other exits do not exist or call one route the only exit merely because allowed_next is narrower. Describe a route as blocked, locked or inaccessible only when its connection data says so. Before proposing a place-to-place move, use only allowed_next route IDs, modes and travel times for that actor. An empty allowed_next list means no mapped place transition is allowed now. This does not restrict ordinary movement within the current room/place: narrate such repositioning normally, without a movement event or location ID. NPC options account for place knowledge, faction/person access, durable grants, route direction, door state, carried requirements and current travel blocks. Player options account for authored routes, door state, carried requirements and current travel blocks; only the player’s stated destination may authorize a multi-step route. Do not invent mapped destinations, exits, permissions or teleportation. Connections/access/doors elsewhere in this packet are reference data, not permission to bypass movementOptions. placeIndex is a compact relevant-place index; npcPlaces lists place IDs each present NPC knows.]\n' + JSON.stringify(packet);
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.loreCharacters = relevantLore.length;
+    } else {
+        relevantLore = (world.lorebook || []).filter(entry => entry.keyword && entry.text
+            && parseLoreKeywords(entry.keyword).some(keyword => loreKeywordMatches([userInput, locName, locDesc].join(' ').toLowerCase(), keyword)))
+            .map(entry => `\n[LORE: ${entry.keyword}] ${entry.text}`).join('');
     }
 
     const gameRules = normalizeWorldGameRules(world);
@@ -28797,7 +30832,14 @@ async function executeWorldTurn(commandOrReroll = null) {
         const depth = WORLD_DIRECTORY_DEPTHS.includes(npc.simulationDepth)
             ? npc.simulationDepth : (npc.isMajor ? 'core' : 'background');
         const personaStr = npc.persona ? `\nPERSONALITY & VOICE: ${npc.persona}` : "";
-        const activity = ruleModules.schedules && entState.currentActivity ? `\nCurrently: ${entState.currentActivity}` : "";
+        // Current physical state is independent of schedule simulation. Keep
+        // explicit empty conditions distinct from missing legacy state, and
+        // do not truncate away a later clause that supersedes an old pose.
+        const activity = `\nCURRENT RECORDED STATE (overrides historical descriptions): ${JSON.stringify({
+            activity: entState.currentActivity ?? entState.activity ?? null,
+            outfit: entState.outfit ?? null,
+            conditions: Array.isArray(entState.conditions) ? entState.conditions : null
+        })}\nThese are current values, not memories. An empty conditions list means no recorded conditions; null means unknown, not proof of absence. Older scenes describe earlier states: do not restore superseded clothing, equipment, poses or conditions merely because an old memory mentions them. New lasting changes still require events.`;
         const dispo = entState.disposition !== undefined ? entState.disposition : 50;
         const dispoStr = ruleModules.relationships
             ? `\nDISPOSITION TOWARD PLAYER: ${dispo}/100 (${dispositionLabel(dispo)}) — let this color their tone, openness, and willingness to help.`
@@ -28812,14 +30854,13 @@ async function executeWorldTurn(commandOrReroll = null) {
 
         // KNOWLEDGE BOUNDARY: recent events this NPC provably did NOT witness
         // (built from per-message witness stamps — the mechanical knowledge graph)
-        const unwitnessed = sess.history.slice(-14)
+        const unwitnessedCount = sess.history.slice(-14)
             .filter(m => Array.isArray(m.witnesses) && !m.witnesses.includes(npc.id) && (m.role === 'dm' || m.role === 'user'))
-            .slice(-5)
-            .map(m => `"${canonicalMsgText(m).replace(/\s+/g, ' ').slice(0, 90)}..."`);
+            .slice(-5).length;
         const wasAsleep = /sleep|slumber|nap|in bed/i.test(entState.currentActivity || '');
         let boundaryStr = '';
-        if (unwitnessed.length || wasAsleep) {
-            boundaryStr = `\nKNOWLEDGE BOUNDARY — ${npc.name} did NOT witness and does NOT know about:${wasAsleep ? `\n  - anything that happened while they were asleep (they may have been woken by a loud noise — they know the NOISE, not its cause or story)` : ''}${unwitnessed.length ? '\n  - ' + unwitnessed.join('\n  - ') : ''}\n  They can learn these ONLY by being told or shown on-screen. When they enter a scene, they arrive ignorant and curious — asking, not explaining.`;
+        if (unwitnessedCount || wasAsleep) {
+            boundaryStr = `\nKNOWLEDGE BOUNDARY — ${npc.name} missed ${unwitnessedCount} recent scene(s)${wasAsleep ? ' and was asleep during part of the story' : ''}. Do not transfer unseen events or unknown place names into this NPC's knowledge. They learn only by a visit or a verified telling.`;
         }
 
         const groundedKnowledge = obs.slice(-7).map(o => {
@@ -28832,13 +30873,26 @@ async function executeWorldTurn(commandOrReroll = null) {
         const absentKnowledge = discussedAbsentees.length
             ? `\nAbsent people relevant to this scene: ${discussedAbsentees.map(other => other.name).join(', ')}. Their actual location, captivity, survival and private actions in the DM's world data are NOT ${npc.name}'s knowledge. A clue about a direction or a key is not evidence of a particular room or fate. Speak from this NPC's own authored knowledge, witnessed scene, and what the player actually says; distinguish a guess from a fact.`
             : '';
-        npcContext += `\n[NPC PERSPECTIVE: ${npc.name}] [SIMULATION: ${depth.toUpperCase()}]${description}${personaStr}${activity}${dispoStr}${priorRelationship}${goalStr}${boundaryStr}\nGrounded knowledge: ${groundedKnowledge.join(' | ') || 'No persistent facts yet.'}${absentKnowledge}\nNever upgrade hearsay, suspicion or belief into witnessed fact without new evidence.\n`;
+        const knownPlaceIds = worldLoreContextSnapshots.get(sess.id)?.npcPlaces?.[npc.id] || [];
+        let perspective = `\n[NPC PERSPECTIVE: ${npc.name}] [SIMULATION: ${depth.toUpperCase()}]${description}${personaStr}${activity}${dispoStr}${priorRelationship}${goalStr}${boundaryStr}\nKnown local place IDs: ${knownPlaceIds.join(', ') || 'none'}; do not speak of other mapped places as known.\nGrounded knowledge: ${groundedKnowledge.join(' | ') || 'No persistent facts yet.'}${absentKnowledge}\nNever upgrade hearsay, suspicion or belief into witnessed fact without new evidence.\n`;
+        if (globalThis.HordeWorldLore) globalThis.HordeWorldLore.withIndex(visibleWorld, () => {
+            for (const place of visibleWorld.locations || []) {
+                if (globalThis.HordeWorldLore.placeAwareness(visibleWorld, npc.id, place.id, sess).known) continue;
+                for (const label of [place.name, place.id].filter(value => String(value || '').length >= 5)) {
+                    const escaped = String(label).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                    perspective = perspective.replace(new RegExp(escaped, 'gi'), '[unfamiliar place]');
+                }
+            }
+        });
+        npcContext += perspective;
     });
 
     // Absence manifest: every named NPC that is NOT in this scene (capped to keep tokens sane)
     const visibleNpcs = sessionNpcs(world, sess);
+    const relevantAbsentIds = new Set(findReferencedWorldNpcs(world, sess, archiveQuery).map(npc => npc.id));
     const absentNpcManifest = visibleNpcs
-        .filter(e => !presentNPCs.includes(e) && isNpcActive(sess.entityStates[e.id]))
+        .filter(e => !presentNPCs.includes(e) && isNpcActive(sess.entityStates[e.id])
+            && relevantAbsentIds.has(e.id))
         .slice(0, 20)
         .map(e => `${e.name}${sess.entityStates[e.id]?.journey ? ` (in transit to ${getLocationRef(visibleWorld, sess.entityStates[e.id].journey.destinationId)?.name || 'their destination'})` : ''}`)
         .join(', ');
@@ -28897,6 +30951,7 @@ async function executeWorldTurn(commandOrReroll = null) {
     const persona = getTimelinePersona(sess);
     let personaContext = persona ? `\n\n[PLAYER PERSONA — AUTHORITATIVE PLAYER IDENTITY]\n${personaPromptText(persona)}` : "";
     const playerIdentity = isPlainObject(sess.playerIdentity) ? sess.playerIdentity : {};
+    const originActor=(world.entities||[]).find(entity=>entity.type==='npc' && Array.isArray(entity.playerOriginIds) && entity.playerOriginIds.includes(sess.originId));
     const worldCapabilities = normalizeWorldCapabilities(world);
     const playerHome = getLocationRef(world, playerIdentity.homeLocationId);
     const playerHousehold = (world.groups || []).find(group => group.id === playerIdentity.householdId);
@@ -28912,6 +30967,7 @@ async function executeWorldTurn(commandOrReroll = null) {
     });
     const capabilityLines = [
         playerIdentity.role ? `Starting role: ${playerIdentity.role}` : '',
+        originActor ? `Role embodiment: the authored ${originActor.name} role represents the player in this session. Use the player’s chosen name and pronouns. Do not introduce this role as an additional NPC; player events use actor_id \"player\".` : '',
         playerIdentity.socialRank ? `Social rank: ${playerIdentity.socialRank}` : '',
         playerIdentity.publicIdentity ? `Public identity: ${playerIdentity.publicIdentity}` : '',
         playerIdentity.reputation ? `Reputation: ${playerIdentity.reputation}` : '',
@@ -28965,7 +31021,9 @@ async function executeWorldTurn(commandOrReroll = null) {
         }
     });
 
-    const locationManifest = buildKernelLocationManifest(world, sess, userInput);
+    const locationManifest = globalThis.HordeWorldLore
+        ? 'Relevant place IDs and routes appear in the WORLD LORE packet below.'
+        : buildKernelLocationManifest(world, sess, userInput, !linkedWorldTurn);
     
     // --- MEMORY MATRIX INJECTION ---
     const memoryContext = await getMemoryMatrixContext(world, sess, userInput);
@@ -29057,6 +31115,7 @@ Every response MUST submit exactly one commit_world_turn receipt, including pure
 - "walks toward", "tries", "plans", "starts", and hypothetical actions are intended/attempted/in_progress, not completed.
 - ${ruleModules.checks ? `If the player's attempted action has a meaningful failure risk established in the scene (especially a dangerous mechanism, locked obstacle, combat or rescue), request a check rather than choosing success in prose. If your prose requests or requires a check, the SAME commit_world_turn tool call MUST include root checks:[{label,stat_id,difficulty,on_success,on_failure}] (an inline <world_turn_receipt> fallback instead uses state_updates.checks as that same ARRAY). Use this World's default difficulty ${diceConfig.defaultDifficulty} when no DC was stated. Put durable success/failure state changes only in on_success/on_failure. Put prose-only possible consequences in success_text/failure_text at the check root, NEVER in on_success.summary or on_failure.summary. Do not narrate an outcome before resolution or ask the player for a raw die roll. Keep unresolved attempts as non-completed events; do not add an improvised inventory item without a separately valid completed transfer.` : 'Checks are disabled in this World; do not request a dice roll in prose.'}
 - scene.player_location_id and entity_updates.location_id are checksums only. They cannot move anyone.
+- Never emit root-level npc_moves or location_id to move someone. For a transition between mapped places, use WORLD LORE movementOptions and an exact actor/from/to ID. Movement within the current room/place needs no movement event or location ID and may be narrated normally.
 - A completed player move requires events[type=movement, actor_id=player] and must match the player's own intent, unless an explicit forced/carried/fall/vehicle event names its cause and responsible actor.
 - A completed NPC arrival/departure requires its own movement event.
 - When an NPC explicitly agrees to accompany the player, commit an escort event with actor_id=that NPC, target_id=player, action=join, status=completed, and evidence of their agreement. A request alone is not agreement. The engine then carries this NPC along mapped player travel; action=leave ends it. Do not narrate an absent NPC as accompanying the player unless the escort is already canonical.
@@ -29065,7 +31124,7 @@ Every response MUST submit exactly one commit_world_turn receipt, including pure
 - Include the complete ending cast in scene.present_character_ids, even when it did not change.
 - If the narrative visits a new place, register it with location_introduced in state_updates and use an actor-scoped movement event.
 - A named route is physically closed only when its location has an explicit route-blocking condition. If authoritative narration says a mapped route is impassable, severed, washed out or gone, commit state_updates.location_state_updates using the exact location ID and add_conditions:["impassable"]. A generic hazard such as "flooded" does not disable travel. A scout's or NPC's report is testimony, not physical fact: keep it attributed and uncertain until observed; never silently turn a claim into a blocked exit.
-- If an unnamed person becomes a named or recurring speaker, register them in state_updates.npc_introduced with a unique id, name, description and persona. They begin at the current scene; use that same id in scene.present_character_ids and entity_updates. Do not invent a new id for an already-authored NPC.
+- Use only people present in the authored world or explicitly introduced by the player. Do not invent a role NPC such as a porter, guard, driver, servant or helper to make a scene convenient. A role mentioned in prose is not evidence that the person exists. Background crowds may be brief scenery, but must not speak, act on the player's behalf, or become persistent NPCs. Add state_updates.npc_introduced only when the player explicitly introduces or requests a new person, or authored world data requires that introduction; then use the same exact ID in the scene and events. Never duplicate an authored NPC under a new ID.
 - When the player truly gains or loses a title, rank, allegiance, legal status, privilege, duty or holding, persist it with player_identity_update. Aspirations, disguises and rumors are not identity changes.
 - If the player asks about a deadline, action_resolution.outcome must answer with the actual deadline or explicitly say the NPC has not answered; merely recording the question is not a resolution. If a character gives the player a concrete urgent deadline or a choice with imminent stakes, register it with state_updates.world_events using a stable id, due_in_minutes or due_in_turns, and urgent:true. This is a PLAYER-KNOWN pressure, not proof that a rumor is true: describe the deadline neutrally and add condition_on_trigger only when the threatened change is already established as inevitable. When the player averts, fulfils or redirects it, update/cancel that SAME event id and commit the resulting observable change. If a reported warning already fired, cancelling its reminder alone does not erase the reached consequence: on a later turn supply a specific observed resolution and resolution_event_id naming its completed, evidenced event in this receipt; the resolution must describe the same evidence. Do not leave a claimed urgent threat as prose only or silently forget a choice to help, defer or refuse.
 
@@ -29079,11 +31138,13 @@ ${memoryContext}
 CURRENT WORLD STATE:
 Location: ${locName} (id: "${sess.playerLocation}")
 Canonical Scene Frame (authoritative): ${JSON.stringify(canonicalSceneFrame)}
+${normalizeWorldKernelConfig(world).sceneLedger ? `Anonymous scene groups (established, not named NPCs): ${JSON.stringify(sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [])}` : ''}
 Recent Committed/Tracked Events: ${recentCanonicalEvents.length ? JSON.stringify(recentCanonicalEvents) : 'None yet'}
 Time: ${exactTimeStr} (${period}, ${weekdayName}, Day ${days})
 Weather: ${weather} — weave it into descriptions where natural; it may subtly affect NPC moods and outdoor scenes.
 Description: ${locDesc}${locHidden}
 Exits: ${locExits}
+Place appearance and room contents are included in WORLD LORE. Treat that data as canonical unless this game’s committed state changed it.
 NPCs Present: ${presentNPCs.map(n => n.name).join(', ') || 'None'}
 NPCs escorting player: ${sessionNpcs(world, sess).filter(npc => sess.entityStates?.[npc.id]?.followingPlayer === true && isNpcActive(sess.entityStates[npc.id])).map(npc => npc.name).join(', ') || 'None'}
 NPCs NOT Present (ABSENT): ${absentNpcManifest || 'None'}${referencedNpcContext}
@@ -29099,7 +31160,7 @@ Player Condition: ${ruleModules.health || ruleModules.conditions
 Rules Profile: ${gameRules.profileId}. Enabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => ruleModules[key]).join(', ') || 'none'}. Disabled modules: ${WORLD_RULE_MODULE_KEYS.filter(key => !ruleModules[key]).join(', ') || 'none'}.
 Special rules: vital stat "${ruleModules.health ? (gameRules.vitalStatId || 'none') : 'disabled'}"; zero-health mode "${ruleModules.health ? gameRules.zeroHpMode : 'disabled'}"; currency stat "${ruleModules.commerce ? (gameRules.currencyStatId || 'none') : 'disabled'}" (${gameRules.currencyName}).
 Check Engine: ${ruleModules.checks ? `d${diceConfig.sides}, ${diceConfig.resolution} resolution, ${diceConfig.visibility} visibility, default difficulty ${diceConfig.defaultDifficulty}, stat modifier ${diceConfig.modifierMode}. Submit at most ONE check and put every result-dependent persistent mutation inside its on_success/on_failure object; completed top-level consequences beside a check are rejected. ${diceConfig.resolution === 'player' ? 'End at the moment of uncertainty. The player must resolve the queued check before any other action; the next response receives the canonical result.' : 'The engine resolves it immediately; never invent a roll.'}${diceConfig.visibility === 'hidden' ? ' Keep the die, target and modifier out of narration; reveal only fictional consequences.' : ''}` : 'Disabled — resolve through fiction without dice.'}
-Locked mapped exits: an item requirement is enforced before travel. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
+Locked mapped exits: an item requirement is enforced before travel. A player carrying the required item can open an adjacent mapped door without moving; this is applied by the engine before narration. A key also opens a traversed door; it stays unlocked unless the player explicitly re-locks it, in which case the engine closes it after the move. The engine has already applied any player-directed travel and door steps reported below; narrate their actual result, never propose them again as effects. A physically sealed route remains blocked even with a key. Only exits marked "can unlock with check" may be picked or forced. For a successful local lock check, put exit_unlocks:[{from_location_id:"${loc?.id || ''}",to_location_id:"<exact adjacent location ID>"}] inside checks[0].on_success, never at the top level or on_failure. Do not narrate travel through the gate until the successful check has opened it. Never supply a roll or force_resolve; the engine owns dice.
 Player Outfit: ${sess.outfit || 'Standard attire'}
 ${questPrompt}${npcContext}${engineEventsPrompt}${threadsPrompt}${livingWorldPrompt}${societyPrompt}`;
     
@@ -29217,6 +31278,7 @@ ${questPrompt}${npcContext}${engineEventsPrompt}${threadsPrompt}${livingWorldPro
         ].join('\n');
 
         let finalMandate = `\n\n[FINAL MANDATE]\n1. Stay in character as the DM. No OOC meta-talk.\n2. Current Environment: ${locName}. Exits: ${locExits}.\n3. NPC Integrity: honor each NPC's KNOWLEDGE BOUNDARY strictly. An NPC knows ONLY their listed observations and events they witnessed. Someone who just arrived or just woke perceived at most the trigger (a sound, a smell, a scream) — NEVER its cause, backstory, or details from scenes they missed. They enter asking questions, not reciting answers. Information moves between characters on-screen only.\n4. Turn Commit: Every response MUST emit one real commit_world_turn tool call. Even when nothing changes, submit the ending scene checksum with empty events and entity updates for the on-screen cast. Never print the receipt as ordinary prose.\n4a. Actor Integrity: Every durable action names its actor. NPC motion updates only that NPC. Never use a mentioned destination, another character's movement, or a scene-opening sentence to move the player.\n4b. Presence Is State: Record completed arrivals and departures as actor-scoped movement events and give the complete ending cast in scene.present_character_ids. Directional intention is not arrival.\n4c. Appearance Is State: Record dressing, stripping, equipment and lasting garment condition as outfit events for the correct actor. entity_updates reports what each on-screen person is wearing now.\n4d. Reality Levels: intended, attempted, in_progress and completed are different. Only completed events mutate reality. Dialogue, rumor, belief, plans and hypotheticals are not physical facts.\n4e. Movement Integrity: Known destinations require a valid route. New destinations must be introduced and connected first. Forced player movement must state its mode, cause and responsible actor.\n5. Narrative Requirement: ALWAYS include descriptive prose explaining what is happening. The receipt records the same reality as the prose.\n6. Chronological Integrity: Time is exactly ${exactTimeStr} (${period}). Do NOT describe lighting, meals, or events that contradict this exact time.\n7. Time Passage: Record meaningful elapsed time as a completed time event and in state_updates.time_skip_minutes when applicable.
+        finalMandate += '\n4c. Outfit detail: An outfit event must include a non-empty outfit description. If the actor has no established outfit and the scene establishes or changes their clothing, invent a plausible complete outfit consistent with their role, setting, weather and story. Do not emit an outfit event with outfit omitted or blank.';
 ${modularMandate}
 10. Permanence & Threads: When an NPC dies or leaves the world permanently, call 'npc_status_changes' — death is real and permanent. When the story plants a hook (an unopened letter, an unanswered question, a promise), register it with 'threads_update' and pay it off later; never let a planted hook silently evaporate.
 10a. CHRONICLE: Whenever canon changes, include one concise factual sentence in state_updates.ledger_update. Pure description, repetition, and small talk need no ledger entry. Never log plans as completed facts.
@@ -29226,9 +31288,24 @@ ${modularMandate}
 14. If the player supplies a die result while checks are enabled, adjudicate that existing roll rather than rolling again.${directorNotesRequired ? `
 15. DIRECTOR MODE (ACTIVE PRESET — REQUIRED): Follow the active plot-tracking module and append exactly one <details><summary>Plot Momentum</summary>...</details> block after the narrative and any [MEMORY] line. It must be the final element of every response. Do not omit it when tools are used.` : ''}`;
 
-        const sceneDrafts = normalizeWorldKernelConfig(world).sceneDrafts
+        const sceneLedger = normalizeWorldKernelConfig(world).enabled
+            && normalizeWorldKernelConfig(world).sceneLedger && typeof HordeWorldSceneLedger !== 'undefined';
+        const sceneDrafts = (sceneLedger || normalizeWorldKernelConfig(world).sceneDrafts)
             && typeof HordeWorldSceneDraft !== 'undefined';
-        if (sceneDrafts) finalMandate = HordeWorldSceneDraft.alignInstructions(finalMandate);
+        const sceneProtocol = normalizeWorldKernelConfig(world).sceneDraftProtocol;
+        const compactSceneRules = sceneDrafts && sceneProtocol === 'scene_draft_v3'
+            ? `\n[WORLD RULES]\nRespect player decisions and NPC knowledge boundaries. Testimony, guesses and plans are not witnessed facts. Follow established canon and the current engine state; never repeat a precommitted change.
+Only completed events change state. Transfers require inventory events; mapped travel requires authorized actor-scoped routes. Clothing changes require a complete outfit description; lifecycle changes use status with next_status alive/dead/gone. Lasting consequences must use enabled typed effects. Record elapsed time once, as a time event. Keep a concise ledger entry only for new canon and preserve unresolved story threads.
+${modularMandate}
+${directorNotesRequired ? 'Keep the required Plot Momentum block inside the final narrative passage.' : ''}` : '';
+        if (compactSceneRules) finalMandate = `\n[CURRENT TURN] Time: ${exactTimeStr} (${period}). Honor the authoritative scene, knowledge boundaries and current player request. Describe only validated outcomes; stop before the next unrequested player decision.`;
+        else if (sceneDrafts) finalMandate = HordeWorldSceneDraft.alignInstructions(finalMandate);
+        systemPrompt = WORLD_PLAYER_INPUT_FIDELITY + '\n\n' + systemPrompt;
+        if (sceneDrafts) {
+            const start = systemPrompt.indexOf('[ENGINE MANDATE: CANONICAL TURN COMMIT]');
+            const end = systemPrompt.indexOf('[LOCATION MANIFEST', start);
+            if (start >= 0 && end > start) systemPrompt = systemPrompt.slice(0, start) + systemPrompt.slice(end);
+        }
 
         // Budget the COMPLETE system prompt, the reserved tool schema, and the
         // current action before older history. Previously this ran before the
@@ -29251,12 +31328,14 @@ ${modularMandate}
         // starts failing once a long campaign finally fills the history slot.
         const TOOL_RESERVE = 8192;
         const injectedTokens = injectedHistory.reduce((sum, inj) => sum + Math.ceil(inj.content.length / TOKEN_DIVIDER), 0);
-        const fixedTokens = Math.ceil((systemPrompt.length + finalMandate.length) / TOKEN_DIVIDER)
+        const fixedTokens = Math.ceil((systemPrompt.length + finalMandate.length + compactSceneRules.length + 4500) / TOKEN_DIVIDER)
             + injectedTokens + GEN_LIMIT + SAFETY_BUFFER + TOOL_RESERVE + 512;
         let availableTokens = CONTEXT_LIMIT - fixedTokens;
         const startIdx = isReroll ? sess.history.length - 2 : sess.history.length - 1;
         const latestAction = !['init', 'look', 'continue'].includes(command) ? sess.history[startIdx] : null;
         const latestActionText = latestAction?.role === 'user' ? canonicalMsgText(latestAction) : '';
+        const draftPlannedWait = parseExplicitWorldWaitMinutes(latestActionText || userInput,
+            currentTotalMinutes);
         const resolveFirst = !!latestActionText && normalizeWorldKernelConfig(world).resolveFirst;
         const requiredTokens = Math.ceil(String(latestActionText || '').length / TOKEN_DIVIDER);
         if (latestAction && !latestActionText) {
@@ -29267,14 +31346,26 @@ ${modularMandate}
             throw new Error(`World Context Size is too small for this scene (${configuredContext} tokens). Increase it to at least ${minimum} in World Studio → AI Configuration, or use a model with a larger context window. No model request was sent.`);
         }
 
+        let selectedHistoryIds = [];
         const historyToSend = HordeWorldTurnContext.history({
-            history: sess.history, start: startIdx, budget: availableTokens,
+            history: sess.history, start: startIdx, budget: availableTokens, maxTurns: 5,
+            onSelected: ids => { selectedHistoryIds = ids; },
             location: sess.playerLocation, locations: world.locations,
             text: canonicalMsgText,
             prepare: freakyWorldMacros ? prepareFreakyPresetHistory : null,
             injections: injectedHistory
         });
 
+        const recentRecallContext = historyToSend.filter(message => message.role !== 'system')
+            .slice(-3).map(message => message.content).join('\n');
+        systemPrompt = systemPrompt.replace(sceneRecall, HordeWorldTurnContext.recall(
+            sess.history.slice(0, startIdx + 1), archiveQuery, sess.playerLocation, 4500, selectedHistoryIds, {
+                primaryQuery: latestActionText || userInput,
+                recentContext: recentRecallContext,
+                actorIds: [...new Set([...presentNPCs.map(npc => npc.id),
+                    ...findReferencedWorldNpcs(world, sess, `${userInput}\n${recentRecallContext}`).map(npc => npc.id)])],
+                text: message => scrubNarrativeArtifacts(canonicalMsgText(message))
+            }));
         const messages = [
             { role: 'system', content: systemPrompt + finalMandate },
             ...historyToSend
@@ -29300,7 +31391,7 @@ ${modularMandate}
                         ? `Show the immediate change at ${locName} and the choice it creates. Give it room if the stakes require it.`
                         : `Establish ${locName} and the immediate choices in a short paragraph.`;
             const proseStyle = command === 'look' ? 'Use the arrival pacing above with no OOC talk.' : 'Give rich narrative prose with no OOC talk.';
-            messages.push({ role: 'user', content: `[MANDATE: ${proseStyle} ${sceneDrafts ? 'Return narrative inside the scene_draft_v2 tool, with actions:[] for this engine command.' : 'Separately submit the required commit_world_turn receipt, or its tagged fallback if tool calling is unavailable.'}]\n\n${mandate}` });
+            messages.push({ role: 'user', content: `[MANDATE: ${proseStyle} ${sceneDrafts ? `Return narrative inside the ${sceneProtocol} tool, with actions:[] for this engine command.` : 'Separately submit the required commit_world_turn receipt, or its tagged fallback if tool calling is unavailable.'}]\n\n${mandate}` });
         }
 
         // Reroll Anti-Cache & Variance Directive
@@ -29384,6 +31475,7 @@ ${modularMandate}
                                     from_location_id: { type: "string" },
                                     to_location_id: { type: "string" },
                                     movement_mode: { type: "string", enum: ["voluntary", "forced", "carried", "vehicle", "fall", "teleport"] },
+                                    explore: { type: "boolean", description: "NPC only: deliberate search into one adjacent unknown place." },
                                     caused_by_actor_id: { type: "string", description: "Required with a non-voluntary player movement." },
                                     activity: { type: "string" },
                                     action: { type: "string", description: "For escort events, join when an NPC explicitly agrees to accompany the player; leave when they stop." },
@@ -29391,17 +31483,18 @@ ${modularMandate}
                                     change: { type: "number" },
                                     label: { type: "string" },
                                     item: { type: "string" },
-                                    outfit: { type: "string" },
-                                    condition: { type: "string" },
+                                    outfit: { type: "string", description: "Required for an outfit event. Describe the resulting complete outfit in a concise phrase. If no outfit is established, invent one that fits the character, setting, weather and story; never leave blank." },
+                                    condition: { type: "string", description: "Required for a condition event: exact lasting condition name. To remove one, copy an existing condition of that actor; loosening a tether alone does not remove cuffs." },
                                     minutes_elapsed: { type: "integer" },
                                     observation: { type: "string" },
+                                    place_id: { type: "string", description: "For a verified told observation: exact ID of a place the NPC learns exists." },
                                     source_type: { type: "string", enum: ["witnessed", "told", "public", "suspected", "believed"] },
                                     source_npc_id: { type: "string" },
                                     confidence: { type: "number" },
                                     visibility: { type: "string", enum: ["public", "private"] },
                                     contradicted: { type: "boolean" },
                                     allowed_to_share: { type: "boolean" },
-                                    next_status: { type: "string", enum: ["alive", "dead", "gone"] },
+                                    next_status: { type: "string", enum: ["alive", "dead", "gone"], description: "Only for type status: NPC lifecycle (alive, dead or gone). Do not use status for an activity, pose, mood or temporary condition." },
                                     witnessed_by: { type: "array", items: { type: "string" }, description: "IDs of characters who directly witnessed this event. Include 'player' when applicable." },
                                     cause: { type: "string" },
                                     evidence: { type: "string", description: "Short phrase from the narrative proving this event; never dialogue speculation or a hypothetical." }
@@ -29419,7 +31512,7 @@ ${modularMandate}
                                     location_id: { type: "string" },
                                     activity: { type: "string" },
                                     interacting_with: { type: "array", items: { type: "string" } },
-                                    outfit: { type: "string" },
+                                    outfit: { type: "string", description: "Required for an outfit event. Describe the resulting complete outfit in a concise phrase. If no outfit is established and the scene establishes or changes clothing, invent one consistent with the character, setting, weather and story. Never leave this blank." },
                                     conditions: { type: "array", items: { type: "string" } }
                                 },
                                 required: ["entity_id", "location_id", "activity", "interacting_with"]
@@ -29600,11 +31693,20 @@ ${modularMandate}
                                 properties: {
                                     npc_id: { type: "string", description: "ID or name of the NPC to move." },
                                     target_location_id: { type: "string", description: "ID of the destination location the NPC ends up in." },
+                                    explore: { type: "boolean", description: "Only for deliberate exploration of a directly adjacent unknown place." },
                                     reason: { type: "string", description: "Optional: one short line on why they moved." }
                                 },
                                 required: ["npc_id", "target_location_id"]
                             },
                             description: "Move an NPC from wherever they are to another location. REQUIRED whenever you narrate a character arriving, entering, joining, or leaving the player's scene — otherwise the engine still believes they are elsewhere and the player's surroundings will show the room as empty."
+                        },
+                        access_grants: {
+                            type: "array",
+                            description: "A present NPC with entry permission gives or revokes a durable copy of that permission for another present NPC. The giver keeps their own right.",
+                            items: { type: "object", properties: {
+                                grantor_npc_id: { type: "string" }, recipient_npc_id: { type: "string" },
+                                location_id: { type: "string" }, action: { type: "string", enum: ["grant", "revoke"] }
+                            }, required: ["grantor_npc_id", "recipient_npc_id", "location_id", "action"] }
                         },
                         npc_status_changes: {
                             type: "array",
@@ -29877,7 +31979,7 @@ ${modularMandate}
                 type: 'object',
                 description: 'Required answer to the CURRENT player action. This outcome is committed before final player-facing narration.',
                 properties: {
-                    kind: { type: 'string', enum: ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'] },
+                    kind: { type: 'string', enum: ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'], description: 'Classify what the player actually did. A request or permission for an NPC to do something is speech, not a completed physical action by the player.' },
                     status: { type: 'string', enum: ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'] },
                     outcome: { type: 'string', description: 'One concrete, second-person player-facing sentence (you/your, not “the player”) saying what happened or why the action cannot yet resolve. Never merely repeat the request.' }
                 },
@@ -29932,10 +32034,24 @@ ${modularMandate}
         // Keep an input-only compatibility adapter for older provider output.
         // The new public contract has no model-authored ending checksum.
         const legacyWorldTool = JSON.parse(JSON.stringify(worldStateTool));
+        const worldEffectCapability = sceneDrafts ? HordeEffectRegistry.capabilities({
+            protocol: sceneProtocol,
+            executionMode: sceneProtocol === 'scene_draft_v3' ? 'linked' : 'legacy',
+            legacySchemas: worldStateProperties,
+            intentionallyEffectFree: normalizeWorldKernelConfig(world).effectMode === 'effect_free'
+        }) : null;
         if (sceneDrafts) {
-            worldStateTool.function.parameters = HordeWorldSceneDraft.schema(worldStateProperties);
+            worldStateTool.function.parameters = HordeWorldSceneDraft.schema(worldStateProperties, sceneProtocol,
+                { input: latestActionText || userInput, commitments: sess.scheduledEvents || [],
+                    location: sess.playerLocation, now: currentTotalMinutes, plannedWait: draftPlannedWait,
+                    linkedRequired: sceneProtocol === 'scene_draft_v3', capability: worldEffectCapability });
+            if (sceneLedger) worldStateTool.function.parameters = HordeWorldSceneLedger.schema(worldStateTool.function.parameters);
             worldStateTool.function.description = 'Submit one provisional scene draft with narrative and proposed changes. The engine builds the final receipt and ending scene.';
         }
+        let sceneDraftFieldGuide = sceneDrafts
+            ? `\n[SCENE DRAFT FIELD GUIDE — authoritative for this world]\nTop level: ${Object.keys(worldStateTool.function.parameters.properties).join(', ')}.\neffects may contain only these enabled fields: ${Object.keys(worldStateTool.function.parameters.properties.effects.properties).join(', ') || '(none)'}. Use effects:{} if there is no lasting change.\nAn event uses only these fields: ${Object.keys(worldStateTool.function.parameters.properties.events.items.properties).join(', ')}. Always give its type, actor_id, status and passage_id; include action/item for a transfer, from_location_id/to_location_id for a mapped move, outfit for a clothing change. Use exact IDs from WORLD LORE. Never create a new field to describe an action; use narrative for appearance and non-durable detail.`
+            : '';
+        if (linkedWorldTurn) sceneDraftFieldGuide = `\nLinked action_effects keys: ${worldEffectCapability.names.join(', ') || '(none)'}. Each value is a typed list. Keep top-level effects:{}; attach each technical change to exactly one action_id. Events and action-result passages copy that action_id exactly.`;
 
         // Tool calling across OpenAI-compatible providers is not uniform. Give
         // every action turn an explicit textual emergency channel from turn
@@ -29952,7 +32068,21 @@ ${modularMandate}
             !Array.isArray(sess.revealedSecrets) || !sess.revealedSecrets.includes(secret.label));
         const escapeHatch = `\n\n[TURN RECEIPT DELIVERY FAILSAFE]\nUse commit_world_turn as a real tool call. If and only if this provider cannot emit that tool call, append exactly one block at the end instead:\n<world_turn_receipt>{"scene":{"player_location_id":"${sess.playerLocation}","player_location_changed":false,"present_character_ids":[]},"events":[],"entity_updates":[],"state_updates":{}${resolveFirst ? ',"action_resolution":{"kind":"other","status":"needs_clarification","outcome":"The action needs one more detail before the world can respond."}' : ''}}</world_turn_receipt>\nThe receipt is mandatory even when nothing changes. Fill it with the same actor-scoped events, full ending cast and updates you would have sent to the tool. Never send both a successful tool call and the tagged block.${resolveFirst ? '\nBefore any final scene is shown, decide how the current player action resolves. Put that concrete disposition in action_resolution. A physical success needs a completed player event or check; a risky unresolved attempt needs a check or an actor-scoped attempt. A question or speech act can be answered without changing durable state. Your initial prose, if any, is a PRIVATE draft; the engine will request final prose only after accepting the receipt.' : ''}${knownToolShy ? '\nThis model has previously failed to deliver tool calls, so use the tagged receipt rather than dropping state.' : ''}`;
         const lastSystem = [...messages].reverse().find(entry => entry.role === 'system');
-        const draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Use actions to cover the exact full player request in order, with response_id referencing the passage answering each request. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. A speaker not in known actors must first be declared in effects.npc_introduced:[{id,name,persona}], using that exact id in speech/events. This includes an unnamed role like State Examiner. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        let draftInstruction = `[SCENE DRAFT V2]\nUse commit_world_turn with protocol:"scene_draft_v2". Return narrative as ordered {id,text} passages and its small proposed changes together. Write each passage only once. Keep narrative to 1–3 short passages (about 150 words total unless the player explicitly asks for detail). Begin with the result or NPC response, not a recap of the input. Give concrete new information; avoid repeating mannerisms or padding. Stop before the next unrequested player decision. Actions use response_id; events, speech, commitments and resolutions use passage_id. IDs refer to those passages; never duplicate quotations. No separate receipt or ending cast. Treat the player's instruction as a goal: attempt its necessary feasible steps in order without asking the player to repeat obvious steps. Use actions to cover the full request in order, with response_id referencing the passage answering each step. If a step is blocked, explain the actual obstacle and keep already verified steps; never claim success for a step the engine did not commit. For a question, provide the answer or explicit refusal/deferral. Declare durable speech in speech (speaker, listeners, passage_id); mere claims are not objective truth. Every newly stated deadline MUST have a commitments entry with an absolute world day and minute_of_day, a stable ID and its passage_id. Do not put deadlines only in dialogue or ledger text. Never re-arm an old commitment just by mentioning it. Effects contain only changed enabled-module fields. All completed transfers/movement/conditions need actor-scoped events. Use only people present in the authored world or explicitly introduced by the player; do not invent convenient role NPCs such as a porter, guard, servant or helper. Background crowds may be scenery only, not actors or speakers. A request or permission for an NPC to perform an action is the player's speech act; classify it as speech/question and do not claim the player completed a physical action. Add effects.npc_introduced only when the player explicitly introduces or requests a new person or authored world data requires it. New locations require an ID and a registered connection; do not register a place merely mentioned in dialogue. Speech alone needs speech entries, not duplicate events; speech is NOT an event type. A check uses effects.checks and stops the draft before its unresolved outcome. The engine owns dice, time arithmetic, receipts and ending cast. Do not rewrite existing state.\nMovement: an invitation, agreement to a tour, or plan to travel is not a completed move. Keep the player at the current location unless their input names a destination and the engine has authorized that route. Never move an NPC to an unknown, denied, locked, or disconnected place. If travel is only proposed, answer at the current place and offer the next step; omit movement events and arrival claims.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nFor look/init/continue use actions:[]; establish the requested scene without inventing a player action.\nIf tools are unavailable, enclose the SAME draft in <world_turn_receipt> tags. Do not also emit a legacy receipt.`;
+        const resolutionGuidance = sceneProtocol === 'scene_draft_v3'
+            && !worldStateTool.function.parameters.properties.resolutions
+            ? 'No commitment can be resolved at this location in this turn; omit resolutions entirely. A distant deadline remains unresolved until witnessed.'
+            : 'Only resolve a listed commitment when needsResolution is true, or when a completed time event in this draft reaches its exact dueMinute. A resolution needs a separate completed, evidenced consequence event at event_index, grounded in the same narrative passage; a time event alone is not that consequence. Otherwise omit resolutions entirely. Show an observed consequence for every needsResolution commitment. A distant deadline\'s outcome remains unknown until observed; do not invent remote harm.';
+        if (sceneDrafts && !linkedWorldTurn) messages.push({ role: 'system', content:
+            'EVENT TYPE CONTRACT: events[].type must be exactly one of movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Never invent door, lock, open, close, travel, speech, gain, take, or posture event types. events[].status is progress (intended, attempted, in_progress, completed, cancelled, failed). Type status is only for NPC lifecycle and requires next_status: alive, dead or gone; never use it for activity, pose, mood or temporary condition. Walking up to someone in the same mapped place and showing an already held object are local interactions, not a place change or lifecycle status. A pose or gesture within the same room belongs in narrative; if a completed pose must remain as the NPC’s current state, use type activity with actor_id, status:completed and activity describing the pose. Use dialogue for speech. For item transfers use type inventory with action add/gain/take/remove/lose/consume/give/drop. Precommitted player key-door opening and re-locking are already handled by the engine; a check-unlocked passage uses effects.exit_unlocks only inside the successful check.' });
+        if (sceneDrafts) messages.push({ role: 'system', content:
+            'CONDITION EVENT RULE: Use type:"condition" only for a named lasting condition, with condition:"exact name". To remove one, copy the actor’s currently recorded condition label. Loosening a tether while cuffs remain is a completed physical interaction and possibly a changed activity, not proof that the restrained condition or cuffs ended. Do not invent a condition name or silently free the person.' });
+        if (sceneDrafts) messages.push({ role: 'system', content:
+            'PLAYER SPEECH VS ACTION: An unquoted line addressed to an NPC can be spoken dialogue or an instruction to that NPC. For example, “It is time to proceed, girl” is speech/request, not proof that the player physically moved or escorted her. Classify it as speech/question and narrate only the NPC response. Claim a completed physical action only when the player explicitly says they performed that action.\n' + WORLD_PLAYER_INPUT_NOTATION });
+        if (linkedWorldTurn) messages.push({ role: 'system', content:
+            'LINKED ACTION COVERAGE: For compound input, every action must include request copied from its own contiguous part of the player text. Split independently executable steps into separate actions in the player’s order; never omit or merge a step to avoid the request field. A completed nonpersistent physical interaction without a lasting world change needs one completed player interaction event with the same action_id and passage_id as its response. Lasting changes still require supported action_effects. A spoken line needs only its linked response passage when nothing changes.' });
+        if (linkedWorldTurn) messages.push({ role: 'system', content:
+            'SPEECH EVENT CONSISTENCY: A player message enclosed entirely in quotation marks is spoken dialogue. Classify its action as speech or question. A linked response passage suffices when the exchange changes no lasting world state; events may be empty. Never label a pause, expression, tone, spoken assertion or request as a completed movement, inventory, outfit, condition, relationship, time or NPC lifecycle event. Declare one of those events only with a matching executable action_effects operation and a real change allowed by world rules.' });
         if (sceneDrafts) {
             for (const message of messages) {
                 if (message.role !== 'system') continue;
@@ -29961,8 +32091,23 @@ ${modularMandate}
                 if (start >= 0 && end > start) message.content = message.content.slice(0, start) + message.content.slice(end);
             }
         }
-        if (lastSystem) lastSystem.content += sceneDrafts ? '\n\n' + draftInstruction : escapeHatch;
-        else messages.push({ role: 'system', content: sceneDrafts ? draftInstruction : escapeHatch });
+        if (sceneDrafts && sceneProtocol === 'scene_draft_v3') {
+            draftInstruction = draftInstruction.replaceAll('scene_draft_v2', sceneProtocol).replace('[SCENE DRAFT V2]', '[SCENE DRAFT V3]');
+            const compactRules = '\nEmpty events, effects, speech and commitments may be omitted. Use resolutions only when the schema offers reachable IDs; otherwise omit it. For exactly one simple action, omit actions[0].request: the engine supplies the original input. Compound requests require explicit contiguous request excerpts covering every step. Gestures, approaching a present person and showing an already held item in this room need no movement or transfer event. Escort records an NPC voluntarily joining or leaving as a continuing follower; its actor_id is the NPC, never player. Taking or dragging someone to a named room is a joint trip, not an escort join. If the engine already moved both people, narrate that result without duplicate movement or escort events. Never use duplicate JSON keys.';
+            draftInstruction = draftInstruction.replace('\nCurrent day:', compactRules + '\nCurrent day:');
+        }
+        if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
+        if (sceneDrafts) draftInstruction = draftInstruction.replace('\nCurrent day:',
+            '\nSchedule a commitment only for an explicit future promise or agreed deadline with a supported time. A rhetorical question about having somewhere to be is not a commitment. A newly scheduled due time must be strictly later than the current World day and minute; never guess a future date to make an unsupported commitment valid. A pause, glance, expression or momentary reaction belongs in narrative, not a completed status, time, condition or relationship event. Claim a completed mechanical event only when its matching typed action_effects change is present and valid.\nCurrent day:');
+        if (sceneLedger) draftInstruction = `[SCENE RECORD MODE] Return protocol:"scene_draft_v2", narrative:[{id,text}], ending_scene:{location_id,present_character_ids,groups:[{id,label,count}],departures:[{actor_id,to_location_id}],departed_group_ids:[]}. Supply actions/events/effects/speech/commitments/resolutions only for enabled mechanics, durable knowledge or deadlines. Use exact IDs and record the complete established ending cast, including for look/init/continue. Mere mentions, plans and flashbacks do not change the scene. New speakers require effects.npc_introduced and new locations require effects.location_introduced with an explicit connection. No unrequested movement. Stop before unresolved checks; engine dice and mechanical consequences remain authoritative. Respond to the full player request: ${JSON.stringify(latestActionText || "")}. If tools are unavailable enclose the same draft in <world_turn_receipt> tags.` + `\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.`;
+        if (sceneDrafts) {
+            const dynamicStart = draftInstruction.indexOf('\nCurrent day:');
+            messages.unshift({ role: 'system', content: draftInstruction.slice(0, dynamicStart) + compactSceneRules });
+            if (lastSystem) lastSystem.content += '\n\n' + draftInstruction.slice(dynamicStart);
+            else messages.push({ role: 'system', content: draftInstruction.slice(dynamicStart) });
+        } else if (lastSystem) lastSystem.content += escapeHatch;
+        else messages.push({ role: 'system', content: escapeHatch });
+        if (sceneLedger) messages.push({role:'system', content: `[SCENE RECORD MODE — OVERRIDES OPTIONAL DRAFT BOOKKEEPING]\nReturn protocol:scene_draft_v2, narrative:[{id,text}], ending_scene:{location_id,present_character_ids,groups:[{id,label,count}],departures:[{actor_id,to_location_id}],departed_group_ids:[]}. These are the required scene fields. actions/events/effects/speech/commitments/resolutions are optional; include only needed enabled mechanics and durable knowledge. Record the actual ending scene even if nothing changed. Do not enumerate intermediate walking steps. Use exact known IDs. Mentioned places, plans, remote reports and flashbacks never change the scene. Include completed departures explicitly; omission does not remove someone. Use departed_group_ids for anonymous groups that left; omitted groups remain in the same scene. Groups are anonymous background people, separate from named characters. New named speakers must be registered in effects.npc_introduced; new places in effects.location_introduced with an explicit connection. No unrequested player movement or teleportation. Enabled mechanical rules and deadlines still apply. Current anonymous groups: ${JSON.stringify(sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [])}`});
         if (sceneDrafts) messages.push({ role: 'system', content:
             `Commitments (exact authoritative times and observed resolutions): ${JSON.stringify((sess.scheduledEvents || [])
                 .filter(event => event.urgent || event.sourceReceiptId).map(event => ({
@@ -29972,7 +32117,10 @@ ${modularMandate}
                     locationId: event.locationId, sceneResolution: event.sceneResolution,
                     needsResolution: !!event.sourceReceiptId && event.status === 'triggered' && !event.sceneResolution
                         && (!event.locationId || event.locationId === sess.playerLocation)
-                })))}\nFor every needsResolution commitment, show the observed consequence in this scene and include resolutions:{id,passage_id,event_index} as an ARRAY entry referencing a completed evidenced event. Include corresponding lasting changes in effects. A distant deadline's outcome remains unknown until observed; do not invent remote harm.` });
+                })))}\n${resolutionGuidance}` });
+        if (linkedWorldTurn) messages.push({ role: 'system', content:
+            `Reachable scene context for this turn (read-only; locations may be blocked): ${JSON.stringify(
+                buildLinkedSceneContext(world, sess, submittedInput || userInput)).slice(0, 20000)}` });
 
         const requestBody = {
             model: modelId,
@@ -29983,14 +32131,27 @@ ${modularMandate}
             tools: toolsConfig
         };
         const draftTransportKey = `${turnProvider}:${modelId}`;
-        const sceneJsonTransport = sceneDrafts && receiptFirstToolCall
-            && (sess.sceneDraftJsonModels || []).includes(draftTransportKey);
+        const lockedSceneSecret = currentSecrets.some(secret =>
+            !Array.isArray(sess.revealedSecrets) || !sess.revealedSecrets.includes(secret.label));
+        // Local tool calling does not necessarily constrain tool arguments to
+        // the declared schema. When no secret lookup tool is needed, use the
+        // backend's JSON-schema decoder to prevent invented keys and enum
+        // values before they reach scene validation.
+        const knownUnconstrainedScene = (sess.sceneDraftUnconstrainedModels || []).includes(draftTransportKey);
+        const localSceneSchemaTransport = sceneDrafts && turnProvider === 'local' && !lockedSceneSecret && !knownUnconstrainedScene;
+        const sceneJsonTransport = localSceneSchemaTransport || (sceneDrafts && knownUnconstrainedScene && !lockedSceneSecret) || (sceneDrafts && (knownToolShy || (sess.sceneDraftJsonModels || []).includes(draftTransportKey)));
         if (sceneJsonTransport) {
-            messages.push({role:'system',content:'[SCENE DRAFT JSON TRANSPORT]\nReturn only one JSON scene_draft_v2 object, not a function call, tags or prose outside JSON. Use this exact schema: '
-                + JSON.stringify(worldStateTool.function.parameters)});
+            messages.push({role:'system',content:`[SCENE DRAFT JSON TRANSPORT]\nReturn only one JSON ${sceneProtocol} object, not a function call, tags or prose outside JSON.`
+                + (localSceneSchemaTransport ? ' The server enforces the supplied JSON schema.'
+                    : ' Use this exact schema: ' + JSON.stringify(worldStateTool.function.parameters))});
             requestBody.messages = sanitizeMessagesForProvider(messages);
             delete requestBody.tools;
             delete requestBody.tool_choice;
+            if (localSceneSchemaTransport) requestBody.response_format = {
+                type: 'json_schema', json_schema: {
+                    name: sceneProtocol, schema: worldStateTool.function.parameters
+                }
+            };
         }
         const sceneDraftBaseVersion = sess.worldStateVersion || 0;
         if (turnProvider === 'openrouter') requestBody.provider = { require_parameters: true };
@@ -30039,9 +32200,13 @@ ${modularMandate}
         // The tool contract is provider input too. Check the actual outgoing
         // payload after compacting it; a conservative estimate prevents a
         // model call that silently drops the action or exceeds its window.
-        const estimatedInputTokens = Math.ceil(JSON.stringify({
-            messages: requestBody.messages, tools: requestBody.tools
-        }).length / TOKEN_DIVIDER);
+        const outgoingScenePayload = JSON.stringify({ messages: requestBody.messages,
+            tools: requestBody.tools, response_format: requestBody.response_format });
+        const estimatedInputTokens = Math.ceil(outgoingScenePayload.length / TOKEN_DIVIDER);
+        if (turnCallAudit?.metrics) {
+            turnCallAudit.metrics.mainPromptCharacters = outgoingScenePayload.length;
+            turnCallAudit.metrics.estimatedInputTokens = estimatedInputTokens;
+        }
         if (estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
             const minimum = Math.ceil((estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER + 1024) / 1024) * 1024;
             throw new Error(`This World turn needs about ${minimum} context tokens including its tool contract, but the configured/model limit is ${CONTEXT_LIMIT}. Increase World Context Size or use a larger-context model. No model request was sent.`);
@@ -30069,11 +32234,23 @@ ${modularMandate}
         if (!response.ok) {
             let errBody = await HordeWorldModelClient.readText(response, controller.signal);
             recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, null);
-            if ((response.status === 400 || response.status === 404 || response.status === 422)
-                && /\btools?\b|tool_choice|tool_calls|function[_ -]?call|parallel_tool_calls|commit_world_turn|No endpoints found that can handle the requested parameters/i.test(errBody)) {
+            activeStream.dispose();
+            const unsupportedSceneSchema = localSceneSchemaTransport && [400, 404, 422].includes(response.status)
+                && /response_format|json_schema|grammar|schema/i.test(errBody);
+            if (unsupportedSceneSchema && sceneProtocol !== 'scene_draft_v3') {
+                throw new Error(`The local model server rejected the constrained World scene schema (HTTP ${response.status}). No story or world change was applied. Check that this server supports response_format json_schema, or use a compatible local endpoint. ${String(errBody).slice(0, 280)}`);
+            }
+            if (unsupportedSceneSchema || ((response.status === 400 || response.status === 404 || response.status === 422)
+                && /\btools?\b|tool_choice|tool_calls|function[_ -]?call|parallel_tool_calls|commit_world_turn|No endpoints found that can handle the requested parameters/i.test(errBody))) {
                 console.warn("Horde Engine: Model does not support tools. Retrying in Narrative Rescue mode.");
                 showToast("Model doesn't support tools. Using Narrative Fallback...", "info");
-                // RETRY WITHOUT TOOLS
+                // One capability fallback; semantic validation remains unchanged.
+                if (unsupportedSceneSchema) {
+                    sess.sceneDraftUnconstrainedModels = [...new Set([...(sess.sceneDraftUnconstrainedModels || []), draftTransportKey])].slice(-20);
+                    delete requestBody.response_format;
+                    requestBody.messages = requestBody.messages.map(message => ({ ...message,
+                        content: String(message.content || '').replace(' The server enforces the supplied JSON schema.', '') }));
+                }
                 delete requestBody.tools;
                 delete requestBody.tool_choice;
                 delete requestBody.parallel_tool_calls;
@@ -30081,7 +32258,9 @@ ${modularMandate}
                 const fallbackPlacement = directorNotesRequired
                     ? 'immediately before the required final <details><summary>Plot Momentum</summary> block'
                     : 'after the prose';
-                const fallbackInstruction = `\n\n[TOOL-FREE TURN RECEIPT — REQUIRED]\nThis provider rejected tool calling. Append exactly one <world_turn_receipt>{...}</world_turn_receipt> block ${fallbackPlacement}, even when nothing changed. It must contain scene, events, entity_updates, and state_updates using exact IDs. Movement is actor-scoped; NPC movement never moves the player. Put specialized persistent updates${questFallbackMode ? ', including quests_update,' : ''} inside state_updates.`;
+                const fallbackInstruction = sceneDrafts
+                    ? `\n[TOOL-FREE SCENE DRAFT] Return the same ${sceneProtocol} draft in <world_turn_receipt> tags. Do not emit a legacy receipt or separate prose. Schema: ${JSON.stringify(worldStateTool.function.parameters)}`
+                    : `\n\n[TOOL-FREE TURN RECEIPT — REQUIRED]\nThis provider rejected tool calling. Append exactly one <world_turn_receipt>{...}</world_turn_receipt> block ${fallbackPlacement}, even when nothing changed. It must contain scene, events, entity_updates, and state_updates using exact IDs. Movement is actor-scoped; NPC movement never moves the player. Put specialized persistent updates${questFallbackMode ? ', including quests_update,' : ''} inside state_updates.`;
                 requestBody.messages = requestBody.messages.map((message, index) =>
                     index === 0 ? { ...message, content: String(message.content || '') + fallbackInstruction } : message);
                 
@@ -30096,12 +32275,14 @@ ${modularMandate}
                 if (!response.ok) {
                     errBody = await HordeWorldModelClient.readText(response, controller.signal);
                     recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, null);
+                    activeStream.dispose();
                 }
             }
             if (!response.ok) throw new Error(errBody || `API request failed (${response.status})`);
         }
 
         if (!response.body) {
+            activeStream.dispose();
             recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, null);
             throw new Error('No response body from API');
         }
@@ -30110,6 +32291,26 @@ ${modularMandate}
         const decoder = new TextDecoder();
         let fullText = "";
         const streamedToolCalls = new Map();
+        let earlyDraftFailure = null, earlyDraftRaw = '';
+        const draftValidators = new Map();
+        const inspectDraftStream = (key, raw) => {
+            if (!sceneDrafts || sceneProtocol !== 'scene_draft_v3' || earlyDraftFailure) return;
+            let entry = draftValidators.get(key);
+            if (!entry) {
+                entry = { source: '', validator: HordeWorldSceneDraft.streamValidator(worldStateTool.function.parameters) };
+                draftValidators.set(key, entry);
+            }
+            if (!raw.startsWith(entry.source)) {
+                entry.source = '';
+                entry.validator = HordeWorldSceneDraft.streamValidator(worldStateTool.function.parameters);
+            }
+            earlyDraftFailure = entry.validator.push(raw.slice(entry.source.length));
+            entry.source = raw;
+            if (earlyDraftFailure) {
+                earlyDraftRaw = raw.slice(0, 16000);
+                turnCallAudit.metrics.earlyAbortReason = earlyDraftFailure.reason;
+            }
+        };
         let streamError = null;       // provider error delivered inside the stream
         let streamCompleted = false;
         let reasoningSeen = false;    // model emitted hidden reasoning deltas
@@ -30120,11 +32321,12 @@ ${modularMandate}
         let nonStreamBody = '';
 
         // Create a temporary UI message for streaming
-        const aiMsgDiv = document.createElement('div');
+        const aiMsgDiv = pendingTurnUI?.statusNode || document.createElement('div');
         aiMsgDiv.className = 'msg msg-dm';
         aiMsgDiv.innerHTML = `<div class="msg-bubble"><div class="msg-text"></div></div>`;
-        document.getElementById('world-messages-container').appendChild(aiMsgDiv);
-        const textTarget = aiMsgDiv.querySelector('.msg-text');
+        if (state.activeWorldId === world.id && getCurrentWorldSession()?.id === sess?.id)
+            document.getElementById('world-messages-container').appendChild(aiMsgDiv);
+        let textTarget = aiMsgDiv.querySelector('.msg-text');
         if (sceneDrafts || resolveFirst || knowledgeSensitiveStream || conditionalSensitiveStream)
             textTarget.textContent = resolveFirst ? 'Resolving your action…' : 'Writing scene…';
 
@@ -30148,13 +32350,18 @@ ${modularMandate}
                 if (delta.reasoning || delta.thought) {
                     reasoningSeen = true;
                     if (dmTypingLabel && !fullText) dmTypingLabel.textContent = 'DM is thinking deeply...';
+                    if (!fullText) setPendingStatus('DM is thinking deeply...');
                 }
                 const content = Array.isArray(delta.content)
                     ? delta.content.map(part => typeof part?.text === 'string'
                         ? part.text : part?.text?.value || '').join('')
                     : delta.content;
+                if (turnCallAudit?.metrics && turnCallAudit.metrics.firstTokenMs === null
+                    && (content || delta.reasoning || delta.thought || delta.tool_calls))
+                    turnCallAudit.metrics.firstTokenMs = Math.round(performance.now() - activeStream.startedAt);
                 if (content) {
                     fullText += content;
+                    inspectDraftStream('content', fullText);
                     if (!resolveFirst && !knowledgeSensitiveStream && !conditionalSensitiveStream && !sceneDrafts) {
                         const visibleStreamText = scrubNarrativeArtifacts(fullText)
                             .replace(/(?:^|\n)\s*(?:assistant\s+to=)?commit_world_turn\s*\([\s\S]*$/i, '');
@@ -30162,7 +32369,8 @@ ${modularMandate}
                             ? renderFreakyPresetMessage(visibleStreamText) : parseHordeMarkdown(visibleStreamText);
                     }
                     const container = document.getElementById('world-messages-container');
-                    if (worldMessageWindow?.followLatest !== false) container.scrollTop = container.scrollHeight;
+                    if (state.activeWorldId === world.id && getCurrentWorldSession()?.id === sess?.id
+                        && worldMessageWindow?.followLatest !== false) container.scrollTop = container.scrollHeight;
                 }
                 const incomingCalls = delta.tool_calls || choice.message?.tool_calls || [];
                 incomingCalls.forEach(tc => accumulateWorldToolCall(streamedToolCalls, tc));
@@ -30173,6 +32381,10 @@ ${modularMandate}
                         id: delta.function_call.id,
                         function: delta.function_call
                     });
+                }
+                for (const [key, call] of streamedToolCalls) {
+                    if (call.function?.name === 'commit_world_turn')
+                        inspectDraftStream(`tool:${key}`, call.function.arguments || '');
                 }
             } catch (error) {
                 // One malformed provider event should not erase later valid
@@ -30198,9 +32410,9 @@ ${modularMandate}
 
                 for (const line of lines) {
                     processWorldStreamLine(line);
-                    if (streamError) break;
+                    if (streamError || earlyDraftFailure) break;
                 }
-                if (streamError) break;
+                if (streamError || earlyDraftFailure) break;
                 if (sawStreamData) nonStreamBody = '';
                 else if (nonStreamBody.length > 8 * 1024 * 1024) {
                     streamError = new Error('The model provider returned an oversized non-streaming completion.');
@@ -30211,7 +32423,7 @@ ${modularMandate}
             const tail = decoder.decode();
             buffer += tail;
             if (!sawStreamData) nonStreamBody += tail;
-            if (buffer.trim()) processWorldStreamLine(buffer);
+            if (buffer.trim() && !earlyDraftFailure) processWorldStreamLine(buffer);
             // A few otherwise compatible servers ignore stream:true and send
             // one ordinary JSON completion. Consume its prose and tool calls
             // through the same receipt path instead of treating it as empty.
@@ -30224,9 +32436,22 @@ ${modularMandate}
             }
             streamCompleted = true;
         } finally {
-            aiMsgDiv.remove();
+            if (pendingTurnUI) setPendingStatus('Checking the world state…');
+            else aiMsgDiv.remove();
+            // Later draft/salvage writes stay private until the turn commits.
+            textTarget = document.createElement('div');
+            if (earlyDraftFailure) {
+                // Cancel only this generation; the turn controller remains
+                // usable for the single bounded correction request.
+                activeStream.abort();
+                reader.cancel().catch(() => {});
+            }
+            activeStream.dispose();
+            if (turnCallAudit?.metrics) turnCallAudit.metrics.outputCharacters += fullText.length
+                + [...streamedToolCalls.values()].reduce((n, call) => n + (call.function?.arguments || '').length, 0);
             recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, streamUsage,
-                controller.signal.aborted ? 'aborted' : streamError || !streamCompleted ? 'stream_error' : 'ok');
+                controller.signal.aborted ? 'aborted' : earlyDraftFailure ? 'invalid_draft_early'
+                    : streamError || !streamCompleted ? 'stream_error' : 'ok');
         }
 
         if (streamError) throw streamError;
@@ -30240,20 +32465,22 @@ ${modularMandate}
         const pendingKnowledgeRedactions = earlyKnowledgeSafe.claims.map(() =>
             ({ reason: 'npc_unproven_absent_whereabouts' }));
 
-        const toolCalls = [...streamedToolCalls.values()];
+        const toolCalls = earlyDraftFailure ? [] : [...streamedToolCalls.values()];
+        if (earlyDraftFailure) fullText = '';
         const toolResponses = [];
         const pendingSecretReveals = [];
         let structuredChronicle = null;
         let successfulStateCall = false;
-        let stateCallSeen = false;
-        let receiptValidationFeedback = [];
-        let rejectedReceiptProposal = null;
+        let stateCallSeen = !!earlyDraftFailure;
+        let receiptValidationFeedback = earlyDraftFailure ? [earlyDraftFailure] : [];
+        let rejectedReceiptProposal = earlyDraftFailure ? { unparsedArguments: earlyDraftRaw } : null;
         let acceptedTurnReceipt = null;
         let acceptedSceneDraft = null;
         let resolvedCheckThisTurn = false;
         let resolvedCheckResult = null;
         const receiptPlayerStart = String(turnSnapshot?.session?.playerLocation || sess.playerLocation);
-        const receiptMovementPhrase = extractUserMovementTarget(submittedInput || userInput);
+        const receiptMovementPhrase = linkedWorldTurn ? ''
+            : extractUserMovementTarget(submittedInput || userInput);
         const receiptAuthorizedTarget = receiptMovementPhrase
             ? resolveWorldMovementTarget(typeof worldForSession === 'function' ? worldForSession(world, sess) : world, receiptPlayerStart, receiptMovementPhrase, true, sess) : null;
         const receiptView = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
@@ -30267,7 +32494,7 @@ ${modularMandate}
         const receiptContext = {
             playerStartLocationId: receiptPlayerStart,
             specialCommand: !resolveFirst,
-            precommittedAction: !!committedMovement || !!committedOutfit,
+            precommittedAction: !!committedMovement || !!committedDoor || !!committedOutfit,
             precommittedArrival: command === 'look'
                 && turnSnapshot?.receiptCheckpoint?.tail?.audit?.source === 'engine_travel'
                 ? (() => {
@@ -30285,12 +32512,16 @@ ${modularMandate}
         };
         let narratedCheckRequired = normalizeWorldGameRules(world).modules.checks
             && worldNarrativeRequestsCheck(fullText);
-        const commitReceiptCandidate = (args, source, allowSummarySalvage = true) => {
+        const commitReceiptCandidate = async (args, source, allowSummarySalvage = true) => {
             const draft = sceneDrafts && HordeWorldSceneDraft.isDraft(args) ? args : null;
-            if (sceneDrafts && !draft) {
+            // When a provider produced readable prose but no draft, the repair
+            // channel may submit only the small legacy receipt. It is still
+            // checked against the same narrative and world-state validators.
+            if (sceneDrafts && !draft && !(source === 'repair_receipt' && !linkedWorldTurn
+                && hasReadableWorldNarrative(fullText))) {
                 rejectedReceiptProposal = args;
                 receiptValidationFeedback = [{ reason: 'wrong_turn_protocol', type: 'scene_draft',
-                    detail: 'Use scene_draft_v2 with narrative/actions/events/effects/speech/commitments. Legacy receipts are not accepted in this mode.' }];
+                    detail: `Use ${sceneProtocol} with narrative/actions and proposed changes. Legacy receipts are not accepted in this mode.` }];
                 return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } }, actionResult: {} };
             }
             if (draft && (sess.worldStateVersion || 0) !== sceneDraftBaseVersion) {
@@ -30299,17 +32530,217 @@ ${modularMandate}
                     detail: 'World state changed while this scene was being generated. Retry against the current state.' }];
                 return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } }, actionResult: {} };
             }
-            const compiled = draft ? HordeWorldSceneDraft.compile(draft, {
+            const ledgerProposal = draft && sceneLedger ? HordeWorldSceneLedger.prepare(draft, {
+                input: latestActionText || '', location:sess.playerLocation,
+                groups:sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [],
+                locations: (receiptView.locations || []).map(l => l.id),
+                actors: sessionNpcs(world,sess).map(n => ({id:n.id,location:sess.entityStates?.[n.id]?.location,active:isNpcActive(sess.entityStates?.[n.id])}))
+            }) : null;
+            if (ledgerProposal && !ledgerProposal.ok) {
+                rejectedReceiptProposal=args; receiptValidationFeedback=ledgerProposal.errors;
+                return {accepted:false,committed:{audit:{rejected:ledgerProposal.errors}},actionResult:{}};
+            }
+            const compileStarted = performance.now();
+            const compiled = draft ? HordeWorldSceneDraft.compile(ledgerProposal?.draft || draft, {
                 input: latestActionText || '', location: sess.playerLocation, playerStart: receiptPlayerStart,
-                present: buildWorldSceneFrame(world, sess).present_character_ids,
+                actors: sessionNpcs(world, sess).map(npc => ({ id: npc.id, name: npc.name })),
+                inventory: sess.inventory || [],
+                present: ledgerProposal?.scene.present_character_ids || buildWorldSceneFrame(world, sess).present_character_ids,
                 locations: (receiptView.locations || []).map(location => location.id),
                 commitments: sess.scheduledEvents || [], now: getWorldTimeData(world, sess).currentTotalMinutes,
-                effectKeys: Object.keys(worldStateTool.function.parameters.properties.effects.properties)
+                capability: worldEffectCapability,
+                contract: worldStateTool.function.parameters,
+                linkedRequired: sceneProtocol === 'scene_draft_v3'
             }) : null;
+            if (turnCallAudit?.metrics) turnCallAudit.metrics.localValidationMs += Math.round(performance.now() - compileStarted);
             if (compiled && !compiled.ok) {
                 rejectedReceiptProposal = args;
                 receiptValidationFeedback = compiled.errors;
                 return { accepted: false, committed: { audit: { rejected: compiled.errors } }, actionResult: {} };
+            }
+            if (linkedWorldTurn && compiled?.linkedPlan) {
+                const working = HordeWorkingState.createWorkingState(canonicalWorld, canonicalSess);
+                try {
+                    // The preflight ran on detached copies. Import its
+                    // deterministic schedules and user message through the
+                    // working-state writers before applying linked actions.
+                    working.applyDetached((nextWorld, nextSession) => {
+                        Object.assign(nextWorld, safeJsonClone(world));
+                        // Kernel normalization is prompt configuration, not a
+                        // turn effect. Keep the authored manifest byte-for-byte.
+                        nextWorld.kernel = safeJsonClone(canonicalWorld.kernel);
+                        Object.assign(nextSession, safeJsonClone(sess));
+                    });
+                    const canMove = (candidateWorld, candidateSession, actorId, fromId, toId, options = {}) => {
+                        const view = worldForSession(candidateWorld, candidateSession);
+                        const from = getLocationRef(view, fromId);
+                        const to = getLocationRef(view, toId);
+                        if (!from || !to) return { ok: false, reason: 'unknown_destination' };
+                        if (actorId === 'player') {
+                            // Validate intent against the user's actual clause, not
+                            // the model's chosen action kind or generated prose.
+                            const clause = options.actionRequest || submittedInput || userInput;
+                            const phrase = extractUserMovementTarget(clause);
+                            const destination = phrase ? resolveWorldMovementTarget(view, fromId, phrase, true, candidateSession) : null;
+                            const route = destination ? findWorldTravelPath(view, fromId, destination.id, {session:candidateSession}) : null;
+                            if (!route || route[1] !== toId)
+                                return {ok:false,reason:'unrequested_player_movement'};
+                        }
+                        const exit = (from.exits || []).find(item =>
+                            resolveWorldExitTarget(view, item)?.id === toId);
+                        if (!exit) return { ok: false, reason: 'unreachable' };
+                        const blocked = worldLocationTravelBlock(candidateSession, toId);
+                        if (blocked) return { ok: false, reason: 'impassable_destination' };
+                        if (actorId === 'player' || options.accompanyingPlayer) {
+                            const requirement = worldExitRequirement(candidateSession, exit, fromId);
+                            if (!requirement.ok && !options.accompanyingPlayer)
+                                return { ok: false, reason: requirement.reason };
+                            if (options.accompanyingPlayer) {
+                                const access = worldNpcAccess(view, actorId, toId, candidateSession);
+                                if (!access.ok) return { ok: false,
+                                    reason: access.reason || 'companion_access_denied' };
+                            }
+                        } else {
+                            const access = worldNpcAccess(view, actorId, toId, candidateSession);
+                            if (!access.ok) return { ok: false, reason: access.reason || 'npc_access_denied' };
+                        }
+                        return { ok: true, travelMinutes:getWorldPathTravelTime(view, [fromId,toId]) };
+                    };
+                    const canTransition = (candidateWorld, candidateSession, proposal, authored) => {
+                        if (Array.isArray(authored)) {
+                            const local = authored.some(item => item.locationId === candidateSession.playerLocation);
+                            if (!local) return { ok: false, reason: 'remote_door' };
+                            const targetId = authored.find(item => item.locationId === candidateSession.playerLocation)
+                                ?.exit?.targetLocationId;
+                            if (targetId && worldLocationTravelBlock(candidateSession, targetId))
+                                return { ok: false, reason: 'sealed_route' };
+                        } else {
+                            const entity = candidateWorld.entities?.find(item => item.id === proposal.target_id);
+                            const location = candidateSession.entityStates?.[proposal.target_id]?.location
+                                || entity?.startLocation;
+                            if (location && location !== candidateSession.playerLocation)
+                                return { ok: false, reason: 'remote_object' };
+                        }
+                        return { ok: true };
+                    };
+                    const legacyEffectKeys = worldEffectCapability.legacyNames;
+                    const applyLegacyEffect = (type, payload, targetWorking) => {
+                        targetWorking.applyDetached((candidateWorld, candidateSession) => {
+                            const result = processStructuredActions({ [type]: payload },
+                                candidateWorld, candidateSession, { deferFeedback: true });
+                            if ((result?.inventoryFailures || []).length
+                                || (result?.moduleRejections || []).length
+                                || (result?.transactionResults || []).some(item => !item.success)
+                                || result?.movementResult?.ok === false)
+                                throw new HordeLinkedWorldActions.BlockedAction(
+                                    result?.moduleRejections?.[0]?.reason
+                                        || result?.inventoryFailures?.[0]?.reason
+                                        || result?.movementResult?.reason || 'legacy_effect_blocked');
+                        });
+                    };
+                    const requestPendingCheck = (check, targetWorking) => {
+                        const result = targetWorking.applyDetached((candidateWorld, candidateSession) =>
+                            processStructuredActions({ checks: [{ ...check,
+                                outcome_contract: 'state_delta_v1' }] }, candidateWorld,
+                            candidateSession, { deferFeedback: true }));
+                        if ((result?.moduleRejections || []).length)
+                            throw new Error(result.moduleRejections[0].reason || 'invalid_pending_check');
+                        return result?.checkResults?.length === 1
+                            && result.checkResults[0].pending === true;
+                    };
+                    const linked = HordeLinkedWorldActions.executeLinkedActions(compiled.linkedPlan,
+                        canonicalWorld, canonicalSess, { workingState: working, canMove, canTransition,
+                            playerInput:submittedInput || userInput, baseTurnMinutes:getWorldTimeData(world,sess).timeStep,
+                            capability: worldEffectCapability, legacyEffectKeys,
+                            applyLegacyEffect, requestPendingCheck });
+                    if (!linked.ok) {
+                        receiptValidationFeedback = linked.errors.map(error => ({
+                            ...error, type: 'linked_action'
+                        }));
+                        rejectedReceiptProposal = args;
+                        return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } },
+                            actionResult: {} };
+                    }
+                    const prepared = working.prepare();
+                    const receipt = { ...compiled.receipt,
+                        scene: { player_location_id: prepared.session.playerLocation,
+                            player_location_changed: prepared.session.playerLocation !== receiptPlayerStart,
+                            present_character_ids: buildWorldSceneFrame(prepared.world, prepared.session)
+                                .present_character_ids }, events: linked.events };
+                    HordeWorkingState.assertReceiptMatchesCandidate(receipt, prepared);
+                    const conflicts = worldFinalNarrativeConflicts(prepared.world, turnSnapshot?.session,
+                        prepared.session, linked.narrative, submittedInput || userInput, receipt, null);
+                    if (conflicts.length) {
+                        receiptValidationFeedback = conflicts.map(item => ({ type: 'narrative',
+                            reason: item.reason, detail: item.detail }));
+                        rejectedReceiptProposal = args;
+                        working.rollback();
+                        return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } },
+                            actionResult: {} };
+                    }
+                    const nextVersion = (Number(canonicalSess.worldStateVersion) || 0) + 1;
+                    const audit = { turn: Number(prepared.session.turnCount) || 1,
+                        protocol: draft.protocol, actions: [...linked.outcomes].map(([action_id, outcome]) =>
+                            ({ action_id, outcome })), accepted: linked.events.length,
+                        informational: 0, rejected: [], world_state_version: nextVersion,
+                        cast_checksum_match: true, dirtyKeys: [...working.dirtySet],
+                        compilerRepairs: compiled.repairs, repairCount: compiled.repairCount };
+                    working.writeSession('worldStateVersion', field => { field.value = nextVersion; });
+                    working.writeTime('turnCount', field => {
+                        field.value = Math.max(1, Number(field.value) || 1) + 1;
+                    });
+                    if (linked.elapsedMinutes > 0) working.writeTime('bonusTimeMinutes', field => {
+                        field.value = (Number(field.value) || 0) - getWorldTimeData(world,sess).timeStep;
+                    });
+                    working.writeSession('lastTurnAudit', field => { field.value = audit; });
+                    working.writeSession('lastTurnStateSource', field => { field.value = source; });
+                    working.writeSession('worldTurnReceipts', field => {
+                        field.value = [...(field.value || []), { receipt, audit }].slice(-120);
+                    });
+                    working.applyDetached((candidateWorld, candidateSession) => {
+                        const witnesses = buildWorldSceneFrame(candidateWorld, candidateSession)
+                            .present_character_ids;
+                        const message = addWorldMessage('dm', linked.narrative, {
+                            location: candidateSession.playerLocation, witnesses,
+                            turnSnapshot, worldAudit: audit, stateSource: source,
+                            callAudit: { ...turnCallAudit, protocol: draft.protocol,
+                                calls: turnCallDetails.slice(0, 20) },
+                            isReroll, deferPersist: true, deferEmbedding: true
+                        }, candidateSession, candidateWorld);
+                        if (message) {
+                            message.versionSnapshots = Array.isArray(message.versionSnapshots)
+                                ? message.versionSnapshots : [];
+                            message.versionSnapshots.push(captureWorldTurnState(candidateWorld, candidateSession));
+                        }
+                    });
+                    try {
+                        await persistPreparedWorldTurn(canonicalWorld, canonicalSess, working);
+                    } catch (persistError) {
+                        persistError.code = 'WORLD_TURN_PERSISTENCE_FAILED';
+                        throw persistError;
+                    }
+                    if (prepared.session.playerLocation !== receiptPlayerStart) {
+                        playWorldLocationBgm(worldForSession(canonicalWorld, canonicalSess), canonicalSess);
+                    }
+                    linkedTurnFinalized = true;
+                    acceptedSceneDraft = compiled;
+                    acceptedTurnReceipt = receipt;
+                    fullText = linked.narrative;
+                    receiptValidationFeedback = [];
+                    rejectedReceiptProposal = null;
+                    return { accepted: true, linkedFinalized: true,
+                        committed: { audit, validation: { receipt } }, actionResult: {},
+                        movementOk: true, transactionsOk: true, inventoryOk: true,
+                        checksOk: true, conditionsOk: true, statUpdatesOk: true,
+                        modulesOk: true, inventoryFailures: [] };
+                } catch (error) {
+                    working.rollback();
+                    if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
+                    receiptValidationFeedback = [{ type: 'linked_action', reason: error.message }];
+                    rejectedReceiptProposal = args;
+                    return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } },
+                        actionResult: {} };
+                }
             }
             const candidateContext = { ...receiptContext,
                 ...(compiled ? { engineScene: true, commitments: compiled.commitments, resolutions: compiled.resolutions,
@@ -30317,8 +32748,11 @@ ${modularMandate}
                         && action.status === 'resolved').map(action => action.response),
                     narrativeText: stripWorldLedgerDirective(scrubNarrativeArtifacts(compiled.narrative)) } : {}) };
             const beforeScene = compiled ? captureWorldTurnState(world, sess).session : null;
+            const validationStarted = performance.now();
             const attempt = attemptWorldStateMutation(world, sess, () => {
-                const typedArgs = canonicalizeWorldCheckNarrativeOutcomes(compiled?.receipt || args);
+                if (ledgerProposal) sess.sceneRecord = { ...ledgerProposal.scene, status:'proposed', hold_scene: !(Number(compiled.receipt.state_updates.time_skip_minutes) > 0 || compiled.receipt.events.some(e => e.type === 'time' && e.status === 'completed')) };
+                const typedArgs = normalizeUnambiguousWorldEventTypes(
+                    canonicalizeWorldCheckNarrativeOutcomes(compiled?.receipt || args));
                 const knowledgeSafeReceipt = worldWithoutUnprovenNpcObservations(world, sess,
                     typedArgs, submittedInput || userInput);
                 const committed = commitWorldTurnReceipt(world, sess, knowledgeSafeReceipt.receipt,
@@ -30327,21 +32761,78 @@ ${modularMandate}
                     submittedInput || userInput, compiled ? { ...receiptContext, specialCommand: true } : receiptContext).forEach(failure =>
                     committed.audit.rejected.push(failure));
                 if (compiled) {
-                    for (const action of compiled.actions) {
-                        worldActionResolutionFailures({ ...committed.validation.receipt,
+                    const usedPlayerProofs = new Set();
+                    const mechanicalProofRejected = committed.audit.rejected.some(failure =>
+                        ['event', 'mechanic', 'inventory', 'movement', 'checks', 'condition'].includes(failure.type))
+                        || (committed.actionResult?.inventoryFailures || []).length > 0
+                        || (committed.actionResult?.transactionResults || []).some(item => !item.success)
+                        || committed.actionResult?.movementResult?.ok === false
+                        || (committed.actionResult?.moduleRejections || []).length > 0;
+                    for (const [actionIndex, action] of compiled.actions.entries()) {
+                        const precommittedForAction = compiled.actions.length === 1
+                            && HordeWorldSceneDraft.simpleRequest(action.request)
+                            ? candidateContext.precommittedAction
+                            : (() => {
+                                const request = String(action.request || '').replace(/^\s*(?:and|then)\s+/i, 'You ');
+                                const command = normalizeWorldPlayerDoorCommand(world, sess, request);
+                                const doorVerb = /^(?:i|we|you)\s+(re[ -]?lock|lock|unlock|open)\b/i.exec(command)?.[1]?.toLowerCase();
+                                const doorTarget = /\b(?:door|gate|entrance|exit)\s+(?:to|into|of)\s+([^,.;!?]+)/i.exec(command)?.[1];
+                                const doorMatches = committedDoor && doorVerb
+                                    && HordeWorldSceneDraft.simpleRequest(command)
+                                    && (committedDoor.action === 'locked' ? /^(?:re[ -]?lock|lock)$/.test(doorVerb) : /^(?:unlock|open)$/.test(doorVerb))
+                                    && (!doorTarget || [committedDoor.targetName, committedDoor.toId]
+                                        .some(name => normalizeLocationSearchText(name) === worldRequestedDoorTargetName(doorTarget)));
+                                const moveTarget = committedMovement && extractUserMovementTarget(request);
+                                const moveMatches = moveTarget && resolveWorldMovementTarget(receiptView,
+                                    receiptPlayerStart, moveTarget, true, sess)?.id === committedMovement.destinationId
+                                    && (HordeWorldSceneDraft.simpleRequest(request) || worldDraggedCompanionIntent(request));
+                                const outfit = committedOutfit && detectPlayerOutfitIntent(request);
+                                const outfitMatches = outfit && outfit.mode === committedOutfit.mode
+                                    && outfit.item.toLowerCase() === committedOutfit.item.toLowerCase()
+                                    && HordeWorldSceneDraft.simpleRequest(request);
+                                return !!(doorMatches || moveMatches || outfitMatches);
+                            })();
+                        const proposedPlayerEvents = (compiled.receipt.events || []).filter(event =>
+                            event?.actor_id === 'player' && event.status === 'completed');
+                        const acceptedPlayerEvents = mechanicalProofRejected ? []
+                            : committed.validation.acceptedEvents || [];
+                        const matchingProofIndex = action.kind === 'physical' && action.status === 'resolved'
+                            ? acceptedPlayerEvents.findIndex((event, index) =>
+                                !usedPlayerProofs.has(index) && event?.actor_id === 'player'
+                                && event.status === 'completed' && event.evidence === action.response)
+                            : -1;
+                        if (matchingProofIndex >= 0) usedPlayerProofs.add(matchingProofIndex);
+                        const scopedReceipt = action.kind === 'physical' && action.status === 'resolved'
+                            ? { ...committed.validation.receipt,
+                                events: matchingProofIndex < 0 ? [] : [acceptedPlayerEvents[matchingProofIndex]] }
+                            : committed.validation.receipt;
+                        worldActionResolutionFailures({ ...scopedReceipt,
                             action_resolution: { kind: action.kind, status: action.status, outcome: action.response } },
-                        action.request, { ...candidateContext, sceneDraft: true, currentTotalMinutes })
+                        action.request, { ...candidateContext, sceneDraft: true, currentTotalMinutes,
+                            precommittedAction: precommittedForAction,
+                            actionIndex, proofStatus: proposedPlayerEvents.some(event =>
+                                event.evidence === action.response) ? 'invalid' : 'missing',
+                            verifiedLocalInteraction: action.verifiedLocalInteraction === true })
                             .forEach(failure => committed.audit.rejected.push(failure));
                     }
                     worldFinalNarrativeConflicts(world, beforeScene, sess, candidateContext.narrativeText,
-                        submittedInput || userInput, committed.validation.receipt).forEach(conflict =>
+                        submittedInput || userInput, committed.validation.receipt, committedDoor).forEach(conflict =>
                         committed.audit.rejected.push({ type: 'narrative', ...conflict }));
                     if (knowledgeSafeReceipt.dropped) committed.audit.rejected.push({
                         reason: 'unproven_scene_knowledge', type: 'speech', detail: 'A declared knowledge change was rejected.' });
-                    committed.audit.protocol = 'scene_draft_v2';
+                    committed.audit.protocol = draft.protocol;
                     committed.audit.actions = compiled.actions;
+                    if (compiled.unaddressedRequest)
+                        committed.audit.unaddressed_player_request = compiled.unaddressedRequest;
                 }
                 if (knowledgeSafeReceipt.dropped) committed.audit.knowledgeDrops = knowledgeSafeReceipt.dropped;
+                if (ledgerProposal) {
+                    const frame = buildWorldSceneFrame(world,sess);
+                    if (frame.player_location_id !== ledgerProposal.scene.location_id
+                        || ledgerProposal.scene.present_character_ids.some(id => !frame.present_character_ids.includes(id)))
+                        committed.audit.rejected.push({type:'scene_record',reason:'uncommitted_ending_scene',detail:'The proposed location or cast could not be established.'});
+                    sess.sceneRecord = { ...HordeWorldSceneLedger.record(frame,ledgerProposal.scene.groups,sess.worldStateVersion,committed.validation.receipt.turn_id), hold_scene:sess.sceneRecord.hold_scene };
+                }
                 const actionResult = committed.actionResult || {};
                 const resultTree = [];
                 const collectResult = (result, depth = 0) => {
@@ -30425,6 +32916,7 @@ ${modularMandate}
                     inventoryOk, inventoryFailures: resultTree.flatMap(result => result.inventoryFailures || []),
                     checksOk, conditionsOk, statUpdatesOk, modulesOk };
             }, candidate => candidate.accepted);
+            if (turnCallAudit?.metrics) turnCallAudit.metrics.localValidationMs += Math.round(performance.now() - validationStarted);
             if (!attempt.accepted && allowSummarySalvage) {
                 const rejected = attempt.result?.committed?.audit?.rejected || [];
                 if (rejected.length === 1 && rejected[0].reason === 'conditional_deadline_not_met'
@@ -30433,15 +32925,17 @@ ${modularMandate}
                     // overstate an unfulfilled promise only in its private
                     // summary. Retry atomically with that unsupported
                     // sentence removed; do not discard the witnessed scene.
-                    return commitReceiptCandidate({ ...args, summary: rejected[0].safeSummary },
+                    return await commitReceiptCandidate({ ...args, summary: rejected[0].safeSummary },
                         source, false);
                 }
             }
             if (!attempt.accepted) {
                 rejectedReceiptProposal = args;
                 receiptValidationFeedback = (attempt.result?.committed?.audit?.rejected || [])
-                    .slice(0, 12).map(item => ({ reason: item.reason, type: item.type,
-                        detail: item.detail, actor_id: item.actor_id }));
+                    .slice(0, 12).map(item => ({ index: item.index, reason: item.reason, type: item.type,
+                        detail: item.detail, actor_id: item.actor_id,
+                        ...(Number.isInteger(item.actionIndex) ? { actionIndex: item.actionIndex,
+                            actionRequest: item.actionRequest, proofStatus: item.proofStatus } : {}) }));
                 if (!receiptValidationFeedback.length) receiptValidationFeedback = [{
                     reason: 'reducer_rejected', type: 'receipt',
                     detail: 'A proposed mechanic could not be applied to the authoritative world state.'
@@ -30461,6 +32955,7 @@ ${modularMandate}
         };
         for (const call of toolCalls) {
             let responsePayload = { success: true, status: 'Action processed.' };
+            let candidateStarted = false;
             try {
                 const args = sceneDrafts && call.function.name === 'commit_world_turn'
                     ? HordeWorldSceneDraft.decode(call.function.arguments) : parseWorldToolArguments(call.function.arguments || '{}');
@@ -30489,11 +32984,12 @@ ${modularMandate}
                         || (isPlainObject(receipt.scene)
                         && Array.isArray(receipt.events) && Array.isArray(receipt.entity_updates));
                     if (!validEnvelope) throw new Error('Turn receipt must include scene, events, and entity_updates.');
-                    let candidate = commitReceiptCandidate(receipt, 'tool_call');
-                    if (!candidate.accepted && receipt.protocol !== 'scene_draft_v2') {
+                    candidateStarted = true;
+                    let candidate = await commitReceiptCandidate(receipt, 'tool_call');
+                    if (!candidate.accepted && !HordeWorldSceneDraft.isDraft(receipt)) {
                         const checkOnly = buildSafeCheckOnlyWorldReceipt(world, sess, receipt, receiptContext);
                         if (checkOnly) {
-                            const salvaged = commitReceiptCandidate(checkOnly, 'tool_call_check_salvage');
+                            const salvaged = await commitReceiptCandidate(checkOnly, 'tool_call_check_salvage');
                             if (salvaged.accepted) {
                                 candidate = salvaged;
                                 candidate.committed.audit.salvaged = 'noncommitting_check_attempt_only';
@@ -30554,10 +33050,14 @@ ${modularMandate}
                     responsePayload = { success: false, status: `Unknown tool "${call.function.name || '(missing name)'}".` };
                 }
             } catch (error) {
+                if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
+                if (linkedWorldTurn && candidateStarted) throw error;
                 console.error('Horde Engine: Failed to parse tool call', error);
                 if (sceneDrafts && call.function.name === 'commit_world_turn' && !successfulStateCall
                     && !receiptValidationFeedback.length) {
-                    receiptValidationFeedback = [{reason:'invalid_tool_arguments',type:'transport',detail:error.message}];
+                    receiptValidationFeedback = [{ reason: sceneProtocol === 'scene_draft_v3'
+                        ? HordeWorldSceneDraft.transportFailureReason(call.function.arguments, lastFinishReason)
+                        : 'invalid_tool_arguments', type: 'transport', detail: error.message }];
                     rejectedReceiptProposal = {unparsedArguments:String(call.function.arguments || '').slice(0,16000)};
                 }
                 responsePayload = { success: false, status: error.message };
@@ -30584,20 +33084,28 @@ ${modularMandate}
         // Providers that print the mandatory receipt instead of calling the
         // tool still pass through the same validator and reducer.
         let inlineStateApplied = false;
-        if (!successfulStateCall) {
-            const inlineReceipt = sceneJsonTransport ? HordeWorldSceneDraft.decode(fullText) : extractInlineWorldTurnReceipt(fullText);
+        let conversationReceiptApplied = false;
+        if (!successfulStateCall && !earlyDraftFailure) {
+            const inlineReceipt = sceneDrafts && sceneProtocol === 'scene_draft_v3'
+                ? HordeWorldSceneDraft.decode(fullText)
+                : sceneJsonTransport ? HordeWorldSceneDraft.decode(fullText) : extractInlineWorldTurnReceipt(fullText);
             if (sceneJsonTransport && !inlineReceipt) {
                 rejectedReceiptProposal = { raw: fullText.slice(0, 16000) };
-                receiptValidationFeedback = [{ type: 'scene_draft', reason: 'invalid_json_transport',
+                receiptValidationFeedback = [{ type: 'scene_draft',
+                    reason: sceneProtocol === 'scene_draft_v3'
+                        ? HordeWorldSceneDraft.transportFailureReason(fullText, lastFinishReason)
+                        : 'invalid_json_transport',
                     detail: 'Return one complete valid JSON object. Do not include surrounding prose, function tokens or malformed strings.' }];
             }
             if (inlineReceipt) {
                 try {
-                    const candidate = commitReceiptCandidate(inlineReceipt, 'inline_receipt');
+                    const candidate = await commitReceiptCandidate(inlineReceipt, 'inline_receipt');
                     if (!candidate.accepted) {
                         const reasons = (candidate.committed?.audit?.rejected || [])
                             .map(item => item.reason).filter(Boolean).slice(0, 6);
-                        throw new Error(`Inline turn receipt was rejected: ${reasons.join(', ') || 'invalid state candidate'}.`);
+                        const rejection = new Error(`Inline turn receipt was rejected: ${reasons.join(', ') || 'invalid state candidate'}.`);
+                        rejection.code = 'WORLD_RECEIPT_REJECTED';
+                        throw rejection;
                     }
                     if (candidate.actionResult?.ledgerEntry) structuredChronicle = candidate.actionResult.ledgerEntry;
                     resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -30606,7 +33114,26 @@ ${modularMandate}
                     inlineStateApplied = true;
                     console.warn(`Horde Engine: model emitted its turn receipt as text — recovered and validated it.`);
                 } catch (error) {
+                    if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
+                    if (linkedWorldTurn && error?.code !== 'WORLD_RECEIPT_REJECTED') throw error;
                     console.error('Horde Engine: inline turn receipt failed validation', error);
+                }
+            }
+        }
+
+        // A tool-shy provider's ordinary observation/question can be a valid
+        // unchanged scene. Let the engine supply its empty receipt; never do
+        // this for rejected proposals, physical actions, pending dice or V3.
+        if (sceneDrafts && !sceneLedger && !linkedWorldTurn && !successfulStateCall && !inlineStateApplied
+            && !stateCallSeen && !rejectedReceiptProposal && !rejectedCheckProposal && !narratedCheckRequired
+            && !committedMovement && !committedDoor && !committedOutfit && !sess.pendingCheck && !sess.pendingChecks?.length) {
+            const conversation = worldConversationDraft(submittedInput || userInput, fullText, command, world, sess);
+            if (conversation) {
+                const candidate = await commitReceiptCandidate(conversation, 'conversation_scene');
+                if (candidate.accepted) {
+                    inlineStateApplied = true;
+                    conversationReceiptApplied = true;
+                    if (turnCallAudit?.metrics) turnCallAudit.metrics.conversationReceipt = true;
                 }
             }
         }
@@ -30617,12 +33144,13 @@ ${modularMandate}
         // provider failed the primary contract.
         let repairedReceiptApplied = false;
         let receiptRepairTimedOut = false;
-        const receiptRepairNeeded = resolveFirst || stateCallSeen || !!committedMovement || !!committedOutfit
+        const receiptRepairNeeded = resolveFirst || stateCallSeen || !!committedMovement || !!committedDoor || !!committedOutfit
             || shouldRepairMissingWorldReceipt(world, command, submittedInput || userInput, fullText);
         if (!successfulStateCall && !inlineStateApplied
             && (resolveFirst || fullText.trim() || rejectedCheckProposal || stateCallSeen) && receiptRepairNeeded) {
             try {
                 if (dmTypingLabel) dmTypingLabel.textContent = 'DM is reconciling the world state...';
+                setPendingStatus('DM is reconciling the world state...');
                 const repairFrame = buildWorldSceneFrame(world, sess);
                 const repairNarrative = scrubNarrativeArtifacts(fullText);
                 const repairNames = `${submittedInput || userInput} ${repairNarrative}`.toLowerCase();
@@ -30630,7 +33158,11 @@ ${modularMandate}
                     repairFrame.present_character_ids.includes(npc.id)
                     || repairNames.includes(String(npc.name || '').toLowerCase())).slice(0, 30)
                     .map(npc => ({ id: npc.id, name: npc.name }));
-                const repairKnownLocations = (receiptView.locations || []).slice(0, 80)
+                const nearbyRepairIds = new Set((worldLoreContextSnapshots.get(sess.id)?.placeIndex || []).map(place => place.id));
+                const repairKnownLocations = (receiptView.locations || []).filter(location =>
+                    location.id === sess.playerLocation || nearbyRepairIds.has(location.id)
+                    || (location.name && repairNames.includes(String(location.name).toLowerCase()))
+                    || repairNames.includes(String(location.id).toLowerCase())).slice(0, 24)
                     .map(location => ({ id: location.id, name: location.name }));
                 const currentRepairLocation = getLocationRef(receiptView, sess.playerLocation);
                 const localCheckExits = (currentRepairLocation?.exits || []).filter(exit =>
@@ -30642,11 +33174,12 @@ ${modularMandate}
                     ? `\nCRITICAL: ${rejectedCheckProposal ? 'A rejected tool proposal requested a dice check; no outcome was committed.' : 'The narrative explicitly requests a dice check.'} The requested roll IS pending state even before an outcome; state_updates:{} and a no-check receipt are invalid. Use state_updates:{"checks":[{"label":"specific action","stat_id":"exact rollable stat ID","difficulty":${diceConfig.defaultDifficulty},"on_success":{},"on_failure":{}}]} — checks MUST be an ARRAY with exactly one object, not a singleton object. The key is stat_id, NEVER rollable_stat_id. Rollable IDs: ${JSON.stringify(repairRollableStats)}. Use the narrative's numeric DC if present; otherwise use this World's default difficulty ${diceConfig.defaultDifficulty}. Put every result-dependent mutation inside the flat on_success/on_failure objects; never nest events, entity_updates or state_updates inside them and never supply a roll or force_resolve. An unresolved attempt has events:[] and entity_updates:[] unless an independent durable action already completed; do not invent an improvised inventory item from narrative materials. The engine will roll or queue the player roll according to this World's configured mode. Represent failure costs only with supported fields; do not invent an item or condition. Local check-unlockable exits: ${JSON.stringify(localCheckExits.map(exit => ({ from_location_id: currentRepairLocation.id, to_location_id: resolveWorldExitTarget(receiptView, exit).id })))}. If this is the gate-opening check, put exactly on_success:{"exit_unlocks":[{"from_location_id":"${currentRepairLocation?.id || ''}","to_location_id":"<exact local ID>"}]} inside the check, never at the receipt top level.`
                     : '';
                 const actionRepairInstruction = resolveFirst
-                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. A resolved physical act needs a completed player event or check. A pending check needs one structured check. Do not call a generic room description an answer to the action.'
+                    ? '\nCURRENT PLAYER ACTION CONTRACT: Include root action_resolution:{kind,status,outcome}. kind is physical|speech|question|observation|travel|wait|other; status is resolved|answered|attempted|pending_check|blocked|needs_clarification. outcome is one concrete player-facing sentence about every part of the current action. Classify a request or permission for an NPC to do something as speech/question, not as a completed physical action by the player. A resolved physical act needs a completed player event or check, except for an action explicitly precommitted by the engine. For kind physical with status attempted, include events:[{type:"interaction",actor_id:"player",status:"attempted",evidence:"exact attempted-action sentence from the narrative"}]; this records the attempt without claiming success. A pending check needs one structured check. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard or other role NPC. If the player asked for help, answer through a known NPC and do not claim an unrecorded transfer. If the player asked for a deadline, give the answer and schedule an urgent world_event, or explicitly state that the NPC has not answered. Do not call a generic room description an answer to the action.'
+                        + (committedDoor ? `\nThe player already ${committedDoor.action === 'locked' ? 'locked' : 'opened'} the mapped door with the required item. Describe that result without adding a duplicate event or exit_unlocks effect.` : '')
                     : '';
                 const waitRepairInstruction = worldWaitReceiptRepairInstruction(submittedInput || userInput,
                     repairNarrative, currentTotalMinutes);
-                const repairPrompt = `[WORLD TURN RECEIPT REPAIR]\n${repairNarrative && !resolveFirst ? 'The narrative below has already been shown and MUST NOT be rewritten.' : 'The draft below has NOT been shown. Repair the state and player-action disposition before final narration.'} Return one JSON object only, no prose or code fence. Required top-level keys: scene (object), events (array), entity_updates (array), state_updates (OBJECT, never an array), summary (string).\nPrevious proposal was rejected for these exact reasons: ${JSON.stringify(receiptValidationFeedback)}. Rejected proposal: ${JSON.stringify(rejectedReceiptProposal).slice(0, 7000)}. Correct those reasons; do not repeat the same invalid fields. Valid event types: movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Every event MUST have type, status and actor_id. Valid state_updates fields: ${JSON.stringify(ENGINE_STATE_KEYS.filter(key => key !== 'location_id'))}. A deadline uses state_updates.world_events (array), not a custom deadline key. A location condition uses state_updates.location_state_updates (array), not location_states.\nscene must have player_location_id, player_location_changed (boolean), present_character_ids (complete NPC ID array). Every event must have type, status and actor_id; movement uses type="movement", status="completed", from_location_id, to_location_id, movement_mode (voluntary|forced|carried|vehicle|fall|teleport), evidence. A completed player pickup uses events:[{type:"inventory",status:"completed",actor_id:"player",action:"add",item:"exact item name",evidence:"completed narrative action"}]; never invent inventory_added or put ordinary inventory_add at the root or in state_updates. An offered or held-out item is not a player pickup until the player takes or accepts it, or the NPC actually puts it in the player's hands; asking grants nothing. entity_updates entries use entity_id, location_id, activity, interacting_with.\nKnown NPC IDs and names: ${JSON.stringify(repairKnownActors)}. Use these IDs, not invented aliases. Known location IDs and names: ${JSON.stringify(repairKnownLocations)}. Use exact location ids for lasting conditions. If the narrative newly NAMES an unnamed person, add state_updates.npc_introduced:[{id:"npc_unique_name",name:"Full Name",description:"...",persona:"..."}] and use exactly that id in scene.present_character_ids and entity_updates. A newly introduced NPC starts in the current scene; do not add an invented movement event for their introduction. Anonymous villagers, guards and crowds are not named NPCs; do not invent numbered people or guards for them.\nNPC movement never changes player location. Intent, attempts, dialogue claims and hypotheticals are not completed events. If nothing durable changed, use events:[], entity_updates:[], state_updates:{} and the current scene.${checkRepairInstruction}${waitRepairInstruction}${actionRepairInstruction}\nAuthoritative player start: ${receiptPlayerStart}. Current location: ${repairFrame.player_location_id}. scene.player_location_changed MUST be ${repairFrame.player_location_id !== receiptPlayerStart}. The player's completed route was already applied locally; do not duplicate it.\nAuthoritative pre-repair scene: ${JSON.stringify(repairFrame)}\nPlayer input: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}\nNarrative: ${JSON.stringify(String(repairNarrative).slice(0, 7000))}`;
+                const repairPrompt = `[WORLD TURN RECEIPT REPAIR]\n${repairNarrative && !resolveFirst ? 'The narrative below has already been shown and MUST NOT be rewritten.' : 'The draft below has NOT been shown. Repair the state and player-action disposition before final narration.'} Return one JSON object only, no prose or code fence. Required top-level keys: scene (object), events (array), entity_updates (array), state_updates (OBJECT, never an array), summary (string).\nPrevious proposal was rejected for these exact reasons: ${JSON.stringify(receiptValidationFeedback)}. Rejected proposal: ${JSON.stringify(rejectedReceiptProposal).slice(0, 7000)}. Correct those reasons; do not repeat the same invalid fields. Valid event types: movement, escort, activity, interaction, outfit, inventory, condition, time, observation, status, relationship, quest, discovery, environment, dialogue, other. Every event MUST have type, status and actor_id. Valid state_updates fields: ${JSON.stringify(ENGINE_STATE_KEYS.filter(key => key !== 'location_id'))}. A deadline uses state_updates.world_events (array), not a custom deadline key. A location condition uses state_updates.location_state_updates (array), not location_states.\nscene must have player_location_id, player_location_changed (boolean), present_character_ids (complete NPC ID array). Every event must have type, status and actor_id; movement uses type="movement", status="completed", from_location_id, to_location_id, movement_mode (voluntary|forced|carried|vehicle|fall|teleport), evidence. A completed player pickup uses events:[{type:"inventory",status:"completed",actor_id:"player",action:"add",item:"exact item name",evidence:"completed narrative action"}]; never invent inventory_added or put ordinary inventory_add at the root or in state_updates. An offered or held-out item is not a player pickup until the player takes or accepts it, or the NPC actually puts it in the player's hands; asking grants nothing. entity_updates entries use entity_id, location_id, activity, interacting_with.\nKnown NPC IDs and names: ${JSON.stringify(repairKnownActors)}. Use these IDs, not invented aliases. Known location IDs and names: ${JSON.stringify(repairKnownLocations)}. Use exact location ids for lasting conditions. If the narrative newly NAMES an unnamed person, add state_updates.npc_introduced:[{id:"npc_unique_name",name:"Full Name",description:"...",persona:"..."}] and use exactly that id in scene.present_character_ids and entity_updates. A newly introduced NPC starts in the current scene; do not add an invented movement event for their introduction. Anonymous villagers, guards and crowds are not named NPCs; do not invent numbered people or guards for them.\nNPC movement never changes player location. Intent, attempts, dialogue claims and hypotheticals are not completed events. If nothing durable changed, use events:[], entity_updates:[], state_updates:{} and the current scene.${checkRepairInstruction}${waitRepairInstruction}${actionRepairInstruction}\nAuthoritative player start: ${receiptPlayerStart}. Current location: ${repairFrame.player_location_id}. scene.player_location_changed MUST be ${repairFrame.player_location_id !== receiptPlayerStart}. The player's completed route was already applied locally; do not duplicate it.\nAuthoritative pre-repair scene: ${JSON.stringify(repairFrame)}\nPlayer input: ${JSON.stringify(String(submittedInput || userInput))}\nNarrative: ${JSON.stringify(String(repairNarrative).slice(0, 7000))}`;
                 const repairBody = {
                     model: structuredModelFor(world),
                     stream: false,
@@ -30655,37 +33188,176 @@ ${modularMandate}
                     messages: [{ role: 'system', content: repairPrompt
                         + '\nFor checks, stat_id is required whenever a rollable stat is available. Put prose-only outcomes in check.success_text and check.failure_text, not in on_success.summary/on_failure.summary. Those branch objects contain only supported durable state mutations; use {} when there are none.'
                         + worldRouteClosureReceiptRepairInstruction(world, sess, repairNarrative)
+                        + '\nA status event changes only NPC lifecycle: next_status must be alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.'
                         + '\nA factual closure asserted in summary, ledger_update or a completed environment event also requires an exact-ID route-blocking location_state_update. An NPC report alone is unverified testimony.'
                         + WORLD_RESTRAINT_REPAIR_RULE }]
                 };
+                repairBody.messages[0].content += '\nGROUNDING OVERRIDE: Ignore any earlier wording that suggests adding a newly named person just because the narrative mentions them. Use only people present in authored world data or explicitly introduced by the player. Never invent a porter, helper, guard, servant or other role NPC. A request for an NPC to do something is the player speaking, not the player completing that physical action.';
+                // Repair in the same protocol requested by the primary call, including
+                // prose-only V2 replies. Switching these to legacy receipts made
+                // ordinary conversations hit unrelated cast/movement checks.
                 const repairingScene = sceneDrafts;
                 if (repairingScene) {
+                    const movementFailures = receiptValidationFeedback.some(item =>
+                        ['unknown_destination', 'npc_access_denied', 'unreachable_npc_destination', 'player_movement_not_authorized',
+                            'insufficient_travel_time', 'actor_in_transit'].includes(item.reason));
+                    const movementCorrection = movementFailures ? (() => {
+                        const actorIds = [...new Set(receiptValidationFeedback.map(item => item.actor_id)
+                            .filter(id => id && id !== 'player'))].slice(0, 6);
+                        const npcOptions = actorIds.map(id => {
+                            const from = sess.entityStates?.[id]?.location;
+                            const local = getLocationRef(receiptView, from);
+                            return { npc_id: id, from: from || null,
+                                valid_next_ids: (local?.exits || []).map(exit => resolveWorldExitTarget(receiptView, exit)?.id)
+                                    .filter(to => to && worldNpcJourneyEdge(receiptView, sess, id, from, to))
+                                    .slice(0, 6) };
+                        });
+                        return `\nMOVEMENT CORRECTION: The rejected movements are not canon. Player location remains ${sess.playerLocation}; authorized player destination for this turn: ${receiptAuthorizedTarget?.id || 'none'}. NPC permitted adjacent IDs (possible future steps, NOT completed arrivals): ${JSON.stringify(npcOptions)}. A tour invitation or agreement is not a completed move by itself. Remove denied or premature movement events AND rewrite any passage that claims those arrivals; describe the surroundings or an offered next step from the current place instead. If there is no completed movement, use events:[] and effects:{} for movement. Do not replace a rejected move with a teleport, invented route or unearned discovery.`;
+                    })() : '';
                     turnCallAudit.correctionReasons = receiptValidationFeedback.map(item => ({
-                        reason: item.reason, type: item.type, detail: String(item.detail || '').slice(0, 300)
+                        reason: item.reason, type: item.type, detail: String(item.detail || '').slice(0, 300),
+                        ...(Number.isInteger(item.actionIndex) ? { actionIndex: item.actionIndex,
+                            actionRequest: item.actionRequest, proofStatus: item.proofStatus } : {})
                     }));
-                    repairBody.max_tokens = Math.max(1800, Math.min(4096, GEN_LIMIT));
-                    repairBody.messages = [...messages, { role: 'system', content:
-                        `[WORLD SCENE DRAFT CORRECTION]\n${draftInstruction}\nThe proposal is uncommitted. Correct only the listed failures; preserve unaffected actions and fiction. Return the corrected scene draft through the tool. One correction is allowed.\nFailures: ${JSON.stringify(receiptValidationFeedback)}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}` }];
+                    repairBody.messages = [{ role: 'system', content:
+                        `[WORLD SCENE DRAFT CORRECTION]\nReturn one compact JSON object only with protocol:"${sceneProtocol}" with narrative, actions and proposed changes. Empty optional collections may be omitted in v3. No reasoning, Markdown, repeated prose, ending checksum or legacy receipt. The proposal is uncommitted. Correct only the listed failures; preserve valid actions and fiction. Keep narrative to at most three short passages unless the player requested more. Use IDs to refer to passages rather than repeating their text. Empty arrays and effects:{} are valid when nothing changed. The engine checks every proposed action before it becomes canon.\nFailures: ${JSON.stringify(receiptValidationFeedback)}${movementCorrection}\nRejected draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown local locations: ${JSON.stringify(repairKnownLocations)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nPlayer action: ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}` }];
+                }
+                repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_FIDELITY;
+                if (repairingScene) repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_NOTATION;
+                if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts. Every action.response_id must name a narrative.id with the same action_id; every event.passage_id must name a passage with the event\'s action_id. Correct these exact references without guessing from prose.';
+                if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'explicit_request_coverage_required')) {
+                    repairBody.messages[0].content += '\nREQUEST COVERAGE CORRECTION: This input is compound. Every action MUST include request, even if there is only one action entry. Copy contiguous excerpts that together cover the complete input below in order, including negations. Account for each step in the linked narrative and its disposition; blocked or unresolved steps must not be claimed as completed. Complete input: '
+                        + JSON.stringify(String(submittedInput || userInput));
+                }
+                if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
+                    item.reason === 'uncommitted_player_action')) {
+                    repairBody.messages[0].content += `\nPLAYER ACTION CORRECTION: Part ${Number.isInteger(failure.actionIndex) ? failure.actionIndex + 1 : '?'} ${JSON.stringify(failure.actionRequest || submittedInput || userInput)} has ${failure.proofStatus === 'invalid' ? 'a proposed but invalid or mismatched player event' : 'no completed player proof'}. For a truly completed action, supply one actor_id:"player", status:"completed" event linked by passage_id to this part, with a valid canonical event type and required state fields. If completion is uncertain, mark the action attempted or blocked and describe only that attempt. Never infer success from the narrative.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'uncommitted_player_action')) {
+                    repairBody.messages[0].content += '\nPLAYER SPEECH VS ACTION CORRECTION: If the exact player text is a spoken line or instruction to an NPC (for example, “It is time to proceed, girl”), classify that part as speech/question. Do not convert the NPC’s requested next step into a completed physical action by the player; narrate only the NPC’s response or ask for clarification.';
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unverified_action_success')) {
+                    repairBody.messages[0].content += '\nACTION KIND CORRECTION: Re-read the exact player input and its optional quotation/asterisk notation. Spoken words, questions and requests to an NPC are speech/question and need a linked response passage, but no technical effect or completed event when nothing in the world changes. A nonpersistent physical interaction needs one completed player interaction event linked to its response passage; a lasting physical change, travel or wait needs its supported validated effect. Do not invent a world change to justify a conversational line. Keep plain unmarked text valid and classify it from context.';
+                }
+                if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
+                    item.reason === 'uncommitted_completed_event')) {
+                    repairBody.messages[0].content += `\nUNCOMMITTED EVENT CORRECTION: Event index ${Number.isInteger(failure.event_index) ? failure.event_index : '?'} for action_id ${JSON.stringify(failure.action_id || '')} claims a completed ${JSON.stringify(failure.effect || '')} change without one of ${JSON.stringify(failure.requiredEffects || [])}. If the player only spoke and no lasting world change occurred, remove this event and keep the linked speech response; do not invent an effect. If a lasting change really occurred, supply its allowed typed effect and ensure the narrative and world rules support it. A pause, expression or spoken assertion is not a mechanical event.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['missing_condition', 'missing_condition_action', 'unknown_condition'].includes(item.reason))) {
+                    const conditionFailures = receiptValidationFeedback.filter(item =>
+                        ['missing_condition', 'missing_condition_action', 'unknown_condition'].includes(item.reason))
+                        .map(item => {
+                            const actorId = resolveWorldActorId(world, sess, item.actor_id) || item.actor_id;
+                            const actorState = actorId === 'player' ? sess.playerState : sess.entityStates?.[actorId];
+                            return { event_index: item.index, reason: item.reason, actor_id: actorId,
+                                current_conditions: (actorState?.conditions || []).slice(0, 12),
+                                ...(actorId !== 'player' ? { current_activity: String(actorState?.currentActivity || '').slice(0, 180) } : {}) };
+                        });
+                    repairBody.messages[0].content += `\nCONDITION CORRECTION: ${JSON.stringify(conditionFailures)}. A type:"condition" event needs an exact lasting condition name and an explicit add/remove/clear/recover action. Removal may name only a condition already recorded for that actor. A temporary expression, gesture, tether adjustment or pose is not a condition change; preserve the player interaction and any verified ongoing NPC activity instead. Do not claim a lasting condition ended without its validated event. Preserve the actual player action and its passage.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['invalid_escort_actor', 'invalid_escort_event', 'escort_actor_not_present', 'missing_escort_evidence'].includes(item.reason))) {
+                    const escortFailures = receiptValidationFeedback.filter(item =>
+                        ['invalid_escort_actor', 'invalid_escort_event', 'escort_actor_not_present', 'missing_escort_evidence'].includes(item.reason))
+                        .map(item => ({ index: item.index, reason: item.reason, actor_id: item.actor_id }));
+                    repairBody.messages[0].content += `\nESCORT CORRECTION: ${JSON.stringify(escortFailures)}. Escort is only an NPC joining or leaving as an ongoing follower with that NPC as actor_id and explicit evidence. The player taking or dragging someone to a mapped room is travel, not an escort event. Authoritative player location: ${sess.playerLocation}; present NPC locations: ${JSON.stringify(repairKnownActors.map(actor => ({ id: actor.id, location_id: sess.entityStates?.[actor.id]?.location || null })))}. ${committedMovement ? `The engine already moved the player and these companions: ${JSON.stringify(committedMovement.companionIds || [])}; omit duplicate movement and escort events and describe the committed arrival.` : 'If a permitted journey actually completes, use actor-scoped movement with exact route IDs and required elapsed time; otherwise describe only the attempt from the current room.'} Delete the rejected escort event. Never infer follower status or a completed journey from prose alone.`;
+                }
+                if (repairingScene && committedDoor?.action === 'locked'
+                    && receiptValidationFeedback.some(item => item.reason === 'contradicted_precommitted_door')) {
+                    repairBody.messages[0].content += `\nDOOR CORRECTION: The player already locked the mapped door between ${committedDoor.fromId} and ${committedDoor.toId} with the recorded key. This is one shared door accessible from either mapped side. Rewrite the passage to show the lock engaging; remove claims that the key failed, the bolt stayed open, or this is an invented one-way lock. Do not add a duplicate door event or effect.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    ['unverified_commitment_resolution', 'reached_commitment_needs_scene_resolution'].includes(item.reason))) {
+                    const reachable = (sess.scheduledEvents || []).filter(event =>
+                        !event.sceneResolution && (!event.locationId || event.locationId === sess.playerLocation)
+                        && (event.status === 'triggered' || event.status === 'scheduled'
+                            && draftPlannedWait > 0 && Number.isFinite(event.dueMinute)
+                            && event.dueMinute <= currentTotalMinutes + draftPlannedWait))
+                        .map(event => ({ id: event.id, status: event.status, dueMinute: event.dueMinute }));
+                    const failures = receiptValidationFeedback.filter(item =>
+                        ['unverified_commitment_resolution', 'reached_commitment_needs_scene_resolution'].includes(item.reason))
+                        .map(item => item.detail);
+                    repairBody.messages[0].content += `\nDEADLINE CORRECTION: Failed entries ${JSON.stringify(failures)}. Reachable existing commitments here: ${JSON.stringify(reachable)}; current minute ${currentTotalMinutes}. Remove unsupported resolutions. Resolve a reachable ID only when a completed, evidenced consequence event at event_index is grounded in the same passage; scheduled deadlines additionally require a validated time advance reaching dueMinute. A mention or time event alone is no consequence.`;
+                }
+                if (repairingScene) repairBody.messages[0].content += '\nUse only exact passage IDs present in narrative[].id for every response_id and passage_id; never invent or alter IDs. When present, actions[].request must copy the full player input in order, split into contiguous excerpts with no gaps. Allowed action kind values: physical, speech, question, observation, travel, wait, other. Allowed status values: resolved, answered, attempted, pending_check, blocked, needs_clarification. Do not put present_character_ids or activities inside effects; the engine computes the ending cast and does not accept these as effects. Add speech entries only for dialogue present in the draft, with exact known actor IDs (or player) for speaker and listeners. Use only authored or explicitly player-introduced people; do not invent a porter, helper, guard, servant or other role NPC. Background crowds may be scenery only, never actors or speakers. A request for an NPC to perform an action is the player speaking, not the player completing that physical action.';
+                if (repairingScene) repairBody.messages[0].content += '\nThe label physical is valid only as actions[].kind, never as events[].type. A simple, non-durable interaction with a known present person can omit an event only when the engine can verify it from the player input and current state; otherwise give a completed interaction event. Durable event types must use the allowed event vocabulary only.';
+                const repairingActionLink = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unknown_action_reference' || item.reason === 'unlinked_action_passage');
+                if (repairingActionLink) repairBody.messages[0].content += '\nACTION LINK CORRECTION: Use only action_id values declared in actions[].action_id. Every event must name its owning action_id and an existing passage_id. Every action.response_id must name a passage belonging to that same action. Do not invent a new action, rename a valid ID, or assign a physical event to a speech action just to satisfy the schema. Speech with no lasting effect needs a linked response passage but no completed mechanical event.';
+                const repairingPastCommitment = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'new_commitment_in_past');
+                const repairingUncommittedEvent = repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'uncommitted_completed_event');
+                if (repairingPastCommitment) repairBody.messages[0].content += `\nPAST COMMITMENT CORRECTION: Current world time is day ${Math.floor(currentTotalMinutes / 1440) + 1}, minute_of_day ${currentTotalMinutes % 1440}. A newly scheduled or rescheduled commitment must be strictly later. A rhetorical question such as "did you have somewhere to be?" is not a promise or deadline: remove its commitments[] entry and leave the conversation intact. If a future meeting was actually agreed in the narrative, use only its expressly supported future day and time; revise the narrative if needed for consistency. Never shift a past timestamp forward by guessing, invent an agreement, or change the current world clock.`;
+                repairBody.messages[0].content += '\nSTATUS EVENT CONTRACT: events[].status is the event progress (intended, attempted, in_progress, completed, cancelled or failed). events[].type="status" is only for a lasting NPC lifecycle change and requires next_status exactly alive, dead or gone. Never put an activity, pose, mood or temporary condition in next_status or value. Walking up to a person within the same place and showing a held item need no location or lifecycle change. If a rejected status event describes an ongoing activity, express only an actually completed lasting change with type="activity" and activity text; otherwise omit that status event. Keep the established narrative and all other valid changes.';
+                if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'unsupported_draft_effect')) {
+                    const allowedEffects = Object.keys(worldStateTool.function.parameters.properties.effects.properties);
+                    const rejectedEffects = receiptValidationFeedback.filter(item => item.reason === 'unsupported_draft_effect')
+                        .map(item => String(item.detail || '').slice(0, 120));
+                    repairBody.messages[0].content += `\nEFFECT CORRECTION: Unsupported fields: ${JSON.stringify(rejectedEffects)}. effects may contain only these enabled keys: ${JSON.stringify(allowedEffects)}. Preserve each intended, completed change using a matching actor-scoped event or allowed effect; never invent a new effect key. Omit an unsupported field only if it is a placeholder with no intended change. If its meaning is ambiguous, do not claim that change happened. effects:{} is valid when no lasting change occurred.`;
+                }
+                if (repairingScene && receiptValidationFeedback.some(item =>
+                    item.reason === 'unsupported_event_type' && item.detail === 'posture')) {
+                    repairBody.messages[0].content += '\nPOSTURE CORRECTION: posture is not an event type. Preserve the described pose in the narrative. If it is a completed, lasting NPC state, use a typed activity event with the same actor_id, status:completed, passage_id and an activity string describing that pose. If it is only a momentary gesture, no durable event is needed. Preserve every other intended change.';
                 }
                 if (repairingScene && pendingSecretReveals.length) repairBody.messages.push({
                     role: 'system', content: `Verified investigate_secret results: ${JSON.stringify(
                         currentSecrets.filter(secret => pendingSecretReveals.includes(secret.label))
                             .map(secret => ({ label: secret.label, truth: secret.truth })))}. Use these discoveries in the scene draft. They become saved discoveries only if the draft commits.`
                 });
-                const plainSceneRepair = repairingScene && (sceneJsonTransport
+                const localSchemaRepair = repairingScene && turnProvider === 'local'
+                    && !(sess.sceneDraftUnconstrainedModels || []).includes(draftTransportKey);
+                const plainSceneRepair = repairingScene && (sceneJsonTransport || localSchemaRepair || !!earlyDraftFailure
+                    || turnProvider !== 'openrouter' || (!stateCallSeen && !rejectedReceiptProposal)
                     || receiptValidationFeedback.some(item => item.reason === 'invalid_tool_arguments'));
-                if (plainSceneRepair && !sceneJsonTransport) repairBody.messages.push({role:'system',content:
-                    'The provider function-call channel failed. Do not use it again. Return only a valid JSON object matching this schema, no tags or function tokens: '
+                if (localSchemaRepair) {
+                    delete repairBody.tools;
+                    delete repairBody.tool_choice;
+                    delete repairBody.parallel_tool_calls;
+                    repairBody.response_format = { type: 'json_schema', json_schema: {
+                        name: sceneProtocol, schema: worldStateTool.function.parameters
+                    } };
+                    repairBody.messages[0].content += sceneDraftFieldGuide;
+                }
+                if (plainSceneRepair && !localSchemaRepair) repairBody.messages.push({role:'system',content:
+                    'Use JSON text for this correction. Do not call tools. Return only a valid JSON object matching this schema, no tags or function tokens: '
                     + JSON.stringify(worldStateTool.function.parameters)});
+                if (repairingScene && !rejectedReceiptProposal && repairNarrative.trim()) {
+                    repairBody.messages.push({role:'system',content:
+                        'The model supplied prose without a scene draft. This is the uncommitted candidate, not established history: '
+                        + JSON.stringify(repairNarrative.slice(0, 16000))
+                        + '\nConvert it into the requested scene draft. Preserve a valid response to the player; revise contradictions against the authoritative scene. Never claim a mutation merely to legitimize the prose. Return JSON only when JSON transport is requested.'});
+                }
                 if (turnProvider === 'openrouter' && !plainSceneRepair) {
                     repairBody.tools = [JSON.parse(JSON.stringify(repairingScene ? worldStateTool : legacyWorldTool))];
                     repairBody.tool_choice = { type: 'function', function: { name: 'commit_world_turn' } };
                     repairBody.provider = { require_parameters: true };
                 }
+                const repairModelInfo = typeof openRouterModels !== 'undefined'
+                    ? openRouterModels.find(model => model.id === repairBody.model) : null;
+                const repairPromptCharacters = JSON.stringify({
+                    messages: repairBody.messages, tools: repairBody.tools || [],
+                    response_format: repairBody.response_format
+                }).length;
+                // A scene-draft repair must reconstruct narrative and state together. Give
+                // that rare recovery request more room than the truncated first response,
+                // while honoring advertised provider and remaining context limits.
+                const repairBudgetBase = repairingScene ? GEN_LIMIT : Math.min(GEN_LIMIT, 2048);
+                repairBody.max_tokens = worldReceiptRepairOutputLimit(repairBudgetBase,
+                    repairModelInfo?.top_provider?.max_completion_tokens, CONTEXT_LIMIT, repairPromptCharacters);
                 const initialRepairInstruction = repairBody.messages[0].content;
-                for (let repairAttempt = 0; repairAttempt < (repairingScene ? 1 : 2) && !repairedReceiptApplied; repairAttempt++) {
+                const repairSupplementalMessages = repairBody.messages.slice(1);
+                for (let repairAttempt = 0; repairAttempt < (sceneDrafts ? (repairingActionLink || repairingPastCommitment || repairingUncommittedEvent ? 2 : 1) : 2) && !repairedReceiptApplied; repairAttempt++) {
                     if (repairAttempt) repairBody.messages = [{ role: 'system', content:
-                        `${initialRepairInstruction}\nThe first repair was rejected. Its exact validation failures: ${JSON.stringify(receiptValidationFeedback)}. Return a corrected receipt using only supported fields and event types; preserve the established action outcome and scene. No prose or code fence.` }];
+                        `${initialRepairInstruction}\nThe first repair was rejected. Its exact validation failures: ${JSON.stringify(receiptValidationFeedback)}. Rejected repair proposal: ${JSON.stringify(rejectedReceiptProposal).slice(0, 8000)}. Return a corrected receipt using only supported fields and event types; preserve the established action outcome and scene. No prose or code fence.` },
+                        ...repairSupplementalMessages];
+                    if (repairAttempt) repairBody.max_tokens = worldReceiptRepairOutputLimit(repairBudgetBase,
+                        repairModelInfo?.top_provider?.max_completion_tokens, CONTEXT_LIMIT,
+                        JSON.stringify({ messages: repairBody.messages, tools: repairBody.tools || [],
+                            response_format: repairBody.response_format }).length);
                     turnCallAudit.receiptRepair++;
                     const { response: repairResponse, data: repairData } = await fetchWorldTurnJSON('receiptRepair', repairBody, {
                         method: 'POST',
@@ -30705,9 +33377,9 @@ ${modularMandate}
                     if (!repairedReceipt && !repairingScene) repairedReceipt = extractInlineWorldTurnReceipt(repairMessage.content || '');
                     repairedReceipt = unwrapWorldTurnReceipt(repairedReceipt);
                     if (sceneDrafts && HordeWorldSceneDraft.isDraft(repairedReceipt)) {
-                        const candidate = commitReceiptCandidate(repairedReceipt, 'repair_scene_draft');
+                        const candidate = await commitReceiptCandidate(repairedReceipt, 'repair_scene_draft');
                         if (candidate.accepted) {
-                            if (plainSceneRepair) sess.sceneDraftJsonModels = [...new Set([
+                            if (plainSceneRepair && turnProvider !== 'local') sess.sceneDraftJsonModels = [...new Set([
                                 ...(sess.sceneDraftJsonModels || []),draftTransportKey])].slice(-20);
                             structuredChronicle = candidate.actionResult?.ledgerEntry || null;
                             resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -30731,7 +33403,7 @@ ${modularMandate}
                         && Array.isArray(repairedReceipt.events)
                         && Array.isArray(repairedReceipt.entity_updates)
                         && isPlainObject(repairedReceipt.state_updates)) {
-                        const candidate = commitReceiptCandidate(repairedReceipt, 'repair_receipt');
+                        const candidate = await commitReceiptCandidate(repairedReceipt, 'repair_receipt');
                         if (candidate.accepted) {
                             if (candidate.actionResult?.ledgerEntry) structuredChronicle = candidate.actionResult.ledgerEntry;
                             resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -30740,13 +33412,18 @@ ${modularMandate}
                             repairedReceiptApplied = true;
                             console.warn('Horde Engine: missing turn receipt repaired without regenerating the narrative.');
                         }
-                    } else receiptValidationFeedback = [{ reason: 'invalid_receipt_envelope',
-                        detail: 'scene, events array, entity_updates array, and state_updates object are required.' }];
+                    } else receiptValidationFeedback = [{
+                        reason: repairData.choices?.[0]?.finish_reason === 'length' ? 'truncated_receipt' : 'invalid_receipt_envelope',
+                        detail: repairingScene
+                            ? 'The model did not finish a valid compact scene draft.'
+                            : 'scene, events array, entity_updates array, and state_updates object are required.' }];
                 }
             } catch (repairError) {
+                if (repairError?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw repairError;
+                if (linkedWorldTurn) throw repairError;
                 // A user Stop still cancels the turn. An idle timeout during
                 // receipt repair must instead reach the canonical no-op
-                // fallback below, discarding the unverified prose and
+                // fallback below, preserving eligible provisional story and
                 // releasing the send/Stop button.
                 if (repairError?.name === 'AbortError' && !generationTimedOut) throw repairError;
                 receiptRepairTimedOut = generationTimedOut || repairError?.code === 'WORLD_MODEL_TIMEOUT';
@@ -30754,9 +33431,29 @@ ${modularMandate}
             }
         }
 
-        // Absolute safety floor: record a canonical no-op and audit failure,
-        // then discard the unverified prose before it reaches history or the
-        // next model prompt. A warning badge beside false fiction is not safe.
+        if (linkedTurnFinalized) {
+            if (dmTyping) dmTyping.style.display = 'none';
+            clearPendingTurn();
+            renderWorldPlayState();
+            return;
+        }
+        if (linkedWorldTurn) {
+            if (receiptValidationFeedback[0]?.reason === 'unknown_action_reference') {
+                const path = String(receiptValidationFeedback[0].detail || '').split(':')[0].slice(0, 120);
+                throw new Error(`World turn could not safely link the model's actions after automatic repair (${path}). No turn was saved.`);
+            }
+            if (receiptValidationFeedback[0]?.reason === 'new_commitment_in_past') {
+                throw new Error('The model proposed a new deadline before the current World time, even after automatic repair. No turn or false commitment was saved.');
+            }
+            if (receiptValidationFeedback[0]?.reason === 'uncommitted_completed_event') {
+                throw new Error('The model claimed a completed World change without a matching validated effect, even after automatic repair. No turn was saved; your input remains available.');
+            }
+            throw new Error(`Linked World turn was not committed: ${receiptValidationFeedback[0]?.reason || 'invalid_scene_draft'}${receiptValidationFeedback[0]?.blockageReason ? ': ' + receiptValidationFeedback[0].blockageReason : ''}`);
+        }
+
+        // Absolute state floor: record a canonical no-op and audit failure.
+        // Strict mode discards the prose. Scene-record mode may retain it in
+        // the separate, explicitly provisional conversation channel below.
         let frozenReceiptApplied = false;
         let fallbackWaitApplied = 0;
         const freezeUnverifiedWorldTurn = detail => {
@@ -30794,7 +33491,7 @@ ${modularMandate}
             freezeUnverifiedWorldTurn('Unverified narrative discarded; only an explicit player wait may advance time.');
         }
         sess.lastTurnStateSource = successfulStateCall ? 'tool_call'
-            : inlineStateApplied ? 'inline_rescue'
+            : conversationReceiptApplied ? 'conversation_scene' : inlineStateApplied ? 'inline_rescue'
                 : repairedReceiptApplied ? 'receipt_repair'
                     : frozenReceiptApplied ? 'frozen_no_receipt' : 'none';
 
@@ -30838,6 +33535,7 @@ ${modularMandate}
 
             // Update label during follow-up call
             if (dmTyping) dmTypingLabel.textContent = 'DM is writing a follow-up...';
+            setPendingStatus('DM is writing a follow-up...');
 
             try {
                 const committedNarration = resolveFirst && !!acceptedTurnReceipt;
@@ -30933,6 +33631,7 @@ ${modularMandate}
         if (!frozenReceiptApplied && !hasReadableWorldNarrative(fullText) && command !== 'init') {
             console.warn(`Horde Engine: empty narrative (finish_reason=${lastFinishReason}, reasoning=${reasoningSeen}) — attempting rescue call.`);
             if (dmTyping) { dmTyping.style.display = 'flex'; if (dmTypingLabel) dmTypingLabel.textContent = 'DM lost their train of thought — retrying...'; }
+            setPendingStatus('DM lost their train of thought — retrying...');
             try {
                 // Non-streaming call can't reset the idle timer — give it its own window
                 armGenerationIdleTimeout(isLocalProvider() ? configuredLocalIdleTimeout : 90000);
@@ -30980,7 +33679,7 @@ ${modularMandate}
             && !inlineStateApplied && !repairedReceiptApplied && !frozenReceiptApplied) {
             const rescuedInline = extractInlineWorldTurnReceipt(fullText);
             if (rescuedInline) {
-                const candidate = commitReceiptCandidate(rescuedInline, 'inline_narrative_rescue');
+                const candidate = await commitReceiptCandidate(rescuedInline, 'inline_narrative_rescue');
                 if (candidate.accepted) {
                     if (candidate.actionResult?.ledgerEntry) structuredChronicle = candidate.actionResult.ledgerEntry;
                     resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -31005,9 +33704,12 @@ ${modularMandate}
                     model: structuredModelFor(world), stream: false, max_tokens: 650, temperature: 0,
                     messages: [{ role: 'system', content: finalRepairPrompt
                         + '\nFor checks, use an exact rollable stat_id. Prose-only outcomes belong in check.success_text/check.failure_text; on_success/on_failure contain only supported durable mutations or {}.'
-                        + `\nKnown location IDs: ${JSON.stringify((receiptView.locations || []).slice(0, 80)
-                            .map(location => ({ id: location.id, name: location.name })))}.`
+                        + `\nKnown local location IDs: ${JSON.stringify((receiptView.locations || [])
+                            .filter(location => location.id === sess.playerLocation
+                                || (worldLoreContextSnapshots.get(sess.id)?.placeIndex || []).some(place => place.id === location.id))
+                            .slice(0, 24).map(location => ({ id: location.id, name: location.name })))}.`
                         + worldWaitReceiptRepairInstruction(submittedInput || userInput, fullText, currentTotalMinutes)
+                        + '\nA status event changes only NPC lifecycle: next_status must be alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.'
                         + worldRouteClosureReceiptRepairInstruction(world, sess, fullText)
                         + '\nA factual closure in summary or completed environment evidence also requires an exact-ID route-blocking location_state_update; NPC reports alone do not.'
                         + WORLD_RESTRAINT_REPAIR_RULE }]
@@ -31032,7 +33734,7 @@ ${modularMandate}
                     }
                     if (isPlainObject(repaired?.scene) && Array.isArray(repaired.events)
                         && Array.isArray(repaired.entity_updates)) {
-                        const candidate = commitReceiptCandidate(repaired, 'repair_receipt');
+                        const candidate = await commitReceiptCandidate(repaired, 'repair_receipt');
                         if (candidate.accepted) {
                             if (candidate.actionResult?.ledgerEntry) structuredChronicle = candidate.actionResult.ledgerEntry;
                             resolvedCheckResult = (candidate.actionResult?.checkResults || []).find(result =>
@@ -31115,7 +33817,7 @@ ${modularMandate}
         if (!frozenReceiptApplied && hasReadableWorldNarrative(fullText)
             && !narrativeConflict && (successfulStateCall || inlineStateApplied || repairedReceiptApplied)) {
             const conflicts = worldFinalNarrativeConflicts(world, turnSnapshot?.session, sess,
-                fullText, submittedInput || userInput, acceptedTurnReceipt);
+                fullText, submittedInput || userInput, acceptedTurnReceipt, committedDoor);
             if (conflicts.length) {
                 narrativeConflict = true;
                 if (sess.lastTurnAudit) conflicts.forEach(conflict => sess.lastTurnAudit.rejected.push({
@@ -31172,18 +33874,24 @@ ${modularMandate}
             }
         }
 
-        // Streaming prose was provisional. Never persist it (or send it back
-        // as context) when the mandatory receipt failed. Likewise, a provider
-        // pseudo-tool payload is not a readable scene even if it is nonempty.
+        // Failed state proposals never become canon. Scene-record mode can keep
+        // explicit prose in a marked provisional conversation channel; strict
+        // mode retains its failure boundary. Never display tool payloads.
+        let provisionalNarrative = false;
         if (frozenReceiptApplied) {
-            fullText = fallbackWaitApplied
+            const candidate = sceneLedger ? worldProvisionalNarrative(fullText, rejectedReceiptProposal) : '';
+            provisionalNarrative = !!candidate;
+            fullText = candidate || (fallbackWaitApplied
                 ? worldUnverifiedWaitNotice(world, sess, fallbackWaitApplied)
                 : narratedCheckRequired ? worldMissingCheckNotice()
-                    : `${worldUnverifiedTurnNotice()}${receiptRepairTimedOut
+                    : `${worldUnverifiedTurnNotice(sess.lastTurnAudit?.rejected)}${receiptRepairTimedOut
                         ? hostedDeadlineReached
                             ? ` The hosted turn reached its ${Math.round(WORLD_HOSTED_TURN_DEADLINE_MS / 1000)}s limit before verification finished.`
-                            : ' The provider timed out while verifying the reply.' : ''}`;
+                            : ' The provider timed out while verifying the reply.' : ''}`);
             structuredChronicle = null;
+            // This is an advisory, not a rejection: it never mutates the
+            // timeline and remains visually distinct from amber/error UI.
+            aiMsgDiv.classList.add('world-advisory-blue');
             textTarget.textContent = fullText;
         } else if (fullText.trim() && !hasReadableWorldNarrative(fullText)) {
             fullText = 'The world state was committed, but the DM sent no readable scene. Review the World state and continue or Reroll.';
@@ -31331,7 +34039,7 @@ ${modularMandate}
                     });
                 }
             }
-            if (sess.lastTurnStateSource === 'none' && (committedMovement || committedOutfit)) {
+            if (sess.lastTurnStateSource === 'none' && (committedMovement || committedDoor || committedOutfit)) {
                 sess.lastTurnStateSource = 'local_intent';
             }
             // The scene went somewhere this world has never heard of.
@@ -31343,6 +34051,7 @@ ${modularMandate}
 
             const dmMsg = addWorldMessage('dm', cleanText, {
                 location: sess.playerLocation,
+                provisionalNarrative: provisionalNarrative || undefined,
                 narrativeAuditWarnings: audit?.rejected?.filter(item => item.type === 'narrative').length || undefined,
                 worldAudit: audit ? {
                     turn: audit.turn,
@@ -31373,6 +34082,9 @@ ${modularMandate}
                     ? 'classifier_empty' : (sess.ledgerDiagnostics?.source || ''),
                 callAudit: turnCallAudit ? {
                     ...turnCallAudit,
+                    protocol: sceneDrafts ? sceneProtocol : 'legacy_receipt',
+                    metrics: { ...turnCallAudit.metrics,
+                        acceptedDisplayMs: frozenReceiptApplied || narrativeConflict ? null : Math.max(0, Date.now() - worldTurnStartedAt) },
                     foregroundTotal: Object.values(turnCallAudit).reduce((sum, value) => sum + (typeof value === 'number' ? value : 0), 0),
                     calls: turnCallDetails.slice(0, 20),
                     kernelMode: normalizeWorldKernelConfig(world).enabled ? 'scene_kernel' : 'legacy'
@@ -31386,6 +34098,7 @@ ${modularMandate}
             dmMsg.visibleRelationshipChanges = worldRelationshipEvidenceLabels(world,
                 worldWitnessedRelationshipEventsForMessage(sess, dmMsg));
             if (acceptedSceneDraft && !narrativeConflict && !frozenReceiptApplied) {
+                if (sceneLedger) dmMsg.sceneRecord = safeJsonClone(sess.sceneRecord);
                 dmMsg.sceneMemory = HordeWorldTurnContext.sceneMemory(acceptedSceneDraft,
                     acceptedTurnReceipt?.turn_id, sess.playerLocation, sess.turnCount);
             }
@@ -31458,6 +34171,7 @@ ${modularMandate}
             throw new Error(`The model returned no narrative response (even after a retry). ${why}`);
         }
 
+        clearPendingTurn();
         // NOTE: narrative-based position sync was removed. NPC movement is governed
         // by: tool calls (pinned) > schedules > scene population, with engine events
         // announcing any engine-driven arrival/departure to the DM for narration.
@@ -31485,12 +34199,29 @@ ${modularMandate}
 
     } catch (err) {
         const dmTypingEl = document.getElementById('world-dm-typing');
+        clearPendingTurn();
         if (dmTypingEl) dmTypingEl.style.display = 'none';
         pendingWorldActionFeedback = null;
 
         // Roll back generated consequences from the failed/aborted turn. A
         // failed reroll restores the previously selected take; a normal turn
         // returns to its pre-action snapshot.
+        if (linkedWorldTurn) {
+            if (!linkedTurnFinalized && !isReroll && !command && submittedInput) {
+                const input = document.getElementById('world-user-input');
+                if (input) input.value = submittedInput;
+            }
+            const reason = humanizeApiError(err) || err.message || 'Unknown error';
+            const linkFailure = /unlinked_action_passage|ambiguous_action_passage/.test(reason);
+            const message = err?.name === 'AbortError' ? 'Generation stopped. Your action is still in the input box.'
+                : linkFailure
+                    ? `The model linked its action to the wrong story passage (${reason}). No World changes were saved. Your action is still in the input box; retry it.`
+                    : `World turn was not saved: ${reason}. Your action is still in the input box.`;
+            if (err?.name !== 'AbortError') console.error('Horde Engine: linked World turn failed', err);
+            renderWorldPlayState();
+            showWorldTurnError(message);
+            return;
+        }
         const rollbackSnapshot = isReroll ? failureRestoreSnapshot : turnSnapshot;
         if (world && sess && rollbackSnapshot) restoreWorldTurnState(world, sess, rollbackSnapshot);
         if (sess && !isReroll && historyStartLength !== null) sess.history.splice(historyStartLength);
@@ -31503,7 +34234,9 @@ ${modularMandate}
         let movementPreserved = false;
         if (world && sess && committedMovement && !isReroll) {
             const target = world.locations.find(location => location.id === committedMovement.destinationId);
-            const movement = target ? movePlayerAlongWorldPath(world, sess, target, { showTravelToast: false }) : null;
+            const movement = target ? movePlayerAlongWorldPath(world, sess, target, {
+                showTravelToast: false, companionIds: committedMovement.companionIds || [],
+                relockLastDoor: committedMovement.relockLastDoor === true }) : null;
             if (movement?.ok && movement.moved) {
                 movementPreserved = true;
                 if (normalizeWorldGameRules(world).modules.livingWorld) {
@@ -31527,8 +34260,32 @@ ${modularMandate}
                 if (input) input.value = '';
             }
         }
+        let doorPreserved = false;
+        if (world && sess && committedDoor && !isReroll && !movementPreserved) {
+            const door = applyPlayerKeyDoorAction(world, sess, submittedInput);
+            if (door?.committed && door.toId === committedDoor.toId
+                && door.action === committedDoor.action) {
+                doorPreserved = true;
+                sess.lastTurnStateSource = 'local_intent';
+                if (normalizeWorldGameRules(world).modules.livingWorld) {
+                    updatePlaystyleProfile(sess, submittedInput);
+                    runLivingWorldTick(world, sess);
+                }
+                sess.turnCount = Math.max(1, parseInt(sess.turnCount) || 1) + 1;
+                getWorldTimeData(world, sess);
+                syncNPCSchedules(world, sess);
+                addWorldMessage('user', submittedInput, {
+                    location: sess.playerLocation, deferPersist: true
+                }, sess, world);
+                addWorldMessage('system', `The door at ${door.targetName} was ${door.action === 'locked' ? 'locked' : 'opened'}. The DM narration did not complete; continue from here or try again.`, {
+                    location: sess.playerLocation, deferPersist: true
+                }, sess, world);
+                const input = document.getElementById('world-user-input');
+                if (input) input.value = '';
+            }
+        }
         let waitPreserved = false;
-        if (world && sess && !isReroll && !committedMovement && !committedOutfit
+        if (world && sess && !isReroll && !committedMovement && !committedDoor && !committedOutfit
             && command !== 'init' && command !== 'look' && command !== 'continue') {
             const explicitWait = parseExplicitWorldWaitMinutes(submittedInput, currentTotalMinutes);
             if (explicitWait) {
@@ -31561,7 +34318,7 @@ ${modularMandate}
             // If movement already preserved the submitted action, its outfit
             // component belongs to that same action. Otherwise preserve a
             // clothing-only action on its own instead of returning it to the box.
-            if (!movementPreserved) {
+            if (!movementPreserved && !doorPreserved) {
                 addWorldMessage('user', submittedInput, {
                     location: sess.playerLocation,
                     deferPersist: true
@@ -31574,7 +34331,7 @@ ${modularMandate}
                 if (input) input.value = '';
             }
         }
-        if (!movementPreserved && !waitPreserved && !committedOutfit && !command && submittedInput) {
+        if (!movementPreserved && !doorPreserved && !waitPreserved && !committedOutfit && !command && submittedInput) {
             const input = document.getElementById('world-user-input');
             if (input) input.value = submittedInput;
         }
@@ -31585,6 +34342,8 @@ ${modularMandate}
             sess.worldCallDiagnostics.push({
                 at: new Date().toISOString(), reason,
                 durationMs: Math.max(0, Date.now() - worldTurnStartedAt),
+                metrics: turnCallAudit?.metrics ? { ...turnCallAudit.metrics } : null,
+                correctionReasons: turnCallAudit?.correctionReasons || [],
                 calls: turnCallDetails.slice(0, 20)
             });
             if (sess.worldCallDiagnostics.length > 25) sess.worldCallDiagnostics.splice(0, sess.worldCallDiagnostics.length - 25);
@@ -31597,15 +34356,17 @@ ${modularMandate}
             console.log('World turn aborted');
             if (generationTimedOut) {
                 const seconds = Math.max(1, Math.round(activeIdleTimeoutMs / 1000));
-                const prefix = movementPreserved ? 'Movement saved. ' : waitPreserved ? 'Wait saved. ' : '';
+                const prefix = movementPreserved ? 'Movement saved. ' : doorPreserved ? 'Door opening saved. '
+                    : waitPreserved ? 'Wait saved. ' : '';
                 const guidance = hostedDeadlineReached
                     ? `Hosted Worlds turn exceeded ${Math.round(WORLD_HOSTED_TURN_DEADLINE_MS / 1000)}s and was stopped. Retry or choose a faster model; the provider may still be processing the request.`
                     : worldTurnUsesLocalProvider
                         ? `Generation received no data for ${seconds}s and was stopped. Increase or disable the local timeout in Settings → AI & Models.`
                         : `Hosted model sent no data for ${seconds}s and was stopped. Check the provider status or retry.`;
-                showToast(prefix + guidance, 'error');
+                showWorldTurnError(prefix + guidance);
             } else {
                 showToast(movementPreserved ? 'Movement saved; DM generation stopped.'
+                    : doorPreserved ? 'Door opening saved; DM generation stopped.'
                     : waitPreserved ? 'Wait saved; DM generation stopped.' : 'Generation stopped.', 'info');
             }
             renderWorldPlayState();
@@ -31640,12 +34401,14 @@ ${modularMandate}
                 renderWorldPlayState();
             }
         } else {
-            showToast((movementPreserved ? 'Movement saved. ' : waitPreserved ? 'Wait saved. ' : '')
+            showToast((movementPreserved ? 'Movement saved. ' : doorPreserved ? 'Door opening saved. '
+                : waitPreserved ? 'Wait saved. ' : '')
                 + 'Horde Engine Error: ' + friendlyError, 'error');
             renderWorldPlayState();
         }
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
+        clearPendingTurn();
         if (hostedDeadlineId) clearTimeout(hostedDeadlineId);
         worldTurnPersistenceFence = null;
         worldTurnInProgress = false;
@@ -32107,7 +34870,8 @@ function applyNarratedOutfit(sess, narrative) {
 }
 
 function applyNarratedPresence(world, sess, narrative) {
-    const detected = detectNarratedPresence(world, sess, narrative);
+    const detected = detectNarratedPresence(world, sess, narrative)
+        .filter(hit => worldNpcCanMove(world, sess, hit.id, sess.playerLocation));
     detected.forEach(hit => {
         sess.entityStates[hit.id].location = sess.playerLocation;
         // The narration explicitly placed them here. Give that placement the
@@ -32141,6 +34905,7 @@ function rollForScenePopulation(locationId, persist = true) {
     // 2. Get NPCs that are "eligible" to be in this room
     const availableNPCs = world.entities.filter(ent => {
         if (ent.type !== 'npc') return false;
+        if (!worldNpcAccess(worldForSession(world, sess), ent.id, locationId, sess).ok) return false;
         if (!isVisibleToSession(ent, sess)) return false; // other timeline's NPC
         const entState = sess.entityStates[ent.id];
         if (!entState) return false;
@@ -32204,6 +34969,7 @@ function rollForScenePopulation(locationId, persist = true) {
 // them; other timelines never see them. Template NPCs and locations (without
 // sessionOrigin) are shared; story-born people and places stay in their timeline.
 function isVisibleToSession(item, sess) {
+    if (item.type === 'npc' && sess?.originId && Array.isArray(item.playerOriginIds) && item.playerOriginIds.includes(sess.originId)) return false;
     return !item.sessionOrigin || (!!sess && item.sessionOrigin === sess.id);
 }
 function sessionNpcs(world, sess) {
@@ -32212,10 +34978,19 @@ function sessionNpcs(world, sess) {
 
 function sessionLocations(world, sess) {
     const extras = isPlainObject(sess?.dynamicExits) ? sess.dynamicExits : {};
-    return (world.locations || []).filter(location => isVisibleToSession(location, sess)).map(location => {
+    const visible = (world.locations || []).filter(location => isVisibleToSession(location, sess));
+    ensureWorldDoorIds({ locations: visible }, sess);
+    const locations = visible.map(location => {
         const added = Array.isArray(extras[location.id]) ? extras[location.id] : [];
-        return added.length ? { ...location, exits: [...(Array.isArray(location.exits) ? location.exits : []), ...added] } : location;
+        return added.length ? { ...location,
+            exits: [...(Array.isArray(location.exits) ? location.exits : []), ...added] } : location;
     });
+    // Exits retain their identity across views. Both directions refer to one
+    // stable door id; legacy one-sided key metadata is reconciled only once.
+    if (Object.values(extras).some(exits => Array.isArray(exits) && exits.length)) {
+        ensureWorldDoorIds({ locations }, sess);
+    }
+    return locations;
 }
 
 function worldForSession(world, sess) {
@@ -32372,17 +35147,9 @@ function applyWorldExitUnlocks(world, sess, requests) {
             candidate && typeof candidate === 'object' && candidate.allowCheckUnlock === true
             && resolveWorldExitTarget(view, candidate)?.id === target.id);
         if (!exit) return;
-        const key = worldExitUnlockKey(current.id, exit.targetLocationId || getExitTargetName(exit));
-        if (!key) return;
-        sess.unlockedExits[key] = true;
-        const reverse = (target.exits || []).find(candidate =>
-            candidate && typeof candidate === 'object' && candidate.allowCheckUnlock === true
-            && String(candidate.requiredItem || '').trim() === String(exit.requiredItem || '').trim()
-            && resolveWorldExitTarget(view, candidate)?.id === current.id);
-        if (reverse) {
-            const reverseKey = worldExitUnlockKey(target.id, reverse.targetLocationId || getExitTargetName(reverse));
-            if (reverseKey) sess.unlockedExits[reverseKey] = true;
-        }
+        const keys = worldExitDoorKeys(view, current, target, exit);
+        if (!keys.length) return;
+        keys.forEach(key => { sess.unlockedExits[key] = true; });
         results.push({ from_location_id: current.id, to_location_id: target.id, unlocked: true });
     });
     return results;
@@ -32464,7 +35231,8 @@ function processStructuredActions(args) {
         if (malformedCheck) {
             moduleRejections.push({ field: 'checks', module: 'checks', reason: 'invalid_check_shape' });
         } else {
-            checkResults = performAuthoritativeChecks(world, sess, requestedChecks);
+            checkResults = performAuthoritativeChecks(world, sess, requestedChecks,
+                { silent: movementAuthority.deferFeedback === true });
         }
         checkResults.forEach((result, index) => {
             if (result.pending || result.reason) return;
@@ -33083,7 +35851,12 @@ function processStructuredActions(args) {
                 const view = worldForSession(world, sess);
                 const origin = entState.location || entState.journey?.originId;
                 const teleport = movementAuthority.teleportNpcMoves?.includes(resolvedId);
-                const path = findWorldTravelPath(view, origin, targetLoc.id);
+                const explore = move.explore === true;
+                if (!worldNpcCanMove(world, sess, resolvedId, targetLoc.id, teleport, explore)) {
+                    moduleRejections.push({ field: 'npc_moves', module: 'livingWorld', reason: 'npc_access_denied', npc: resolvedId, destination: targetLoc.id });
+                    return;
+                }
+                const path = findWorldTravelPath(view, origin, targetLoc.id, { npcId: resolvedId, session: sess, explore });
                 if (!teleport && !path) {
                     moduleRejections.push({ field: 'npc_moves', module: 'livingWorld',
                         reason: 'unreachable_npc_destination', npc: resolvedId, destination: targetLoc.id });
@@ -33093,12 +35866,14 @@ function processStructuredActions(args) {
                     // Only the receipt validator can authorize completed movement.
                     delete entState.journey;
                     entState.location = targetLoc.id;
+                    (path || [targetLoc.id]).slice(path ? 1 : 0).forEach(placeId =>
+                        globalThis.HordeWorldLore?.rememberPlace(sess, resolvedId, placeId));
                     entState.pinnedUntilTurn = (sess.turnCount || 1) + 6;
                     actionToast(`${npc ? npc.name : 'NPC'} moved to ${targetLoc.name}.`, 'info');
                 } else if (entState.location === targetLoc.id) {
                     entState.pinnedUntilTurn = (sess.turnCount || 1) + 6;
                 } else if (!startNpcJourney(world, sess, npc, targetLoc, move.reason,
-                    getWorldTimeData(world, sess).currentTotalMinutes, { pinOnArrival: true })) {
+                    getWorldTimeData(world, sess).currentTotalMinutes, { pinOnArrival: true, explore })) {
                     moduleRejections.push({ field: 'npc_moves', module: 'livingWorld',
                         reason: 'actor_in_transit', npc: resolvedId, destination: targetLoc.id });
                 }
@@ -33115,6 +35890,32 @@ function processStructuredActions(args) {
                     ? `unknown NPC "${move?.npc_id}"`
                     : `unknown destination "${destinationRef}"`}. The scene cast will not include them.`);
             }
+        });
+    }
+    if (args.access_grants && Array.isArray(args.access_grants)) {
+        const view = worldForSession(world, sess);
+        args.access_grants.forEach(change => {
+            const grantorId = resolveNpcId(world, change?.grantor_npc_id, sess);
+            const recipientId = resolveNpcId(world, change?.recipient_npc_id, sess);
+            const place = getLocationRef(view, change?.location_id);
+            const action = change?.action === 'revoke' ? 'revoke' : change?.action === 'grant' ? 'grant' : '';
+            const grantorPlace = sess.entityStates?.[grantorId]?.location;
+            const recipientPlace = sess.entityStates?.[recipientId]?.location;
+            const currentGrant = place && sess.placeAccessGrants?.[place.id]?.[recipientId];
+            if (!grantorId || !recipientId || grantorId === recipientId || !place || !action
+                || (action === 'grant' && (!grantorPlace || grantorPlace !== recipientPlace
+                    || !worldNpcAccess(view, grantorId, place.id, sess).ok))
+                || (action === 'revoke' && currentGrant?.grantedBy !== grantorId)) {
+                moduleRejections.push({ field: 'access_grants', module: 'worldLore', reason: 'invalid_access_transfer',
+                    grantor: grantorId, recipient: recipientId, location: place?.id });
+                return;
+            }
+            sess.placeAccessGrants ||= {};
+            sess.placeAccessGrants[place.id] ||= {};
+            if (action === 'grant') {
+                sess.placeAccessGrants[place.id][recipientId] = { grantedBy: grantorId };
+                globalThis.HordeWorldLore?.rememberPlace(sess, recipientId, place.id);
+            } else delete sess.placeAccessGrants[place.id][recipientId];
         });
     }
 
@@ -33144,6 +35945,11 @@ function processStructuredActions(args) {
                     secrets: [],
                     sessionOrigin: sess.id // timeline-scoped: other sessions never see them
                 };
+                const candidateView = worldForSession(world, sess);
+                if (!worldNpcAccess({ ...candidateView, entities: [...candidateView.entities, newNpc] }, newId, sess.playerLocation, sess).ok) {
+                    moduleRejections.push({ field: 'npc_introduced', module: 'livingWorld', reason: 'npc_access_denied', npc: newId, destination: sess.playerLocation });
+                    return;
+                }
                 world.entities.push(newNpc);
 
                 // Set their initial state for this session (pinned: they were just
@@ -33317,14 +36123,6 @@ async function renderWorldMap() {
 
     try {
         const sess = getCurrentWorldSession();
-        const presentation = worldPresentationForDisplay(world);
-        const mapSkin = worldMediaSource(world, presentation.mapSkinAssetId);
-        const effectiveMode = ['classic', 'cinematic'].includes(sess?.presentationMode)
-            ? sess.presentationMode : (presentation.enabled ? presentation.mode : 'classic');
-        container.style.backgroundImage = mapSkin && effectiveMode !== 'classic'
-            ? `linear-gradient(rgba(8,8,12,.5),rgba(8,8,12,.5)),url('${cssUrl(mapSkin)}')` : 'none';
-        container.style.backgroundSize = 'cover';
-        container.style.backgroundPosition = 'center';
         renderSemanticWorldMap(container, worldForSession(world, sess), {
             currentLocationId: sess?.playerLocation || ''
         });
@@ -33941,6 +36739,40 @@ function getWorldPathTravelTime(world, path) {
     return total;
 }
 
+function applyPlayerTravelDoorStates(world, sess, path, options = {}) {
+    const changes = [];
+    const relockRequested = options.relockLastDoor === true;
+    let relocked = false;
+    if (!Array.isArray(path) || path.length < 2) return { changes, relockRequested, relocked };
+    if (!isPlainObject(sess.unlockedExits)) sess.unlockedExits = {};
+    for (let index = 1; index < path.length; index++) {
+        const from = getLocationRef(world, path[index - 1]);
+        const to = getLocationRef(world, path[index]);
+        if (!from || !to) continue;
+        const candidates = (from.exits || []).filter(exit =>
+            resolveWorldExitTarget(world, exit)?.id === to.id
+            && worldExitRequirement(sess, exit, from.id).ok);
+        const exit = index === 1 && options.exit && candidates.includes(options.exit)
+            ? options.exit : candidates.sort((a, b) =>
+                (Number(a?.travelTime) || 0) - (Number(b?.travelTime) || 0))[0];
+        if (!exit || typeof exit !== 'object' || !worldPlayerHoldsExitItem(sess, exit)) continue;
+        // A carried key opens the traversed door. The matching reverse edge
+        // describes the same physical door, so both directions share its state.
+        const keys = worldExitDoorKeys(world, from, to, exit);
+        const fullyUnlocked = keys.every(key => sess.unlockedExits[key] === true);
+        if (!fullyUnlocked) {
+            keys.forEach(key => { sess.unlockedExits[key] = true; });
+            changes.push({ action: 'unlocked', from_location_id: from.id, to_location_id: to.id });
+        }
+        if (relockRequested && index === path.length - 1) {
+            keys.forEach(key => { delete sess.unlockedExits[key]; });
+            changes.push({ action: 'relocked', from_location_id: from.id, to_location_id: to.id });
+            relocked = true;
+        }
+    }
+    return { changes, relockRequested, relocked };
+}
+
 function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     if (!world || !sess || !targetLocation) return { ok: false, moved: false, reason: 'unknown_destination', path: [] };
     if (sess.pendingChecks?.length || sess.pendingCheck) {
@@ -33949,8 +36781,12 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     const travelWorld = typeof worldForSession === 'function' ? worldForSession(world, sess) : world;
     const selectedExit = Object.prototype.hasOwnProperty.call(options, 'exit');
     const origin = getLocationRef(travelWorld, sess.playerLocation);
-    if (selectedExit && (!(origin?.exits || []).includes(options.exit)
-        || resolveWorldExitTarget(travelWorld, options.exit)?.id !== targetLocation.id)) {
+    // The selected exit normally retains its identity across session views.
+    // Also accept an exact authored copy, but reject stale or fabricated exits.
+    const chosenExit = selectedExit ? (origin?.exits || []).find(exit =>
+        exit === options.exit || JSON.stringify(exit) === JSON.stringify(options.exit)) : null;
+    if (selectedExit && (!chosenExit
+        || resolveWorldExitTarget(travelWorld, chosenExit)?.id !== targetLocation.id)) {
         return { ok: false, moved: false, reason: 'invalid_exit', path: [] };
     }
     const destinationBlock = worldLocationTravelBlock(sess, targetLocation.id);
@@ -33960,7 +36796,7 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
             path: [] };
     }
     if (selectedExit) {
-        const requirement = worldExitRequirement(sess, options.exit, origin.id);
+        const requirement = worldExitRequirement(sess, chosenExit, origin.id);
         if (!requirement.ok) return { ok: false, moved: false,
             reason: requirement.reason, requiredItem: requirement.requiredItem,
             allowCheckUnlock: requirement.allowCheckUnlock, path: [] };
@@ -33993,9 +36829,23 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     if (path.length === 1) return { ok: true, moved: false, reason: 'already_there', path };
 
     const previousLocation = sess.playerLocation;
+    const explicitCompanions = [...new Set(Array.isArray(options.companionIds) ? options.companionIds : [])]
+        .filter(id => typeof id === 'string');
+    // The player opens the mapped route with their own key. A named, present
+    // companion may use that same open door and learn the route while being
+    // guided; they need not carry a second copy of the key or know the room
+    // beforehand. This is one accompanied journey, not a durable access grant.
+    const blockedCompanion = explicitCompanions.find(id => {
+        const npcState = sess.entityStates?.[id];
+        return !npcState || npcState.location !== previousLocation || npcState.journey
+            || !isNpcActive(npcState);
+    });
+    if (blockedCompanion) return { ok: false, moved: false,
+        reason: 'companion_unavailable', blockedCompanion,
+        blockedLocationName: targetLocation.name, path: [] };
     const travelLegs = path.slice(1).map((toId, index) => getWorldTravelLeg(travelWorld, path[index], toId, sess)).filter(Boolean);
     if (selectedExit && travelLegs[0]) {
-        const details = typeof options.exit === 'object' ? options.exit : {};
+        const details = typeof chosenExit === 'object' ? chosenExit : {};
         Object.assign(travelLegs[0], {
             mode: normalizeWorldTravelMode(details.mode),
             travelTime: Math.max(0, Number(details.travelTime) || 0),
@@ -34006,9 +36856,14 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
     const followersMoved = sessionNpcs(travelWorld, sess)
         .filter(npc => {
             const npcState = sess.entityStates?.[npc.id];
-            return npcState?.followingPlayer === true && npcState.location === previousLocation
-                && !npcState.journey && isNpcActive(npcState);
+            return (npcState?.followingPlayer === true || explicitCompanions.includes(npc.id))
+                && npcState.location === previousLocation
+                && !npcState.journey && isNpcActive(npcState)
+                && (explicitCompanions.includes(npc.id)
+                    || path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok));
         }).map(npc => npc.id);
+    const doorState = applyPlayerTravelDoorStates(travelWorld, sess, path,
+        selectedExit ? { ...options, exit: chosenExit } : options);
     sess.playerLocation = targetLocation.id;
     // A monotonic marker lets short-lived conditional promises distinguish
     // "the player never left" from "the player went away and quietly returned".
@@ -34018,6 +36873,7 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         const npcState = sess.entityStates[id];
         npcState.lastKnownLocation = previousLocation;
         npcState.location = targetLocation.id;
+        path.slice(1).forEach(placeId => globalThis.HordeWorldLore?.rememberPlace(sess, id, placeId));
         npcState.currentActivity = 'Travelling with the player.';
         npcState.pinnedUntilTurn = Math.max(Number(npcState.pinnedUntilTurn) || 0, (sess.turnCount || 1) + 6);
     });
@@ -34034,7 +36890,11 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         path,
         travelMinutes,
         travelLegs,
-        followersMoved
+        doorChanges: doorState.changes,
+        relockRequested: doorState.relockRequested,
+        relocked: doorState.relocked,
+        followersMoved,
+        explicitCompanionsMoved: followersMoved.filter(id => explicitCompanions.includes(id))
     };
 }
 
@@ -34171,6 +37031,7 @@ function normalizeWorldFaction(raw, index) {
     const name = String(raw?.name || `Faction ${index + 1}`).trim().slice(0, 120);
     const reputation = livingClamp(raw?.reputation == null ? 0 : raw.reputation, -100, 100);
     return {
+        ...(isPlainObject(raw) ? raw : {}),
         id: String(raw?.id || livingId('faction', name || index)).slice(0, 80),
         name,
         description: String(raw?.description || '').slice(0, 600),
@@ -34589,10 +37450,12 @@ function normalizeWorldSocietyState(world, sess) {
 
 function normalizeAuthoredWorld(world) {
     if (!world) return world;
+    globalThis.HordeWorldLore?.migrate(world);
     // A hand-edited or truncated file can carry holes in these arrays, and a
     // hole is not a place or a person — every pass below would throw on it.
     world.locations = (Array.isArray(world.locations) ? world.locations : []).filter(isPlainObject);
     world.entities = (Array.isArray(world.entities) ? world.entities : []).filter(isPlainObject);
+    globalThis.HordeMapEditor?.normalize(world);
     normalizeWorldPresentation(world);
     const validMediaIds = new Set(world.mediaAssets.map(asset => asset.id));
     if (world.presentation.mapSkinAssetId && !validMediaIds.has(world.presentation.mapSkinAssetId)) {
@@ -34701,7 +37564,6 @@ function addNpcKnowledge(world, sess, npcRef, raw, defaults = {}) {
         return duplicate;
     }
     entState.observations.push(entry);
-    entState.observations = entState.observations.slice(-100);
     return entry;
 }
 
@@ -34829,7 +37691,7 @@ function normalizeLivingWorldState(world, sess) {
     normalizeWorldConsequences(world, sess);
     Object.values(sess.entityStates || {}).forEach(entState => {
         entState.observations = (Array.isArray(entState.observations) ? entState.observations : [])
-            .map(item => normalizeNpcKnowledgeEntry(item)).filter(Boolean).slice(-100);
+            .map(item => normalizeNpcKnowledgeEntry(item)).filter(Boolean);
     });
     normalizeWorldSocietyState(world, sess);
     // Knowledge tracking arrived after some timelines were saved; items with no
@@ -36747,10 +39609,12 @@ function buildWorldAgentDigest(world, sess) {
     const time = getWorldTimeData(world, sess);
     const nameOf = id => world.entities.find(item => item.id === id)?.name || id;
     const locName = id => world.locations.find(item => item.id === id)?.name || id;
+    const view = worldForSession(world, sess);
+    const placeMap = globalThis.HordeWorldLore?.placeIndex(view, sess);
     const lines = [];
     lines.push(`WORLD: ${world.name}`);
     lines.push(`TIME: day ${time.days}, ${String(time.hours24).padStart(2, '0')}:${String(time.mins).padStart(2, '0')} (turn ${sess.turnCount || 1})`);
-    lines.push(`PLAYER IS AT: ${locName(sess.playerLocation)} — do not move, harm, reward, or otherwise touch the player.`);
+    lines.push(`PLAYER IS AT: ${locName(sess.playerLocation)} [${sess.playerLocation}] — do not move, harm, reward, or otherwise touch the player.`);
 
     const agendaPool = sessionNpcs(world, sess).map(npc => {
         const entState = sess.entityStates?.[npc.id];
@@ -36780,7 +39644,18 @@ function buildWorldAgentDigest(world, sess) {
     const acted = (sess.history || []).filter(m => m.role === 'user').slice(-5).map(m => `- ${String(m.text || '').slice(0, 160)}`);
     if (acted.length) lines.push(`WHAT THE PLAYER HAS BEEN DOING:\n${acted.join('\n')}`);
 
-    lines.push(`PLACES: ${rotatingWorldWindow(sessionLocations(world, sess), 60, sess.turnCount || 0).map(l => `${l.name} [${l.id}]`).join(', ')}`);
+    const collectMoveOptions = () => agendas.map(line => {
+        const npcId = line.match(/\[([^\]]+)\]/)?.[1];
+        const originId = sess.entityStates?.[npcId]?.location;
+        if (!npcId || !originId) return null;
+        const options = (placeMap?.routes.get(originId) || []).filter(route =>
+            worldNpcJourneyEdge(view, sess, npcId, originId, route.to))
+            .slice(0, 4).map(route => `${route.to}:${route.minutes}m`);
+        return options.length ? `- ${npcId}: ${options.join(', ')}` : null;
+    }).filter(Boolean);
+    const moveOptions = globalThis.HordeWorldLore?.withIndex
+        ? globalThis.HordeWorldLore.withIndex(view, collectMoveOptions) : collectMoveOptions();
+    if (moveOptions.length) lines.push(`NPC MOVE OPTIONS (exact IDs; other destinations require engine validation):\n${moveOptions.join('\n')}`);
     return lines.join('\n\n');
 }
 
@@ -36823,13 +39698,14 @@ ABSOLUTE LIMITS — you control the world, never the player:
 - Never move, injure, heal, reward, rob, or otherwise affect the player character.
 - Never invent player actions, decisions, or dialogue.
 - Never create locations or people that do not appear in the digest; work with who and what exists.
+- For npc_moves, use only an exact destination ID listed for that NPC under NPC MOVE OPTIONS. The engine checks their place knowledge, access, current doors and travel time; do not infer a route from a world event or another NPC's knowledge.
 - Never narrate prose. You emit state changes only.
 
 Propose 1 to 3 developments. Return ONLY this JSON, no prose or fences:
 {"developments":[{"summary":"<one sentence, for the author's log>"}],
  "world_events":[{"id":"<slug>","title":"<short>","description":"<one or two sentences>","due_turn":<integer turn>,"location_id":"<id or omit>","condition_on_trigger":"<optional short condition label>","condition_duration_turns":<optional integer>}],
  "npc_goal_updates":[{"npc_id":"<id>","goal":"<new goal, only to redirect someone>","goal_progress_change":<integer>,"status":"active|blocked|completed|failed"}],
- "npc_moves":[{"npc_id":"<id>","location_id":"<id>","reason":"<short>"}],
+ "npc_moves":[{"npc_id":"<id>","location_id":"<known destination id>","reason":"<short>"}],
  "faction_updates":[{"id":"<id>","name":"<name>","influence_change":<integer>,"reputation_change":<integer>,"goal":"<optional>","goal_progress_change":<integer>}],
  "location_state_updates":[{"location_id":"<id>","danger_change":<integer>,"prosperity_change":<integer>,"conditions_add":["<label>"]}],
  "npc_relationship_updates":[{"source_npc_id":"<id>","target_npc_id":"<id>","change":<integer>,"reason":"<short>"}]}
@@ -36930,6 +39806,15 @@ function parseWorldAgentPayload(raw) {
     return null;
 }
 
+function worldNpcJourneyEdge(world, sess, npcId, fromId, toId, explore = false) {
+    const from = getLocationRef(world, fromId), target = getLocationRef(world, toId);
+    if (!from || !target || worldLocationTravelBlock(sess, toId)) return null;
+    if (!worldNpcAccess(world, npcId, toId, sess).ok) return null;
+    if (globalThis.HordeWorldLore && !globalThis.HordeWorldLore.placeAwareness(world, npcId, toId, sess).known && !explore) return null;
+    return (from.exits || []).find(exit => resolveWorldExitTarget(world, exit)?.id === toId
+        && worldExitRequirement(sess, exit, fromId, npcId).ok) || null;
+}
+
 function advanceNpcJourney(world, sess, npc, absoluteMinute) {
     const actor = sess.entityStates?.[npc.id];
     const journey = actor?.journey;
@@ -36939,13 +39824,32 @@ function advanceNpcJourney(world, sess, npc, absoluteMinute) {
         delete actor.journey;
         return false;
     }
-    if (absoluteMinute < journey.arrivalMinute) return false;
-    const destination = getLocationRef(worldForSession(world, sess), journey.destinationId);
-    // Geography may have been edited during travel. Return to the last known
-    // origin instead of silently dropping an actor into a deleted location.
-    actor.location = destination?.id || getLocationRef(worldForSession(world, sess), journey.originId)?.id
-        || getLocationRef(worldForSession(world, sess), world.startLocationId)?.id
-        || sessionLocations(world, sess)[0]?.id || null;
+    const view = worldForSession(world, sess);
+    const path = Array.isArray(journey.path) && journey.path.length ? journey.path : [journey.originId, journey.destinationId];
+    let index = Math.max(0, Math.min(path.length - 1, Number(journey.progressIndex) || 0));
+    let reachedAt = Number.isFinite(Number(journey.segmentStartMinute))
+        ? Number(journey.segmentStartMinute) : Number(journey.departureMinute) || absoluteMinute;
+    while (index < path.length - 1) {
+        const fromId = path[index], toId = path[index + 1];
+        const authoredEdge = getLocationRef(view, fromId)?.exits?.find(exit => resolveWorldExitTarget(view, exit)?.id === toId);
+        const minutes = Math.max(0, Number(authoredEdge?.travelTime) || 0);
+        if (absoluteMinute < reachedAt + minutes) break;
+        if (!worldNpcJourneyEdge(view, sess, npc.id, fromId, toId, journey.explore === true && index === 0)) {
+            actor.location = getLocationRef(view, fromId)?.id || getLocationRef(view, journey.originId)?.id || null;
+            actor.currentActivity = `Travel interrupted: route to ${toId} is closed or unknown.`;
+            actor.scheduleBlockedReason = actor.currentActivity;
+            delete actor.journey;
+            return false;
+        }
+        reachedAt += minutes;
+        index++;
+        journey.progressIndex = index;
+        journey.segmentStartMinute = reachedAt;
+        globalThis.HordeWorldLore?.rememberPlace(sess, npc.id, toId);
+    }
+    if (index < path.length - 1) return false;
+    const destination = getLocationRef(view, journey.destinationId);
+    actor.location = destination?.id || getLocationRef(view, path[index])?.id || null;
     actor.currentActivity = destination ? journey.activity : 'Travel interrupted: destination no longer exists.';
     if (destination && journey.pinOnArrival) actor.pinnedUntilTurn = (sess.turnCount || 1) + 6;
     delete actor.journey;
@@ -36959,7 +39863,7 @@ function startNpcJourney(world, sess, npc, destination, activity, absoluteMinute
     const actor = sess.entityStates[npc.id];
     if (actor.journey) return false;
     const view = worldForSession(world, sess);
-    const path = findWorldTravelPath(view, actor.location, destination.id);
+    const path = findWorldTravelPath(view, actor.location, destination.id, { npcId: npc.id, session: sess, explore: options.explore === true });
     if (!path) {
         actor.scheduleBlockedReason = `No route from ${actor.location || 'unknown position'} to ${destination.id}.`;
         return false;
@@ -36968,7 +39872,7 @@ function startNpcJourney(world, sess, npc, destination, activity, absoluteMinute
     const originId = actor.location;
     const minutes = getWorldPathTravelTime(view, path);
     actor.lastKnownLocation = originId;
-    actor.journey = { originId, destinationId: destination.id, path,
+    actor.journey = { originId, destinationId: destination.id, path, progressIndex: 0, explore: options.explore === true,
         departureMinute: absoluteMinute, arrivalMinute: absoluteMinute + minutes, activity: activity || '',
         pinOnArrival: options.pinOnArrival === true };
     actor.location = null;
@@ -36985,6 +39889,17 @@ function startNpcJourney(world, sess, npc, destination, activity, absoluteMinute
 function syncNPCSchedules(world, sess) {
     const schedulesEnabled = normalizeWorldGameRules(world).modules.schedules;
     normalizeLivingWorldState(world, sess);
+    // Preserve the authored/current scene before the first timetable tick.
+    // Previously the hold existed only after an accepted model reply, so the
+    // opening cast could enter transit before the model could establish it.
+    if (normalizeWorldKernelConfig(world).enabled && normalizeWorldKernelConfig(world).sceneLedger
+        && !sess.sceneRecord && typeof HordeWorldSceneLedger !== 'undefined') {
+        sess.sceneRecord = {
+            ...HordeWorldSceneLedger.record(buildWorldSceneFrame(world, sess), [],
+                sess.worldStateVersion || 0, 'initial_scene'),
+            hold_scene: true
+        };
+    }
     const time = getWorldTimeData(world, sess);
     const currentTimeStr = `${time.hours24.toString().padStart(2, '0')}:${time.mins.toString().padStart(2, '0')}`;
     let moveCount = 0;
@@ -37039,7 +39954,10 @@ function syncNPCSchedules(world, sess) {
 
             // ARBITRATION: the narrative outranks the timetable. If the DM moved
             // this NPC recently, the schedule may not teleport them away.
-            if (entState.followingPlayer === true || isNpcPinned(sess, entState)) return;
+            if (entState.followingPlayer === true || isNpcPinned(sess, entState)
+                || (normalizeWorldKernelConfig(world).sceneLedger && sess.sceneRecord?.hold_scene
+                    && sess.sceneRecord.location_id === sess.playerLocation
+                    && sess.sceneRecord.present_character_ids?.includes(ent.id))) return;
 
             const loc = getLocationRef(worldForSession(world, sess), activeBlock.locationId);
             if (loc) activeCount++;
@@ -37295,6 +40213,9 @@ function renderWorldScheduler() {
  */
 function buildWorldLintReport(world) {
     const findings = [];
+    if (globalThis.HordeWorldLore) {
+        globalThis.HordeWorldLore.health(world).forEach(issue => findings.push({ sev: issue.severity, area: 'World Structure', msg: `${issue.source}: ${issue.message}` }));
+    }
     const locs = world.locations || [];
     const push = (sev, area, msg) => findings.push({ sev, area, msg });
 
@@ -37401,6 +40322,7 @@ function buildWorldLintReport(world) {
     }
 
     // NPCs
+    const impossibleNpcRoutes = [];
     (world.entities || []).forEach(e => {
         if (e.type !== 'npc') return;
         if (!e.description && !e.persona) push('suggestion', 'NPCs', `"${e.name}" has no description or persona — they will play as a cardboard extra.`);
@@ -37409,7 +40331,17 @@ function buildWorldLintReport(world) {
             if (s.label && !s.hint) push('warning', 'Secrets', `Secret "${s.label}" (${e.name}) has no hint.`);
             if (s.label && !s.truth) push('critical', 'Secrets', `Secret "${s.label}" (${e.name}) has no truth.`);
         });
+        const stops = [e.startLocation || e.homeLocation, ...(Array.isArray(e.schedule) ? e.schedule.map(block => block.locationId || block.location) : [])]
+            .map(ref => getLocationRef(world, ref)?.id).filter(Boolean);
+        for (let index = 1; index < stops.length; index++) {
+            if (stops[index] === stops[index - 1]) continue;
+            if (!findWorldTravelPath(world, stops[index - 1], stops[index], { npcId: e.id })) {
+                impossibleNpcRoutes.push(`${e.name || e.id}: ${stops[index - 1]} → ${stops[index]}`);
+            }
+        }
     });
+    if (impossibleNpcRoutes.length) push('warning', 'World Structure',
+        `${impossibleNpcRoutes.length} NPC schedule route(s) cannot be completed under current connections, access, place knowledge and locks. Examples: ${impossibleNpcRoutes.slice(0, 5).join('; ')}.`);
 
     // Lorebook
     (world.lorebook || []).forEach((l, i) => {
@@ -37433,7 +40365,7 @@ function buildWorldLintReport(world) {
 const WORLD_ARCHITECT_OPERATION_TYPES = new Set([
     'add_region', 'update_region', 'add_location', 'update_location', 'connect_locations',
     'add_character', 'update_character', 'add_item', 'update_item', 'add_group',
-    'update_group', 'merge_groups', 'delete_group', 'add_faction', 'add_relationship',
+    'update_group', 'merge_groups', 'delete_group', 'add_faction', 'update_faction', 'add_relationship',
     'add_lore', 'update_lore'
 ]);
 const WORLD_ARCHITECT_POLICIES = new Set(['add_only', 'fill_gaps', 'allow_edits']);
@@ -37568,7 +40500,8 @@ function normalizeWorldArchitectOperation(raw, index = 0) {
         edit_group: 'update_group', edit_household: 'update_group', edit_family: 'update_group',
         merge_households: 'merge_groups', merge_families: 'merge_groups',
         delete_household: 'delete_group', delete_family: 'delete_group',
-        create_faction: 'add_faction', create_relationship: 'add_relationship', link_characters: 'add_relationship',
+        create_faction: 'add_faction', edit_faction: 'update_faction', modify_faction: 'update_faction',
+        create_relationship: 'add_relationship', link_characters: 'add_relationship',
         create_lore: 'add_lore', add_lore_entry: 'add_lore', create_lore_entry: 'add_lore', edit_lore: 'update_lore'
     };
     const suppliedType = token(raw.type || raw.operation || raw.operationType || raw.op);
@@ -37633,6 +40566,7 @@ function normalizeWorldArchitectOperation(raw, index = 0) {
         a: String(raw.a || '').trim().slice(0, 100), b: String(raw.b || '').trim().slice(0, 100),
         mode: String(raw.mode || '').trim().slice(0, 80), minutes: Number(raw.minutes ?? raw.travelTime) || 0,
         oneWay: raw.oneWay === true || raw.isOneWay === true,
+        lockState: ['locked', 'unlocked', 'unknown'].includes(raw.lockState || record.lockState) ? (raw.lockState || record.lockState) : '',
         label: String(raw.label || '').trim().slice(0, 100), reason: String(raw.reason || '').trim().slice(0, 300),
         score: Number(raw.score) || 0, keyword: String(raw.keyword || '').trim().slice(0, 160),
         text: String(raw.text || '').trim().slice(0, 10000)
@@ -37692,7 +40626,7 @@ function applyWorldArchitectOperation(world, input, policy = 'fill_gaps') {
     world.locations ||= []; world.entities ||= []; world.regions ||= []; world.groups ||= []; world.factions ||= []; world.lorebook ||= [];
     if (op.type === 'add_region') {
         const name = String(records.name || '').trim().slice(0, 300);
-        return addRecord(world.regions, { id: idFor(world.regions, 'reg', name), name, description: String(records.description || '').slice(0, 4000), tags: strings(records.tags).slice(0, 30) }, 'reg');
+        return addRecord(world.regions, { id: idFor(world.regions, 'reg', name), name, description: String(records.description || '').slice(0, 4000), tags: strings(records.tags).slice(0, 30), ...(isPlainObject(records.access) ? { access: safeJsonClone(records.access) } : {}) }, 'reg');
     }
     if (op.type === 'add_location') {
         const name = String(records.name || '').trim().slice(0, 300);
@@ -37701,17 +40635,28 @@ function applyWorldArchitectOperation(world, input, policy = 'fill_gaps') {
         if ((records.regionId || records.region) && !region) return { applied: false, reason: `Missing region: ${records.regionId || records.region}` };
         if ((records.parentLocationId || records.parent) && !parent) return { applied: false, reason: `Missing parent location: ${records.parentLocationId || records.parent}` };
         const mapType = WORLD_ARCHITECT_MAP_TYPES.has(records.mapType) ? records.mapType : (parent ? 'room' : 'area');
-        return addRecord(world.locations, {
+        const location = {
             id: idFor(world.locations, 'loc', name), name, description: String(records.description || '').slice(0, 6000),
             regionId: region?.id || parent?.regionId || '', region: region?.name || '', parentLocationId: parent?.id || '', mapType,
             tags: strings(records.tags).slice(0, 30), exits: []
-        }, 'loc');
+        };
+        for (const field of ['appearance', 'visualDescription', 'access']) if (records[field] !== undefined) location[field] = safeJsonClone(records[field]);
+        if (records.items !== undefined || records.contents !== undefined) location.items = strings(records.items || records.contents).slice(0, 100);
+        return addRecord(world.locations, location, 'loc');
     }
     if (op.type === 'connect_locations') {
         const from = worldArchitectFind(world.locations, op.from || records.from);
         const to = worldArchitectFind(world.locations, op.to || records.to);
         if (!from || !to || from.id === to.id) return { applied: false, reason: 'Connection needs two existing, different locations.' };
         upsertWorldTravelConnection(world, from, to, { mode: op.mode || records.mode || 'walk', travelTime: op.minutes || records.minutes || 1, isOneWay: op.oneWay || records.oneWay, routeName: records.routeName || '' });
+        if (op.lockState) {
+            const setLock = (origin, target) => {
+                const exit = (origin.exits || []).find(item => getLocationRef(world, item?.targetLocationId || getExitTargetName(item))?.id === target.id);
+                if (exit && typeof exit === 'object') exit.lockState = op.lockState;
+            };
+            setLock(from, to);
+            if (!op.oneWay) setLock(to, from);
+        }
         return { applied: true, summary: `Connected ${from.name} and ${to.name}.` };
     }
     if (op.type === 'add_character' || op.type === 'add_item') {
@@ -37764,7 +40709,7 @@ function applyWorldArchitectOperation(world, input, policy = 'fill_gaps') {
             return { applied: false, reason: `Missing group home location: ${fields.homeLocationId}` };
         }
         if ('type' in fields && !['household', 'family', 'organization', 'crew', 'other'].includes(fields.type)) fields.type = 'other';
-        const changed = worldArchitectApplyFields(target, fields, ['name', 'type', 'description', 'homeLocationId', 'tags'], policy);
+        const changed = worldArchitectApplyFields(target, fields, ['name', 'type', 'description', 'homeLocationId', 'tags', 'secrets'], policy);
         if (changed && target.type !== 'household') {
             (world.entities || []).forEach(person => {
                 if (person.householdId === target.id) person.householdId = (person.groupIds || []).find(id => world.groups.some(group => group.id === id && group.type === 'household')) || '';
@@ -37805,14 +40750,22 @@ function applyWorldArchitectOperation(world, input, policy = 'fill_gaps') {
         const existing = world.lorebook.find(item => String(item.keyword || '').trim().toLowerCase() === String(keyword || '').trim().toLowerCase());
         if (existing) return { applied: true, idempotent: true, summary: `Lore “${keyword}” already exists.` };
         if (!keyword || !text) return { applied: false, reason: 'Lore needs a keyword and text.' };
-        world.lorebook.push({ keyword, text });
+        const entry = { keyword, text };
+        if (isPlainObject(records.knowledge)) entry.knowledge = safeJsonClone(records.knowledge);
+        if (Array.isArray(records.about)) entry.about = safeJsonClone(records.about);
+        if (globalThis.HordeWorldLore) {
+            try { globalThis.HordeWorldLore.validateShape({ lorebook: [entry] }); }
+            catch (error) { return { applied: false, reason: `Invalid lore structure: ${error.message}` }; }
+        }
+        world.lorebook.push(entry);
         return { applied: true, summary: `Added lore: ${keyword}.` };
     }
     const updateLists = {
-        update_region: [world.regions, ['name', 'description', 'tags']],
-        update_location: [world.locations, ['name', 'description', 'tags', 'mapType', 'parentLocationId', 'regionId']],
-        update_character: [world.entities, ['name', 'description', 'persona', 'startLocation', 'homeLocation', 'goal', 'goalSteps', 'groupIds', 'schedule', 'simulationDepth', 'tags']],
-        update_item: [world.entities, ['name', 'description', 'startLocation', 'tags']]
+        update_region: [world.regions, ['name', 'description', 'tags', 'access', 'placeAwareness', 'secrets']],
+        update_location: [world.locations, ['name', 'description', 'appearance', 'visualDescription', 'hiddenDescription', 'visuals', 'tags', 'mapType', 'parentLocationId', 'regionId', 'access', 'placeAwareness', 'exits', 'items', 'contents', 'secrets']],
+        update_character: [world.entities, ['name', 'description', 'persona', 'startLocation', 'homeLocation', 'goal', 'goalSteps', 'goalPool', 'goalAutonomy', 'agenda', 'groupIds', 'factionId', 'factionIds', 'schedule', 'simulationDepth', 'tags', 'secrets', 'knowledge', 'visuals', 'inventory', 'outfit', 'privileges', 'obligations', 'legalStatus']],
+        update_item: [world.entities, ['name', 'description', 'startLocation', 'locationId', 'location', 'homeLocation', 'tags', 'visuals', 'itemType', 'quantity', 'properties']],
+        update_faction: [world.factions, ['name', 'description', 'goal', 'tags', 'access', 'secrets', 'rules', 'members']]
     };
     if (updateLists[op.type]) {
         const [list, allowed] = updateLists[op.type];
@@ -37820,13 +40773,47 @@ function applyWorldArchitectOperation(world, input, policy = 'fill_gaps') {
         if (!target) return { applied: false, reason: `Update target not found: ${op.targetId || op.id || records.name}` };
         if (op.type === 'update_character' && target.type !== 'npc') return { applied: false, reason: 'Character update target is not a character.' };
         if (op.type === 'update_item' && target.type !== 'item') return { applied: false, reason: 'Item update target is not an item.' };
-        const changed = worldArchitectApplyFields(target, { ...records, ...op.fields }, allowed, policy);
+        if (op.type === 'update_faction' && !world.factions.includes(target)) return { applied: false, reason: 'Faction update target not found.' };
+        const fields = { ...records, ...op.fields };
+        if (op.type === 'update_location' || op.type === 'update_region') {
+            if ('placeAwareness' in fields && globalThis.HordeWorldLore) {
+                try { globalThis.HordeWorldLore.validateShape({
+                    entities: world.entities, factions: world.factions,
+                    [op.type === 'update_location' ? 'locations' : 'regions']: [{ ...target, placeAwareness: fields.placeAwareness }]
+                }); } catch (error) { return { applied: false, reason: `Invalid place knowledge: ${error.message}` }; }
+            }
+            for (const bucket of ['access']) if (bucket in fields) {
+                const access = fields[bucket];
+                if (!isPlainObject(access) || !['open', 'restricted'].includes(access.default || 'open')) return { applied: false, reason: `Invalid ${bucket} rules.` };
+                for (const [kind, key] of [['npcs', 'entities'], ['factions', 'factions']]) {
+                    if (access[kind] !== undefined && (!isPlainObject(access[kind]) || Object.entries(access[kind]).some(([id, decision]) =>
+                        !(world[key] || []).some(item => item.id === id && (key !== 'entities' || item.type !== 'item')) || !['allow', 'deny'].includes(decision)))) {
+                        return { applied: false, reason: `The ${bucket} rule contains an unknown ${kind === 'npcs' ? 'person' : 'faction'} or invalid decision.` };
+                    }
+                }
+            }
+            if (op.type === 'update_location' && 'exits' in fields) {
+                if (!Array.isArray(fields.exits)) return { applied: false, reason: 'Location exits must be a list.' };
+                for (const exit of fields.exits) {
+                    const targetId = typeof exit === 'string' ? getExitTargetName(exit) : exit?.targetLocationId || getExitTargetName(exit);
+                    if (!targetId || !worldArchitectFind(world.locations, targetId)) return { applied: false, reason: `An exit points to a missing location: ${targetId || '(empty)'}.` };
+                    if (typeof exit !== 'string' && exit?.lockState !== undefined && !['locked', 'unlocked', 'unknown'].includes(exit.lockState)) return { applied: false, reason: 'An exit has an invalid door state.' };
+                }
+            }
+        }
+        const changed = worldArchitectApplyFields(target, fields, allowed, policy);
         return changed ? { applied: true, summary: `Updated ${target.name}.` } : { applied: true, idempotent: true, summary: `No permitted gaps in ${target.name}.` };
     }
     if (op.type === 'update_lore') {
         const target = world.lorebook.find(item => String(item.keyword || '').toLowerCase() === String(op.keyword || op.targetId || records.keyword || '').toLowerCase());
         if (!target) return { applied: false, reason: 'Lore update target not found.' };
-        const changed = worldArchitectApplyFields(target, { keyword: records.keyword, text: op.text || records.text }, ['keyword', 'text'], policy);
+        const fields = { ...(isPlainObject(records) ? records : {}), ...(isPlainObject(op.fields) ? op.fields : {}), keyword: records.keyword || target.keyword };
+        if (op.text || records.text) fields.text = op.text || records.text;
+        for (const field of ['knowledge', 'about']) if (field in fields && globalThis.HordeWorldLore) {
+            try { globalThis.HordeWorldLore.validateShape({ lorebook: [{ ...target, [field]: fields[field] }] }); }
+            catch (error) { return { applied: false, reason: `Invalid lore ${field}: ${error.message}` }; }
+        }
+        const changed = worldArchitectApplyFields(target, fields, ['keyword', 'text', 'knowledge', 'about'], policy);
         return changed ? { applied: true, summary: `Updated lore: ${target.keyword}.` } : { applied: true, idempotent: true, summary: 'No permitted lore gaps.' };
     }
     return { applied: false, reason: 'Operation was not handled.' };
@@ -37840,7 +40827,7 @@ function stageWorldArchitectJob(world, job) {
     const priority = operation => ({
         add_region: 10, add_location: 20, add_group: 30, add_faction: 30,
         add_character: 40, add_item: 40, update_region: 50, update_location: 50,
-        update_group: 50, update_character: 50, update_item: 50, update_lore: 50,
+        update_group: 50, update_faction: 50, update_character: 50, update_item: 50, update_lore: 50,
         connect_locations: 60, add_relationship: 70, merge_groups: 80, delete_group: 80
     })[normalizeWorldArchitectOperation(operation)?.type] ?? 55;
     let pending = (job?.operations || []).map((operation, index) => ({ operation, index }))
@@ -37926,24 +40913,118 @@ function stageWorldArchitectJob(world, job) {
 }
 
 function worldArchitectIndex(world) {
+    const clip = (value, max = 360) => String(value || '').slice(0, max);
     const compact = {
         name: world?.name, premise: world?.description, startLocationId: world?.startLocationId,
-        regions: (world?.regions || []).map(item => ({ id: item.id, name: item.name })),
-        locations: (world?.locations || []).map(item => ({ id: item.id, name: item.name, regionId: item.regionId, parentLocationId: item.parentLocationId, mapType: item.mapType })),
-        people: (world?.entities || []).filter(item => item.type === 'npc').map(item => ({ id: item.id, name: item.name, homeLocation: item.homeLocation, groupIds: item.groupIds })),
-        items: (world?.entities || []).filter(item => item.type === 'item').map(item => ({ id: item.id, name: item.name, startLocation: item.startLocation })),
-        groups: (world?.groups || []).map(item => ({ id: item.id, name: item.name, type: item.type })),
-        factions: (world?.factions || []).map(item => ({ id: item.id, name: item.name }))
+        dmPrompt: clip(world?.dmPrompt, 1600), authorNote: clip(world?.authorNote, 700),
+        regions: (world?.regions || []).map(item => ({ id: item.id, name: item.name, description: clip(item.description), access: item.access || null, placeAwareness: item.placeAwareness || null, tags: item.tags, visuals: item.visuals,
+            secrets: (item.secrets || []).map(secret => ({ label: secret.label, hint: clip(secret.hint, 180), truth: clip(secret.truth, 320) })) })),
+        locations: (world?.locations || []).map(item => ({ id: item.id, name: item.name, regionId: item.regionId, parentLocationId: item.parentLocationId,
+            mapType: item.mapType, description: clip(item.description), appearance: clip(item.appearance || item.visualDescription), visuals: item.visuals, tags: item.tags,
+            hiddenDescription: clip(item.hiddenDescription, 360), access: item.access || { default: 'open' }, placeAwareness: item.placeAwareness || null, status: item.status,
+            contents: [...(Array.isArray(item.items) ? item.items : Array.isArray(item.contents) ? item.contents : []), ...(world?.entities || []).filter(object => object.type === 'item'
+                && (object.locationId || object.location || object.startLocation || object.homeLocation) === item.id).map(object => ({ id: object.id, name: object.name }))],
+            secrets: (item.secrets || []).map(secret => ({ label: secret.label, hint: clip(secret.hint, 180), truth: clip(secret.truth, 320) })),
+            exits: (item.exits || []).map(exit => typeof exit === 'string' ? { text: exit }
+                : ({ targetLocationId: exit.targetLocationId, text: exit.text, travelTime: exit.travelTime, mode: exit.mode, isOneWay: exit.isOneWay, lockState: exit.lockState })) })),
+        people: (world?.entities || []).filter(item => item.type === 'npc').map(item => ({ id: item.id, name: item.name, description: clip(item.description), persona: clip(item.persona, 320), visuals: item.visuals,
+            homeLocation: item.homeLocation, startLocation: item.startLocation, groupIds: item.groupIds, factionId: item.factionId, factionIds: item.factionIds,
+            inventory: item.inventory, outfit: item.outfit, obligations: item.obligations, privileges: item.privileges, legalStatus: item.legalStatus, knowledge: item.knowledge,
+            secrets: (item.secrets || []).map(secret => ({ label: secret.label, hint: clip(secret.hint, 180), truth: clip(secret.truth, 320) })) })),
+        items: (world?.entities || []).filter(item => item.type === 'item').map(item => ({ id: item.id, name: item.name, description: clip(item.description), locationId: item.locationId || item.location || item.startLocation || item.homeLocation, visuals: item.visuals, properties: item.properties, tags: item.tags })),
+        groups: (world?.groups || []).map(item => ({ id: item.id, name: item.name, type: item.type, description: clip(item.description), homeLocationId: item.homeLocationId, tags: item.tags, secrets: item.secrets })),
+        factions: (world?.factions || []).map(item => ({ id: item.id, name: item.name, description: clip(item.description), goal: clip(item.goal), access: item.access, rules: item.rules, members: item.members, secrets: item.secrets })),
+        relationships: (world?.relationships || []).map(item => ({ a: item.a, b: item.b, label: item.label, score: item.score, reason: clip(item.reason) })),
+        lorebook: (world?.lorebook || []).map(item => ({ keyword: item.keyword, text: clip(item.text, 700), knowledge: item.knowledge, about: item.about }))
     };
     const text = JSON.stringify(compact);
     return text.length > 90000 ? text.slice(0, 90000) + '…' : text;
 }
 
+const WORLD_ARCHITECT_EXACT_TYPES = {
+    regions: 'add_region', locations: 'add_location', rooms: 'add_location',
+    people: 'add_character', items: 'add_item', groups: 'add_group',
+    factions: 'add_faction', lore: 'add_lore'
+};
+
+function worldArchitectExactBatchKind(batch) {
+    const requested = Object.entries(batch?.expectedCounts || {})
+        .filter(([kind, count]) => WORLD_ARCHITECT_EXACT_TYPES[kind] && Number(count) > 0);
+    return requested.length === 1 ? requested[0][0] : '';
+}
+
+// Exact-count generation needs IDs and a few nearby names, not 90 KB of
+// character biographies and lore. Keep this valid JSON even for large worlds;
+// truncating serialized JSON mid-object caused small local models to ignore
+// the batch contract or return an empty operations array.
+function worldArchitectBatchIndex(world, batch, request = '') {
+    const kind = worldArchitectExactBatchKind(batch);
+    if (!kind) return worldArchitectIndex(world);
+    const clip = (value, max) => String(value || '').slice(0, max);
+    const words = [...new Set(`${request} ${batch.instruction || ''}`.toLowerCase()
+        .match(/[\p{L}\p{N}]{4,}/gu) || [])]
+        .filter(word => !['create', 'exactly', 'batch', 'items', 'rooms', 'people', 'initial', 'generate'].includes(word));
+    const select = (records, limit, compact) => {
+        const all = Array.isArray(records) ? records : [];
+        return all.map((record, index) => ({ record, index,
+            score: words.reduce((score, word) => score + (`${record?.name || ''} ${record?.description || ''}`
+                .toLowerCase().includes(word) ? 1 : 0), 0)
+                + (record?.id === world?.startLocationId ? 2 : 0) }))
+            .sort((a, b) => b.score - a.score || a.index - b.index)
+            .slice(0, limit).map(({ record }) => compact(record));
+    };
+    const places = select(world?.locations, kind === 'items' ? 65 : 75, item => ({
+        id: item.id, name: clip(item.name, 80), kind: item.mapType,
+        parent: item.parentLocationId || undefined, region: item.regionId || undefined
+    }));
+    const entities = Array.isArray(world?.entities) ? world.entities : [];
+    const summary = {
+        world: { name: clip(world?.name, 120), premise: clip(world?.description, 450),
+            startLocationId: world?.startLocationId },
+        counts: worldArchitectCountRecords(world),
+        regions: select(world?.regions, 40, item => ({ id: item.id, name: clip(item.name, 80) })),
+        places,
+        existingItems: select(entities.filter(item => item.type === 'item'), kind === 'items' ? 75 : 25,
+            item => ({ id: item.id, name: clip(item.name, 80), locationId: item.locationId || item.startLocation || undefined })),
+        people: ['people', 'groups', 'factions'].includes(kind)
+            ? select(entities.filter(item => item.type === 'npc'), 65,
+                item => ({ id: item.id, name: clip(item.name, 80), locationId: item.startLocation || undefined })) : [],
+        groups: ['people', 'groups'].includes(kind)
+            ? select(world?.groups, 35, item => ({ id: item.id, name: clip(item.name, 80) })) : [],
+        factions: ['people', 'factions'].includes(kind)
+            ? select(world?.factions, 35, item => ({ id: item.id, name: clip(item.name, 80) })) : []
+    };
+    const arrays = ['places', 'existingItems', 'people', 'regions', 'groups', 'factions'];
+    const characterBudget = kind === 'items' ? 6500 : 10000;
+    while (JSON.stringify(summary).length > characterBudget) {
+        const largest = arrays.filter(key => summary[key].length > (key === 'places' ? 12 : 0))
+            .sort((a, b) => JSON.stringify(summary[b]).length - JSON.stringify(summary[a]).length)[0];
+        if (!largest) break;
+        summary[largest].pop();
+    }
+    return JSON.stringify(summary);
+}
+
+function worldArchitectExactBatchContract(kind, count) {
+    const type = WORLD_ARCHITECT_EXACT_TYPES[kind];
+    if (!type || count < 1) return '';
+    const room = kind === 'rooms';
+    const example = kind === 'lore'
+        ? { type, keyword: 'Unique topic', text: 'Relevant lore text' }
+        : { type, record: { id: `${kind === 'people' ? 'npc' : kind === 'rooms' || kind === 'locations' ? 'loc' : kind === 'regions' ? 'reg' : kind === 'factions' ? 'fac' : kind === 'groups' ? 'grp' : 'item'}_unique_id`,
+            name: 'Unique name', description: 'Specific description', ...(room ? { mapType: 'room' } : {}) } };
+    return `Return JSON only: {"operations":[...]}. This call must contain exactly ${count} operations. Every operation must have type "${type}"${room ? ' and record.mapType "room"' : kind === 'locations' ? ' and record.mapType other than "room"' : ''}. Example shape: ${JSON.stringify(example)}. Put each new record in its own operation; do not put items in a location update or nested items list. Use unique IDs and names. Reference only listed existing place IDs; omit a location reference when none is specified. Do not return a plan, empty array, explanation or unrelated operation.`;
+}
+
 function worldArchitectOperationArray(raw) {
     if (Array.isArray(raw)) return raw;
     if (!isPlainObject(raw)) return [];
+    let empty = null;
     for (const key of ['operations', 'changes', 'actions', 'edits', 'proposals']) {
-        if (Array.isArray(raw[key])) return raw[key];
+        if (Array.isArray(raw[key])) {
+            if (raw[key].length) return raw[key];
+            empty ||= raw[key];
+        }
     }
     const domainTypes = {
         regions: 'add_region', locations: 'add_location', places: 'add_location', rooms: 'add_room',
@@ -37951,17 +41032,20 @@ function worldArchitectOperationArray(raw) {
         groups: 'add_group', households: 'add_household', families: 'add_family', factions: 'add_faction',
         relationships: 'add_relationship', lore: 'add_lore', lorebook: 'add_lore'
     };
-    return Object.entries(domainTypes).flatMap(([key, type]) =>
+    const domainOperations = Object.entries(domainTypes).flatMap(([key, type]) =>
         Array.isArray(raw[key]) ? raw[key].filter(isPlainObject).map(record => ({ type, record })) : []);
+    return domainOperations.length ? domainOperations : empty || [];
 }
 
 function parseWorldArchitectJSON(raw, expectedKey = '') {
     if (isPlainObject(raw)) {
-        if (!expectedKey || Array.isArray(raw[expectedKey])) return raw;
+        if (!expectedKey || Array.isArray(raw[expectedKey])
+            && (expectedKey !== 'operations' || raw[expectedKey].length)) return raw;
         if (expectedKey === 'operations') {
             const operations = worldArchitectOperationArray(raw);
             if (operations.length) return { ...raw, operations };
         }
+        if (Array.isArray(raw[expectedKey])) return raw;
         for (const key of ['result', 'output', 'data', 'response', 'arguments']) {
             if (raw[key] != null) {
                 const nested = parseWorldArchitectJSON(raw[key], expectedKey);
@@ -38038,17 +41122,23 @@ function worldArchitectResponseCandidates(payload) {
 async function worldArchitectJSON(world, model, messages, maxTokens = 8000, expectedKey = '') {
     let lastError = null;
     let previousRaw = '';
+    let outputTruncated = false;
     let useResponseFormat = true;
     for (let attempt = 0; attempt < 2; attempt++) {
         const retryMessages = attempt === 0 ? messages : [
             ...messages,
-            ...(previousRaw ? [{ role: 'assistant', content: previousRaw.slice(-6000) }] : []),
+            ...(previousRaw && !outputTruncated ? [{ role: 'assistant', content: previousRaw.slice(-6000) }] : []),
             { role: 'user', content: `Your previous reply was not valid structured output. Return ONLY one JSON object with a top-level "${expectedKey || 'result'}" field. No reasoning, prose or markdown fences.` }
         ];
+        const outputBudget = attempt && outputTruncated ? Math.min(maxTokens * 2, 16000) : maxTokens;
         const requestBody = {
-            model, max_tokens: maxTokens, temperature: attempt ? 0 : 0.2,
+            model, max_tokens: outputBudget, temperature: attempt ? 0 : 0.2,
             messages: sanitizeMessagesForProvider(retryMessages, model)
         };
+        // Ollama's Qwen3 defaults to thinking. With a bounded JSON reply the
+        // model can spend its entire completion budget on reasoning and leave
+        // message.content empty. Its OpenAI-compatible endpoint accepts "none".
+        if (isLocalProvider() && /^qwen3(?:[.\/:_-]|$)/i.test(model)) requestBody.reasoning_effort = 'none';
         if (useResponseFormat) requestBody.response_format = { type: 'json_object' };
         const { response, data: payload } = await HordeWorldModelClient.json({
             url: apiBase() + '/chat/completions', body: requestBody,
@@ -38067,11 +41157,26 @@ async function worldArchitectJSON(world, model, messages, maxTokens = 8000, expe
         }
         const candidates = worldArchitectResponseCandidates(payload);
         previousRaw = candidates.map(String).join('\n');
+        let emptyParsed = null;
         for (const candidate of candidates) {
             const parsed = parseWorldArchitectJSON(candidate, expectedKey);
-            if (parsed) return parsed;
+            if (!parsed) continue;
+            if (expectedKey === 'operations' && !worldArchitectOperationArray(parsed).length) {
+                emptyParsed ||= parsed;
+                continue;
+            }
+            return parsed;
         }
-        lastError = new Error(`The model returned no usable ${expectedKey || 'JSON'} object.`);
+        const choice = payload?.choices?.[0] || {};
+        outputTruncated = choice.finish_reason === 'length';
+        if (emptyParsed && !outputTruncated) return emptyParsed;
+        const reasoningOnly = !String(choice.message?.content || '').trim()
+            && !!String(choice.message?.reasoning_content || choice.message?.reasoning || '').trim();
+        lastError = new Error(outputTruncated
+            ? `The model reached its ${outputBudget}-token output limit before completing the ${expectedKey || 'JSON'} object.`
+            : reasoningOnly
+                ? `The model returned only reasoning and no ${expectedKey || 'JSON'} object.`
+                : `The model returned no usable ${expectedKey || 'JSON'} object.`);
     }
     throw new Error(`${lastError?.message || 'Invalid structured response'} A strict repair retry also failed.`);
 }
@@ -38095,19 +41200,22 @@ async function populateWorldArchitectModels(force = false) {
     const status = document.getElementById('w-architect-model-status');
     if (!input || !list) return;
     try {
-        if (force) { openRouterModels = []; modelCatalogSource = null; modelCatalogFetchedAt = 0; }
-        const catalog = await getOpenRouterModels();
-        const models = rankStructuredModels(catalog, 60);
-        list.innerHTML = models.map(model => `<option value="${escapeHTML(model.id)}">${escapeHTML(model.name)} · ${escapeHTML(model.note)}</option>`).join('');
+        const catalog = await getOpenRouterModels(force);
+        const models = [...new Map(catalog
+            .filter(model => typeof model?.id === 'string' && model.id.trim())
+            .map(model => [model.id, model])).values()]
+            .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+        list.innerHTML = models.map(model => `<option value="${escapeHTML(model.id)}">${escapeHTML(model.name || model.id)}</option>`).join('');
         // Do not make an expensive frontier model the silent default merely
         // because it tops the capability ranking. Choose the first strong,
-        // current option at or below $5/M while leaving the full list visible.
-        const automatic = models.find(model => model.price > 0 && model.price <= 5) || models[0];
+        // current option at or below $5/M. The picker still shows every model.
+        const ranked = rankStructuredModels(catalog, 60);
+        const automatic = ranked.find(model => model.price > 0 && model.price <= 5) || ranked[0];
         input.dataset.recommendedModel = automatic?.id || '';
         const fetched = modelCatalogFetchedAt ? new Date(modelCatalogFetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'now';
         status.textContent = models.length
-            ? `${models.length} compatible models from the live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models catalog (${catalog.length} total), fetched ${fetched}. Blank auto-selects ${automatic.id} as a capable cost-balanced choice.`
-            : `The live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models endpoint returned no compatible structured models. You may type an exact model ID.`;
+            ? `${models.length} models from the live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models catalog, fetched ${fetched}.${automatic ? ` Blank auto-selects ${automatic.id} for structured work.` : ' Blank uses the configured structured-model fallback.'}`
+            : `The live ${isLocalProvider() ? 'local server' : cloudProviderName()} /models endpoint returned no models. You may type an exact model ID.`;
     } catch (error) { status.textContent = `Catalog unavailable: ${error.message}. You may type an exact model ID.`; }
 }
 
@@ -38233,35 +41341,71 @@ async function runWorldArchitectJob() {
             renderWorldArchitectAgent(); return;
         }
         try {
-            const current = stageWorldArchitectJob(world, { ...job, plan: { requestedCounts: {} } }).world;
-            const batchMessages = [
-                { role: 'system', content: `You are a roleplay World Architect. Return JSON only: {"operations":[]}. Allowed operation types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Never delete locations, people, items, factions or lore. delete_group and merge_groups are permitted only when the user's request explicitly asks for that and the change policy allows edits. Use existing IDs exactly. New records need stable snake_case IDs. Put new data inside "record". A location operation is {"type":"add_location","record":{"id":"loc_example","name":"Example","description":"...","regionId":"existing_region_id","parentLocationId":"","mapType":"room","tags":[]}}. A character uses record {id,name,description,persona,startLocation,homeLocation,goal,goalSteps,groupIds,schedule,tags}; a group uses {id,name,type,description,homeLocationId,tags}; connections use from,to,mode,minutes,oneWay. Every operation is atomic.` },
-                { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nTHIS BATCH: ${batch.instruction}\nEXACT BATCH COUNTS: ${JSON.stringify(batch.expectedCounts)}\nCURRENT STAGED WORLD INDEX: ${worldArchitectIndex(current)}\nGenerate only this batch. Respect the exact counts and make additions coherent, playable and reference-valid.` }
-            ];
-            const maxTokens = Math.max(6000, Math.min(24000, (job.options.batchSize || 12) * 900));
-            let raw = await worldArchitectJSON(world, job.model, batchMessages, maxTokens, 'operations');
-            let operations = worldArchitectOperationArray(raw)
-                .map((operation, index) => normalizeWorldArchitectOperation(operation, job.operations.length + index)).filter(Boolean);
-            if (!operations.length) {
-                // A syntactically valid object used to bypass JSON repair and
-                // then die here if its operation vocabulary was slightly off.
-                // Give the model one validation-aware correction with the exact
-                // rejected payload and schema instead of asking the user to
-                // discard an otherwise healthy resumable job.
-                raw = await worldArchitectJSON(world, job.model, [
-                    ...batchMessages,
-                    { role: 'assistant', content: JSON.stringify(raw).slice(0, 12000) },
-                    { role: 'user', content: `That JSON parsed, but none of its entries used a supported operation schema. Rewrite the same requested changes as {"operations":[{"type":"one exact allowed type","record":{}}]}. Exact allowed types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Return only the corrected JSON object.` }
-                ], maxTokens, 'operations');
-                operations = worldArchitectOperationArray(raw)
+            const exactKind = worldArchitectExactBatchKind(batch);
+            const targetCount = exactKind ? Number(batch.expectedCounts[exactKind]) : 0;
+            let completedCount = exactKind
+                ? worldArchitectOperationCounts(job.operations.filter(operation => operation.batchId === batch.id))[exactKind] : 0;
+            if (completedCount > targetCount) throw new Error(`Saved partial batch already exceeds its ${targetCount} ${exactKind} target.`);
+            do {
+                if (job.cancelRequested) {
+                    job.status = 'cancelled'; job.updatedAt = Date.now();
+                    await persistWorldArchitectCheckpoint(world);
+                    renderWorldArchitectAgent(); return;
+                }
+                const chunkCount = exactKind ? Math.min(4, targetCount - completedCount) : 0;
+                if (exactKind && !chunkCount) break;
+                const current = stageWorldArchitectJob(world, { ...job, plan: { requestedCounts: {} } }).world;
+                const chunkBatch = exactKind ? { ...batch,
+                    instruction: `${batch.instruction} Create records ${completedCount + 1}–${completedCount + chunkCount} of ${targetCount} in this batch.`,
+                    expectedCounts: { [exactKind]: chunkCount } } : batch;
+                const batchMessages = exactKind ? [
+                    { role: 'system', content: `You are the World Architect for an existing roleplay world. Preserve its authored records. ${worldArchitectExactBatchContract(exactKind, chunkCount)}` },
+                    { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nBATCH: ${chunkBatch.instruction}\nCURRENT WORLD INDEX (valid JSON): ${worldArchitectBatchIndex(current, chunkBatch, job.request)}` }
+                ] : [
+                    { role: 'system', content: `You are a roleplay World Architect and World Lore editor. Return JSON only: {"operations":[]}. Allowed operation types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}. Never delete locations, people, items, factions or lore. delete_group and merge_groups are permitted only when the user's request explicitly asks for that and the change policy allows edits. You may fully revise existing World Lore when requested: places and regions, routes/travel times/locked state, access rules, appearance/room contents, people and their knowledge/secrets, items, groups, factions, relationships and lorebook entries. Use existing IDs exactly. New records need stable snake_case IDs. Put new data inside "record". A location operation is {"type":"add_location","record":{"id":"loc_example","name":"Example","description":"...","appearance":"...","items":[],"regionId":"existing_region_id","parentLocationId":"","mapType":"room","access":{"default":"open","npcs":{},"factions":{}},"tags":[]}}. A character uses record {id,name,description,persona,startLocation,homeLocation,goal,goalSteps,groupIds,factionId,factionIds,schedule,secrets,knowledge,tags}; a group uses {id,name,type,description,homeLocationId,secrets,tags}; factions can use add_faction or update_faction; connections use {type:"connect_locations",from,to,mode,minutes,oneWay,lockState}. To revise existing records, use update_region, update_location, update_character, update_item, update_group, update_faction or update_lore with exact targetId/keyword and values for changed fields. Locations may change name, description, appearance, hiddenDescription, visuals, items/contents, mapType, parentLocationId, regionId, access, exits and secrets. Characters may change persona, goals, schedule, group/faction membership, knowledge, inventory, privileges, secrets and visuals. Lore entries may change text, keyword, knowledge and about. For access use {default:"open"|"restricted",npcs:{existingPersonId:"allow"|"deny"},factions:{existingFactionId:"allow"|"deny"}}; default is everyone allowed, and individual permission overrides faction rules. For exits preserve exact existing destinations, direction, travel time and one-way behavior unless requested. Never invent keys or required items. Keep each change atomic, give a reason, preserve unrelated fields, and remember the user reviews every proposal before apply.` },
+                    { role: 'system', content: 'Place existence knowledge is separate from entry access. To edit it on a location or region, use placeAwareness:{includeChildren:boolean,npcs:{existingPersonId:"know"|"unknown"},factions:{existingFactionId:"know"|"unknown"}}. Only change it when the author requests that knowledge. Do not infer it from lore prose.' },
+                    { role: 'user', content: `ORIGINAL REQUEST: ${job.request}\nPOLICY: ${job.options.policy}; DETAIL: ${job.options.detail}\nTHIS BATCH: ${batch.instruction}\nEXACT BATCH COUNTS: ${JSON.stringify(batch.expectedCounts)}\nCURRENT STAGED WORLD AND WORLD LORE INDEX: ${worldArchitectIndex(current)}\nGenerate only this batch. Respect exact counts. Treat this index as canon: reuse existing IDs and update the matching records when the request asks for edits. Do not alter unrelated existing data. A user request to change access, routes, secrets or lore authorizes precisely those requested edits.` }
+                ];
+                const maxTokens = exactKind ? (exactKind === 'items' ? Math.max(3200, chunkCount * 700) : Math.max(2400, chunkCount * 650))
+                    : Math.max(6000, Math.min(24000, (job.options.batchSize || 12) * 900));
+                const decode = raw => worldArchitectOperationArray(raw)
                     .map((operation, index) => normalizeWorldArchitectOperation(operation, job.operations.length + index)).filter(Boolean);
-            }
-            if (!operations.length) throw new Error('The model returned JSON, but no supported changes could be recovered after a schema repair retry.');
-            const generatedCounts = worldArchitectOperationCounts(operations);
-            const mismatch = Object.entries(batch.expectedCounts || {}).find(([key, expected]) => Number(expected) > 0 && generatedCounts[key] !== Number(expected));
-            if (mismatch) throw new Error(`The model produced ${generatedCounts[mismatch[0]] || 0} ${mismatch[0]}, but this batch requires exactly ${mismatch[1]}. Retry this batch or choose a stronger structured model.`);
-            operations.forEach(operation => { operation.batchId = batch.id; });
-            job.operations.push(...operations);
+                const issue = operations => {
+                    const counts = worldArchitectOperationCounts(operations);
+                    const mismatch = Object.entries(chunkBatch.expectedCounts || {})
+                        .find(([key, expected]) => Number(expected) > 0 && counts[key] !== Number(expected));
+                    if (mismatch) return `Expected ${mismatch[1]} ${mismatch[0]}, received ${counts[mismatch[0]] || 0}`;
+                    if (exactKind && operations.some(operation => operation.type !== WORLD_ARCHITECT_EXACT_TYPES[exactKind]
+                        || exactKind === 'rooms' && operation.record.mapType !== 'room'
+                        || exactKind === 'locations' && operation.record.mapType === 'room'))
+                        return `Expected only ${WORLD_ARCHITECT_EXACT_TYPES[exactKind]} operations for ${exactKind}`;
+                    return operations.length ? '' : 'No supported operations';
+                };
+                let raw = await worldArchitectJSON(world, job.model, batchMessages, maxTokens, 'operations');
+                let operations = decode(raw);
+                if (issue(operations)) {
+                    const firstIssue = issue(operations);
+                    raw = await worldArchitectJSON(world, job.model, [
+                        ...batchMessages,
+                        { role: 'assistant', content: JSON.stringify(raw).slice(0, 5000) },
+                        { role: 'user', content: `Your answer did not satisfy this batch: ${firstIssue}. ${exactKind ? worldArchitectExactBatchContract(exactKind, chunkCount) : `Rewrite the requested changes with supported types: ${[...WORLD_ARCHITECT_OPERATION_TYPES].join(', ')}.`} Return only corrected JSON.` }
+                    ], maxTokens, 'operations');
+                    operations = decode(raw);
+                }
+                const remainingIssue = issue(operations);
+                if (remainingIssue) {
+                    const types = [...new Set(worldArchitectOperationArray(raw).map(operation =>
+                        String(operation?.type || operation?.operation || operation?.action || 'unknown')))].slice(0, 6);
+                    const modelReason = String(raw?.error || raw?.refusal || raw?.reason || raw?.message || '').slice(0, 180);
+                    throw new Error(`${remainingIssue}. Returned operation types: ${types.join(', ') || 'none'}.${modelReason ? ` Model response: ${modelReason}` : ''} Resume will retry only missing records; successful parts remain saved.`);
+                }
+                operations.forEach(operation => { operation.batchId = batch.id; });
+                job.operations.push(...operations);
+                completedCount += exactKind ? chunkCount : 0;
+                job.updatedAt = Date.now();
+                await persistWorldArchitectCheckpoint(world);
+                renderWorldArchitectAgent();
+            } while (exactKind && completedCount < targetCount);
             job.completedBatchIds.push(batch.id);
             job.updatedAt = Date.now();
             await persistWorldArchitectCheckpoint(world);
@@ -38311,6 +41455,14 @@ async function handleWorldArchitectAction(action) {
             showToast(job.error, 'error'); renderWorldArchitectAgent(); return;
         }
         const before = worldArchitectSnapshot(world);
+        // World Structure is a derived place index. Refresh it in the staged
+        // draft after an approved map/access/lore edit while retaining the
+        // world's authored lorebook and place records.
+        await ensureWorldLoreModules();
+        ensureWorldDoorIds(staged.world);
+        if (!staged.world.worldStructure || globalThis.HordeWorldLore.structureStatus(staged.world).state !== 'current') {
+            globalThis.HordeWorldLore.generate(staged.world);
+        }
         staged.world.authoringRevision = job.baseRevision + 1;
         staged.world.architectUndo = { jobId: job.id, createdAt: Date.now(), snapshot: before };
         staged.world.architectJob = { ...job, status: 'applied', appliedDeltas: staged.deltas, appliedHealth: staged.health.score, updatedAt: Date.now() };
@@ -38449,6 +41601,91 @@ function calibrateStructuralFindings(world, preset) {
     const findings = [];
     const locations = Array.isArray(world.locations) ? world.locations : [];
     const add = finding => findings.push({ tier: 'structure', ...finding });
+    // Missing lockState uses the runtime's ordinary unlocked default. Only an
+    // explicit "unknown" value needs a reviewable decision here.
+    const lockWords = /\b(?:locked|sealed|barred|bolted)\b/i;
+    const negatedLockWords = /\b(?:unlocked|not\s+locked|never\s+locked|not\s+sealed|never\s+sealed)\b/i;
+    locations.forEach(location => {
+        (Array.isArray(location.exits) ? location.exits : []).forEach((exit, exitIndex) => {
+            const targetName = getExitTargetName(exit);
+            const target = locations.find(item => item.id === targetName
+                || String(item.name || '').trim().toLowerCase() === String(targetName || '').trim().toLowerCase());
+            const state = exit && typeof exit === 'object' ? exit.lockState : '';
+            if (state !== 'unknown' || exit?.requiredItem || exit?.allowCheckUnlock) return;
+            // Only the route's own authored label is evidence about this door.
+            // A target room may mention some other locked object; that should
+            // not silently make this route appear locked.
+            const sourceText = String(typeof exit === 'string' ? exit : exit?.text || '');
+            if (lockWords.test(sourceText) && !negatedLockWords.test(sourceText)) return;
+            add({ id: `exit_open_${location.id}_${exitIndex}`, type: 'set_exit_lock_state', severity: 'suggestion',
+                title: `Start the route ${location.name || location.id} → ${target?.name || targetName || 'destination'} unlocked`,
+                detail: 'No lock or key is described for this route. Sets the initial state to unlocked; review before applying.',
+                patch: { locationId: location.id, exitIndex, lockState: 'unlocked' } });
+        });
+    });
+
+    // A character who starts, lives, or has an authored schedule in a place
+    // necessarily knows that place exists. Resolve only this direct conflict;
+    // other NPC/faction awareness remains an author decision.
+    const placeByRef = new Map();
+    [...(world.regions || []), ...locations].forEach(place => {
+        placeByRef.set(String(place.id || '').toLowerCase(), place);
+        if (place.name) placeByRef.set(String(place.name).trim().toLowerCase(), place);
+    });
+    (world.entities || []).filter(entity => entity?.type === 'npc').forEach(entity => {
+        const familiarRefs = [entity.startLocation, entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .filter(Boolean);
+        const familiarIds = new Set(familiarRefs.map(ref => placeByRef.get(String(ref).trim().toLowerCase())?.id).filter(Boolean));
+        familiarIds.forEach(placeId => {
+            const place = placeByRef.get(String(placeId).toLowerCase());
+            if (!place) return;
+            const awareness = globalThis.HordeWorldLore?.placeAwareness?.(world, entity.id, place.id);
+            if (awareness ? awareness.known : place.placeAwareness?.npcs?.[entity.id] !== 'unknown') return;
+            add({ id: `schedule_awareness_${placeId}_${entity.id}`, type: 'set_place_awareness', severity: 'warning',
+                title: `${entity.name || entity.id} knows ${place.name || placeId} exists`,
+                detail: 'This is their start, home, or scheduled place, so an explicit unknown rule makes the authored placement impossible.',
+                patch: { placeId, npcId: entity.id, decision: 'know' } });
+        });
+
+        // An NPC can have a valid schedule destination yet fail its journey
+        // because the route passes through a place an explicit area rule hides
+        // from them. Offer individual knowledge for only those intermediate
+        // places on a real, currently open map path; this leaves faction rules
+        // intact and never invents an alternate connection or grants access.
+        const stops = [entity.startLocation || entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .map(ref => placeByRef.get(String(ref || '').trim().toLowerCase())?.id).filter(Boolean);
+        for (let index = 1; index < stops.length; index++) {
+            const fromId = stops[index - 1], toId = stops[index];
+            if (fromId === toId) continue;
+            const path = findWorldTravelPath(world, fromId, toId);
+            if (!path || path.length < 3) continue;
+            path.slice(1, -1).forEach(placeId => {
+                const place = placeByRef.get(String(placeId).toLowerCase());
+                if (!place) return;
+                const awareness = globalThis.HordeWorldLore?.placeAwareness?.(world, entity.id, place.id);
+                if (awareness ? awareness.known : place.placeAwareness?.npcs?.[entity.id] !== 'unknown') return;
+                const findingId = `route_awareness_${place.id}_${entity.id}`;
+                if (findings.some(finding => finding.id === findingId)) return;
+                add({ id: findingId, type: 'set_place_awareness', severity: 'warning',
+                    title: `${entity.name || entity.id} knows the route through ${place.name || place.id}`,
+                    detail: `Their authored schedule connects ${fromId} to ${toId} through this currently open place. Adds an individual knowledge exception without changing faction rules or entry rights.`,
+                    patch: { placeId: place.id, npcId: entity.id, decision: 'know' } });
+            });
+        }
+    });
+    for (const place of [...(world.regions || []), ...(world.locations || [])]) {
+        for (const [bucket, source] of [['npcs', (world.entities || []).filter(entity => entity.type !== 'item')], ['factions', world.factions || []]]) {
+            for (const id of Object.keys(place.placeAwareness?.[bucket] || {})) {
+                if (source.some(item => item.id === id)) continue;
+                add({ id: `awareness_${place.id}_${bucket}_${id}`, type: 'remove_missing_awareness_ref', severity: 'warning',
+                    title: 'Place knowledge points to a missing record',
+                    detail: `${place.name || place.id}: ${bucket === 'npcs' ? 'person' : 'faction'} ${id} no longer exists. Remove this unused rule; other knowledge stays unchanged.`,
+                    patch: { placeId: place.id, bucket, id } });
+            }
+        }
+    }
     const byKey = new Map();
     locations.forEach(location => {
         if (location.id) byKey.set(String(location.id).toLowerCase(), location);
@@ -38644,6 +41881,29 @@ function applyCalibrationFinding(world, finding) {
     if (!world || !finding) return false;
     const locations = Array.isArray(world.locations) ? world.locations : [];
     switch (finding.type) {
+        case 'remove_missing_awareness_ref': {
+            const place = [...(world.regions || []), ...locations].find(item => item.id === finding.patch.placeId);
+            const bucket = place?.placeAwareness?.[finding.patch.bucket];
+            if (!bucket || !Object.prototype.hasOwnProperty.call(bucket, finding.patch.id)) return false;
+            const exists = finding.patch.bucket === 'npcs'
+                ? (world.entities || []).some(item => item.type !== 'item' && item.id === finding.patch.id)
+                : (world.factions || []).some(item => item.id === finding.patch.id);
+            if (exists) return false;
+            delete bucket[finding.patch.id];
+            return true;
+        }
+        case 'set_place_awareness': {
+            const place = [...(world.regions || []), ...locations].find(item => item.id === finding.patch.placeId);
+            const npc = (world.entities || []).find(item => item.type === 'npc' && item.id === finding.patch.npcId);
+            if (!place || !npc || finding.patch.decision !== 'know'
+                || place.placeAwareness?.npcs?.[npc.id] === 'know') return false;
+            place.placeAwareness = place.placeAwareness && typeof place.placeAwareness === 'object'
+                ? place.placeAwareness : { includeChildren: false, npcs: {}, factions: {} };
+            place.placeAwareness.npcs = place.placeAwareness.npcs && typeof place.placeAwareness.npcs === 'object'
+                ? place.placeAwareness.npcs : {};
+            place.placeAwareness.npcs[npc.id] = finding.patch.decision;
+            return true;
+        }
         case 'set_start_location':
             world.startLocationId = finding.patch.startLocationId;
             return true;
@@ -38724,6 +41984,17 @@ function applyCalibrationFinding(world, finding) {
                 : { ...exit, travelTime: finding.patch.minutes };
             return true;
         }
+        case 'set_exit_lock_state': {
+            const location = locations.find(item => item.id === finding.patch.locationId);
+            const exit = location?.exits?.[finding.patch.exitIndex];
+            if (!exit || !['locked', 'unlocked'].includes(finding.patch.lockState)
+                || exit?.requiredItem || exit?.allowCheckUnlock
+                || ['locked', 'unlocked'].includes(exit?.lockState)) return false;
+            location.exits[finding.patch.exitIndex] = typeof exit === 'string'
+                ? { text: exit, lockState: finding.patch.lockState }
+                : { ...exit, lockState: finding.patch.lockState };
+            return true;
+        }
         case 'set_entity_location':
         case 'set_entity_home': {
             const entity = (world.entities || []).find(e => e.id === finding.patch.entityId);
@@ -38793,6 +42064,12 @@ function applyCalibrationFinding(world, finding) {
             if (!location || String(location.description || '').trim()) return false;
             location.description = String(finding.patch.description || '').trim().slice(0, 4000);
             return Boolean(location.description);
+        }
+        case 'set_region_description': {
+            const region = (world.regions || []).find(item => item.id === finding.patch.regionId);
+            if (!region || String(region.description || '').trim()) return false;
+            region.description = String(finding.patch.description || '').trim().slice(0, 4000);
+            return Boolean(region.description);
         }
         case 'set_location_region': {
             const location = locations.find(l => l.id === finding.patch.locationId);
@@ -39096,7 +42373,7 @@ Reply with only this JSON: {"beats":["...","..."],"next_goal":"..."}` },
 const CALIBRATION_PASSES = Object.freeze({
     structure: {
         label: 'Structure',
-        blurb: 'Which places sit inside which, how they are laid out, and how long it takes to walk between them.'
+        blurb: 'Place hierarchy, region descriptions, physical route gaps and travel times. Also proposes the place knowledge needed by authored NPC schedules; access rules stay unchanged.'
     },
     people: {
         label: 'People',
@@ -39320,6 +42597,37 @@ function calibrationLocationDigest(world, batch) {
     }).join('\n');
 }
 
+function calibrationScheduleRouteGaps(world, batch) {
+    const locations = Array.isArray(world?.locations) ? world.locations : [];
+    const byKey = new Map();
+    locations.forEach(location => {
+        byKey.set(String(location.id || '').toLowerCase(), location);
+        if (location.name) byKey.set(String(location.name).trim().toLowerCase(), location);
+    });
+    const included = new Set((batch || locations).map(location => location.id));
+    const seen = new Set();
+    const gaps = [];
+    (world?.entities || []).filter(entity => entity?.type === 'npc').forEach(entity => {
+        const stops = [entity.startLocation || entity.homeLocation,
+            ...(Array.isArray(entity.schedule) ? entity.schedule.map(block => block?.locationId || block?.location) : [])]
+            .map(ref => byKey.get(String(ref || '').trim().toLowerCase())?.id).filter(Boolean);
+        for (let index = 1; index < stops.length; index++) {
+            const fromId = stops[index - 1], toId = stops[index];
+            if (fromId === toId || (!included.has(fromId) && !included.has(toId))) continue;
+            // Report only missing physical topology. A mapped route blocked by
+            // permission, knowledge or a locked door must be fixed at that
+            // rule, not hidden by inventing a second route.
+            if (findWorldTravelPath(world, fromId, toId, { ignoreRequirements: true })?.length) continue;
+            const key = `${fromId}>${toId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const from = byKey.get(fromId.toLowerCase()), to = byKey.get(toId.toLowerCase());
+            if (from && to) gaps.push({ from, to, npc: entity.name || entity.id });
+        }
+    });
+    return gaps;
+}
+
 function calibrationPeopleDigest(world, batch) {
     const npcs = batch || (world.entities || []).filter(entity => entity.type === 'npc');
     return npcs.map(entity => {
@@ -39456,8 +42764,10 @@ For each location decide, ONLY where the world has not already said:
 - role: one of region, route, building, outdoor, room, area
 - inside: the id of the place that physically contains it (a bathroom is inside a house; a house is not inside anything). Omit for top-level places.
 - floor: a storey number when a building has more than one ("2", "-1" for a cellar). Omit otherwise.
-- connect_to: for any place NOTHING leads to, the id of the location it should connect to, judged from the fiction.
+- connect_to: for a disconnected place or a listed NPC schedule pair with no physical path, the id of a plausible existing location it should connect to, judged from the fiction and route index below. Propose a new connection only when the supplied descriptions support that physical route. Never invent a connection to work around a locked door, unknown area or denied access.
 - tags: 2-6 short search terms for the place, its function and atmosphere
+
+For each listed region with no description, also supply one concise description in regions[]. Do not rewrite an existing region description.
 
 Also estimate walking time in whole minutes for each connection that has none. Be realistic and modest: a door between two rooms of one house is 0-1 minutes; crossing a village 5-15; travelling between settlements 30-240. Never propose a time for a connection that already has one.
 
@@ -39465,6 +42775,7 @@ OUTPUT FORMAT — this is strict:
 Your entire reply is one JSON object and nothing else. The first character you write must be {. Do not restate the task, do not reason in the open, do not add commentary before or after. If you want to justify a decision, put it in that item's "why" field — that is what it is for.
 
 {"locations":[{"id":"<id>","description":"<text>","region":"<region id or name>","role":"<role>","inside":"<id or omit>","floor":"<string or omit>","connect_to":"<id or omit>","tags":["<tag>"],"why":"<short>"}],
+ "regions":[{"id":"<existing region id>","description":"<text>"}],
  "travel":[{"from":"<id>","to":"<id>","minutes":<integer>}]}
 
 Omit any array you are not using, and omit any field you have no opinion on. Never invent locations that are not listed.
@@ -39474,8 +42785,19 @@ ${world.description ? `PREMISE: ${String(world.description).slice(0, 400)}\n` : 
 LOCATIONS:
 ${calibrationLocationDigest(world, batch)}
 
+CURRENT ROUTE INDEX (exact IDs; containment edges also count as routes):
+${(world.locations || []).map(location => `[${location.id}] -> ${(location.exits || []).map(exit => {
+        const targetName = String(getExitTargetName(exit) || '').trim().toLowerCase();
+        const target = (world.locations || []).find(item => item.id === targetName
+            || String(item.name || '').trim().toLowerCase() === targetName);
+        return target?.id || '';
+    }).filter(Boolean).join(',') || '-'}${location.parentLocationId ? `; inside=${location.parentLocationId}` : ''}`).join('\n')}
+
+NPC SCHEDULE ROUTE GAPS (physical topology only; do not change access, place knowledge or lock rules):
+${calibrationScheduleRouteGaps(world, batch).map(gap => `- ${gap.npc}: [${gap.from.id}] ${gap.from.name} → [${gap.to.id}] ${gap.to.name}`).join('\n') || '(none in this batch)'}
+
 EXISTING REGIONS:
-${(world.regions || []).length ? world.regions.map(region => `- [${region.id}] "${region.name}"`).join('\n') : '(none — create only broad reusable regions the listed places clearly imply)'}`;
+ ${(world.regions || []).length ? world.regions.map(region => `- [${region.id}] "${region.name}"${region.description ? ` — already described: ${String(region.description).replace(/\s+/g, ' ').slice(0, 180)}` : ' — description missing'}`).join('\n') : '(none — create only broad reusable regions the listed places clearly imply)'}`;
 }
 
 // Turn a pass's reply into reviewable findings. Anything the world already
@@ -39558,7 +42880,31 @@ function calibrationFindingsFromStructure(world, payload) {
 
         const connectId = String(entry?.connect_to || '').trim();
         const connectTo = byId.get(connectId);
-        if (connectTo && connectTo.id !== location.id && !(location.exits || []).length) {
+        const hasPath = targetId => {
+            const seenPlaces = new Set([location.id]);
+            const queue = [location.id];
+            while (queue.length) {
+                const currentId = queue.shift();
+                if (currentId === targetId) return true;
+                const current = byId.get(currentId);
+                const neighbors = [];
+                (current?.exits || []).forEach(exit => {
+                    const ref = String(getExitTargetName(exit) || '').trim().toLowerCase();
+                    const target = byId.get(ref) || [...byId.values()].find(item => String(item.name || '').trim().toLowerCase() === ref);
+                    if (target) neighbors.push(target.id);
+                });
+                const parentRef = String(current?.parentLocationId || current?.region || '').trim().toLowerCase();
+                const parent = byId.get(parentRef) || [...byId.values()].find(item => String(item.name || '').trim().toLowerCase() === parentRef);
+                if (parent) neighbors.push(parent.id);
+                byId.forEach(candidate => {
+                    const ref = String(candidate.parentLocationId || candidate.region || '').trim().toLowerCase();
+                    if (ref === currentId || ref === String(current?.name || '').trim().toLowerCase()) neighbors.push(candidate.id);
+                });
+                neighbors.forEach(id => { if (!seenPlaces.has(id)) { seenPlaces.add(id); queue.push(id); } });
+            }
+            return false;
+        };
+        if (connectTo && connectTo.id !== location.id && !hasPath(connectTo.id)) {
             findings.push({
                 tier: 'structure', id: `connect_${location.id}`, type: 'connect_location', severity: 'critical',
                 title: `Connect "${location.name}" to "${connectTo.name}"`,
@@ -39567,6 +42913,16 @@ function calibrationFindingsFromStructure(world, payload) {
                          sourceName: location.name }
             });
         }
+    });
+
+    const regionsById = new Map((world.regions || []).map(region => [String(region.id), region]));
+    (Array.isArray(payload?.regions) ? payload.regions : []).forEach(entry => {
+        const region = regionsById.get(String(entry?.id || ''));
+        const description = String(entry?.description || '').trim();
+        if (!region || String(region.description || '').trim() || !description) return;
+        findings.push({ tier: 'structure', id: `region_description_${region.id}`, type: 'set_region_description',
+            severity: 'suggestion', title: `Describe region "${region.name || region.id}"`,
+            detail: description.slice(0, 240), patch: { regionId: region.id, description } });
     });
 
     (Array.isArray(payload?.travel) ? payload.travel : []).forEach(entry => {
@@ -39881,7 +43237,10 @@ async function runCalibrationPass(world, pass, onProgress) {
         throw new Error(`Nothing left for the ${CALIBRATION_PASSES[pass].label} pass to settle — this world already states everything it looks at.`);
     }
 
-    const findings = [];
+    const findings = pass === 'structure'
+        ? calibrateStructuralFindings(world, getAllPresets().find(preset => preset.id === world.activePresetId))
+            .filter(finding => ['set_exit_lock_state', 'set_place_awareness'].includes(finding.type))
+        : [];
     const failures = [];
     let cutShort = 0;
     // Carried across batches so a member found late can join a power that an
@@ -40016,7 +43375,7 @@ function parseCalibrationPayload(raw) {
     // relationships/places/factions/memberships, none of which were listed
     // here — so a complete, perfectly valid Society reply was rejected as
     // unusable and reported as a model failure. It could never have worked.
-    const PAYLOAD_KEYS = ['locations', 'travel', 'people', 'items',
+    const PAYLOAD_KEYS = ['locations', 'regions', 'travel', 'people', 'items',
         'relationships', 'places', 'factions', 'memberships'];
     const usable = value => value && typeof value === 'object' && !Array.isArray(value)
         && PAYLOAD_KEYS.some(key => Array.isArray(value[key]));
@@ -40605,13 +43964,18 @@ function renderWorldAudit() {
                        placeholder="…or type any OpenRouter model id" value="${escapeHTML(activeStructured)}">
             </div>
             <div class="form-hint" id="structured-model-status" style="margin-top:6px;">Checking which models can do this…</div>
+            <div class="world-lore-model-check-card">
+                <div><strong>World Lore model</strong><p class="form-hint">Check the model selected under World Lore with the active provider. Sends one small test request and does not include world data; provider charges may apply.</p></div>
+                <button type="button" id="test-world-lore-model-btn" class="btn btn-ghost">Test selected model</button>
+                <p id="test-world-lore-model-status" class="form-hint world-lore-model-check" role="status"></p>
+            </div>
         </div>`;
 
     // Calibration: everything the engine can repair on its own, with no API
     // call. Shown before the AI audit because it costs nothing and fixes the
     // faults that stop a world working at all.
     const calibration = calibrateStructuralFindings(world, getAllPresets().find(p => p.id === world.activePresetId));
-    const directlyFixableTypes = new Set(['set_start_location', 'raise_context_size', 'add_reciprocal_exit', 'set_map_type', 'set_containment', 'set_floor', 'connect_location']);
+    const directlyFixableTypes = new Set(['set_start_location', 'raise_context_size', 'add_reciprocal_exit', 'set_map_type', 'set_containment', 'set_floor', 'connect_location', 'remove_missing_awareness_ref', 'set_exit_lock_state', 'set_place_awareness']);
     const fixable = calibration.filter(f => directlyFixableTypes.has(f.type));
     const directoryHealthHtml = `${renderWorldMigrationSection(world)}<div class="world-health-card">
         <div class="world-health-score"><strong>${directoryHealth.score}</strong><span>/100</span></div>
@@ -40690,6 +44054,7 @@ function renderWorldAudit() {
         if (btn) btn.onclick = runAIWorldAudit;
         wireWorldMigrationControls(world);
         wireCalibrationControls(world, calibration, container);
+        wireWorldLoreModelCheck(container);
         document.getElementById('run-autonomy-health-btn')?.addEventListener('click', () =>
             renderWorldAutonomyHealthResult(world, document.getElementById('autonomy-health-results')));
         return;
@@ -40732,6 +44097,7 @@ function renderWorldAudit() {
     if (aiBtn) aiBtn.onclick = runAIWorldAudit;
     wireWorldMigrationControls(world);
     wireCalibrationControls(world, calibration, container);
+    wireWorldLoreModelCheck(container);
     document.getElementById('run-autonomy-health-btn')?.addEventListener('click', () =>
         renderWorldAutonomyHealthResult(world, document.getElementById('autonomy-health-results')));
 
@@ -40791,25 +44157,28 @@ function serializeWorldForAudit(world) {
         intro: clip(world.intro, 6000),
         startLocationId: world.startLocationId,
         regions: (world.regions || []).map(region => ({
-            id: region.id, name: region.name, description: clip(region.description), tags: region.tags || []
+            id: region.id, name: region.name, description: clip(region.description), tags: region.tags || [],
+            parentRegionId: region.parentRegionId, placeType: region.placeType, access: region.access, knowledge: region.knowledge, about: region.about
         })),
         locations: (world.locations || []).map(l => ({
             id: l.id, name: l.name, regionId: l.regionId, region: l.region,
             mapType: l.mapType, parentLocationId: l.parentLocationId, floor: l.mapFloor, tags: l.tags || [],
+            placeType: l.placeType, access: l.access, knowledge: l.knowledge, hiddenKnowledge: l.hiddenKnowledge, about: l.about,
             description: clip(l.description), hiddenDescription: clip(l.hiddenDescription),
             exits: (l.exits || []).map(ex => typeof ex === 'string' ? { text: ex } : ({
                 text: ex.text, targetLocationId: ex.targetLocationId,
                 transport: ex.mode, minutes: ex.travelTime, route: ex.routeName,
                 cost: ex.cost, oneWay: ex.isOneWay === true
             })),
-            secrets: (l.secrets || []).map(s => ({ label: s.label, hint: clip(s.hint, 200), truth: clip(s.truth, 200) }))
+            secrets: (l.secrets || []).map(s => ({ id: s.id, label: s.label, hint: clip(s.hint, 200), truth: clip(s.truth, 200), knowledge: s.knowledge, about: s.about }))
         })),
         entities: (world.entities || []).map(e => ({
             id: e.id, name: e.name, type: e.type, simulationDepth: e.simulationDepth,
             description: clip(e.description), persona: clip(e.persona, 6000), tags: e.tags || [],
             homeLocation: e.homeLocation, startLocation: e.startLocation,
+            factionId: e.factionId, factionIds: e.factionIds, knowledge: e.knowledge, about: e.about,
             groupIds: e.groupIds || [], goal: clip(e.goal), schedule: e.schedule || [],
-            secrets: (e.secrets || []).map(s => ({ label: s.label, hint: clip(s.hint, 200), truth: clip(s.truth, 200) }))
+            secrets: (e.secrets || []).map(s => ({ id: s.id, label: s.label, hint: clip(s.hint, 200), truth: clip(s.truth, 200), knowledge: s.knowledge, about: s.about }))
         })),
         groups: (world.groups || []).map(group => ({
             id: group.id, name: group.name, type: group.type, homeLocationId: group.homeLocationId,
@@ -40818,7 +44187,7 @@ function serializeWorldForAudit(world) {
         factions: world.factions || [],
         relationships: world.relationships || [],
         startingLives: world.startingLives || [],
-        lorebook: (world.lorebook || []).map(l => ({ keyword: l.keyword, text: clip(l.text, 6000) })),
+        lorebook: (world.lorebook || []).map(l => ({ id: l.id, keyword: l.keyword, text: clip(l.text, 6000), knowledge: l.knowledge, about: l.about })),
         rules: world.rules || world.gameRules || {},
         hudConfig: world.hudConfig || {}
     });
@@ -42638,10 +46007,10 @@ function normalizeCompanion(raw) {
         mindProfile: normalizeCompanionMindProfile(c.mindProfile),
         textProvider: ['provider', ...TEXT_PROVIDER_IDS].includes(c.textProvider)
             ? c.textProvider : 'provider',
-        imageSource: ['provider', 'openrouter', 'gptproto', 'nanogpt', 'fal', 'local', 'local_image', 'comfyui', 'gemini', 'higgsfield', 'magnific'].includes(c.imageSource)
+        imageSource: ['provider', 'openrouter', 'gptproto', 'nanogpt', 'horde', 'fal', 'local', 'local_image', 'comfyui', 'gemini', 'higgsfield', 'magnific'].includes(c.imageSource)
             ? c.imageSource : 'provider',
         imageModel: typeof c.imageModel === 'string' ? c.imageModel : '',
-        referenceImageSource: ['provider','openrouter','gptproto','nanogpt','fal','local','local_image','comfyui','gemini','higgsfield','magnific'].includes(c.referenceImageSource) ? c.referenceImageSource : '',
+        referenceImageSource: ['provider','openrouter','gptproto','nanogpt','horde','fal','local','local_image','comfyui','gemini','higgsfield','magnific'].includes(c.referenceImageSource) ? c.referenceImageSource : '',
         referenceImageModel: typeof c.referenceImageModel === 'string' ? c.referenceImageModel.slice(0,500) : '',
         mcpImageTool: typeof c.mcpImageTool === 'string' ? c.mcpImageTool.trim().slice(0, 300) : '',
         mcpImageArguments: isPlainObject(c.mcpImageArguments) ? safeJsonClone(c.mcpImageArguments) : {},
@@ -47604,6 +50973,7 @@ function companionImageModelFallback(providerId = state.globalSettings.apiProvid
     const provider = normalizedProviderId(providerId);
     if (provider === 'gptproto') return GPTPROTO_IMAGE_MODELS[0].id;
     if (provider === 'nanogpt') return 'hidream';
+    if (provider === 'horde') return '';
     return COMPANION_IMAGE_MODEL_FALLBACK;
 }
 
@@ -47767,6 +51137,13 @@ async function getCompanionOutputModels(modality, force = false, providerId = st
     if (provider === 'fal') {
         models = modality === 'image' ? FAL_IMAGE_MODELS.map(model => safeJsonClone(model)) : [];
         companionOutputModelCache.set(key, { models, fingerprint, at: Date.now() });
+        return models;
+    }
+    if (provider === 'horde') {
+        if (!['text', 'image'].includes(modality) || !globalThis.HordeStudioHordeClient) return [];
+        try { models = await globalThis.HordeStudioHordeClient.listModels({ apiKey: state.hordeApiKey, type: modality }); }
+        catch (error) { console.warn('Could not load AI Horde models:', error); }
+        if (models.length) companionOutputModelCache.set(key, { models, fingerprint, at: Date.now() });
         return models;
     }
     try {
@@ -48004,7 +51381,7 @@ function applyCompanionImageParameters(body, companion, capabilities, endpoint) 
 
 const COMPANION_PHOTO_CAPTURE_TYPES = Object.freeze([
     'auto', 'front_camera_selfie', 'mirror_selfie', 'group_selfie',
-    'timer_or_propped', 'taken_by_someone'
+    'timer_or_propped', 'taken_by_someone', 'personal_photograph'
 ]);
 
 function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(), options = {}) {
@@ -48034,6 +51411,20 @@ function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(
     const plausiblePhotographer = namedPhotographer || withNames[0]
         || (socialSituation ? 'someone already there' : '');
     const canUseOtherPhotographer = policy !== 'self_capture' && !!plausiblePhotographer;
+
+    // A written scene is authoritative over the simulated schedule. A full-body
+    // request can be an ordinary personal photograph; do not invent phone gear
+    // simply to explain how it was captured.
+    if ((requestedType === 'auto' || requestedType === 'personal_photograph') && !frontRequested && !mirrorRequested && !timerRequested && !groupRequested
+        && !(otherPhotographerRequested && policy !== 'auto' && policy !== 'self_capture')) {
+        return {
+            type: 'personal_photograph',
+            reason: 'No capture device or photographer was requested; use natural personal-photo framing.',
+            photographer: '', situation,
+            label: 'Personal photograph',
+            instruction: 'A natural personal photograph with a plausible camera viewpoint. The phone, camera, tripod, selfie stick and photographer stay outside the frame. Follow the requested framing; do not force selfie distance.'
+        };
+    }
 
     const plan = (type, reason, photographer = '') => {
         const details = {
@@ -48107,7 +51498,7 @@ function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(
 function companionPhotoLocationReference(companion, scene, options = {}) {
     if(options.includeReference===false||options.locationReferenceOnly)return null;
     const locations=[...(companion.lifeProfile?.places||[]),...(companion.photoLocations||[])].filter(p=>p.photo&&!p.referenceDisabled);
-    if(options.photoLocationId)return locations.find(p=>p.id===options.photoLocationId)||null;
+    if(options.photoLocationId&&!companionPhotoHasExplicitSetting(scene))return locations.find(p=>p.id===options.photoLocationId)||null;
     const present=options.photoContext||(!options.historicalPhoto?companionSituationAt(companion,Number(options.atMs)||Date.now()):{});
     const words=' '+String(scene||'').toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ';
     const matches=locations.filter(p=>{
@@ -48115,11 +51506,18 @@ function companionPhotoLocationReference(companion, scene, options = {}) {
         return [p.label,p.referenceRole,...String(p.referenceAliases||'').split(',')].filter(Boolean).some(label=>{const text=String(label).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();return text&&words.includes(' '+text+' ');});
     });
     if(matches.length===1)return matches[0];
+    if(companionPhotoHasExplicitSetting(scene))return null;
     return locations.find(p=>p.id===present.placeId)||null;
 }
 function companionPhotoSnapshot(companion,scene,atMs){
     const situation=companionSituationAt(companion,atMs),room=companionPhotoLocationReference(companion,scene,{atMs});
     return {atMs,placeId:situation.placeId||'',placeLabel:situation.placeLabel||companion.currentLocationDetail||'',outfit:situation.outfit||companion.currentOutfit||'',roomId:room?.id||'',garmentIds:[...(companion.lifeRuntime?.world?.outfit?.ids||[])],environment:situation.environment||{},withNames:situation.withNames||[],scene:String(scene||''),style:companion.photoStyle,direction:companion.photoDirection||'',personality:companion.personality||''};
+}
+function companionPhotoHasExplicitSetting(scene){
+    return /\b(?:in|at|inside|outside|near|by|on)\s+(?:(?:the|a|an|my|your|her|his)\s+)?(?:living room|bedroom|kitchen|bathroom|office|studio|garden|park|beach|street|caf[eé]|store|shop|car|train|bus|hotel|apartment|home|room|bed|sofa|couch|porch|yard|balcony|classroom|restaurant)\b/i.test(String(scene||''));
+}
+function companionPhotoHasExplicitClothing(scene){
+    return /\b(?:wear(?:ing)?|dressed? in|outfit|clothes|clothing|garments?|topless|shirtless|braless|nude|naked|bare(?:\s+(?:chest|breasts?|upper\s+body))?|bra|bralette|camisole|tank\s+top|crop\s+top|t-?shirt|shirt|blouse|sweater|hoodie|jacket|coat|dress|skirt|shorts|pants|jeans|leggings|underwear|lingerie)\b/i.test(String(scene||''));
 }
 function companionPhotoPrevious(messages,context,minutes=90,allowSameTime=false){
     if(minutes<=0||!context.placeId&&!context.placeLabel)return null;
@@ -48131,10 +51529,12 @@ function companionPhotoReferences(companion,scene,options={}){
     if(Array.isArray(options.resolvedReferences))return options.resolvedReferences;
     if(options.photoContext?.assetStudy)return [...new Set((options.bibleReferences||[]).filter(Boolean))];
     if(options.photoContext?.referenceStudy)return [...new Set([companion.basePhoto,...(options.bibleReferences||[])].filter(Boolean))];
+    const explicitClothing=companionPhotoHasExplicitClothing(scene),explicitSetting=companionPhotoHasExplicitSetting(scene);
     const room=companionPhotoLocationReference(companion,scene,{...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
     const ids=options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[];
-    const garments=companion.lifeProfile?.world?.closet.mode==='items'&&!options.historicalPhoto?ids.map(id=>companion.lifeProfile.world.items.find(i=>i.id===id)?.photo).filter(Boolean):[];
-    return [...new Set([companion.basePhoto,options.previousPhoto?.photo,room?.photo,...garments,...(options.bibleReferences||[])].filter(Boolean))];
+    const garments=!explicitClothing&&companion.lifeProfile?.world?.closet.mode==='items'&&!options.historicalPhoto?ids.map(id=>companion.lifeProfile.world.items.find(i=>i.id===id)?.photo).filter(Boolean):[];
+    const bibleReferences=(options.bibleReferences||[]).filter((_,i)=>{const role=options.photoContext?.bibleRoles?.[i];return (!explicitClothing||role?.role!=='garment')&&(!explicitSetting||!['place','zone'].includes(role?.role)||String(scene).toLowerCase().includes(String(role?.label||'').toLowerCase()));});
+    return [...new Set([companion.basePhoto,explicitClothing||explicitSetting?null:options.previousPhoto?.photo,room?.photo,...garments,...bibleReferences].filter(Boolean))];
 }
 
 function companionPhotoReferenceSources(companion,scene,options={},references=companionPhotoReferences(companion,scene,options)){
@@ -48325,15 +51725,16 @@ function renderCompanionPhotoLocations(companion) {
 }
 
 function companionPhotoReferenceGuide(companion,scene,options={}){
+ const explicitClothing=companionPhotoHasExplicitClothing(scene);
  const refs=Array.isArray(options.attachedReferences)?options.attachedReferences:companionPhotoReferences(companion,scene,{...options,resolvedReferences:undefined});if(!refs.length)return '';
  const jobs=new Map(),add=(ref,job)=>{const index=refs.indexOf(ref);if(index<0)return;const list=jobs.get(index)||[];if(!list.includes(job))list.push(job);jobs.set(index,list);};
  add(companion.basePhoto,'Main person: preserve facial identity and body proportions; clothing and background come from the requested moment.');
- add(options.previousPhoto?.photo,'Previous moment: preserve exact outfit, surroundings and lighting; change only the requested gesture or framing.');
+ if(!explicitClothing&&!companionPhotoHasExplicitSetting(scene))add(options.previousPhoto?.photo,'Previous moment: preserve exact outfit, surroundings and lighting; change only the requested gesture or framing.');
  const place=companionPhotoLocationReference(companion,scene,{...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
  add(place?.photo,'Environment: '+(place?.label||'saved place')+'. Preserve layout and materials; do not borrow a person from this image.');
- if(companion.lifeProfile?.world?.closet?.mode==='items'&&!options.historicalPhoto)for(const id of options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[]){const item=companion.lifeProfile.world.items.find(i=>i.id===id);add(item?.photo,'Clothing: '+(item?.name||'selected garment')+'. Preserve fabric, color and cut; ignore the model wearing it.');}
+ if(!explicitClothing&&companion.lifeProfile?.world?.closet?.mode==='items'&&!options.historicalPhoto)for(const id of options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[]){const item=companion.lifeProfile.world.items.find(i=>i.id===id);add(item?.photo,'Clothing: '+(item?.name||'selected garment')+'. Preserve fabric, color and cut; ignore the model wearing it.');}
  const instructions={identity:'identity and proportions only; ignore reference-sheet layout and sample clothes',person:'this supporting person’s identity only; do not merge faces',zone:'room layout and permanent fixtures only',place:'environment layout and materials only',garment:'selected clothing details only, never the wearer’s identity',prop:'object geometry, materials and color only',pose:'body and camera geometry only, never identity or clothing'};
- for(const [i,role] of (options.photoContext?.bibleRoles||[]).entries())add(options.bibleReferences?.[i],role.label+': '+(instructions[role.role]||role.role));
+ for(const [i,role] of (options.photoContext?.bibleRoles||[]).entries())if(!explicitClothing||role.role!=='garment')add(options.bibleReferences?.[i],role.label+': '+(instructions[role.role]||role.role));
  return 'Reference images in actual attachment order:\n'+refs.map((_,i)=>'Image '+(i+1)+': '+(jobs.get(i)?.join(' ')||'Use only for the explicitly requested visual detail.')).join('\n');
 }
 function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
@@ -48343,7 +51744,6 @@ function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
     const atMs = Number(options.atMs) || Date.now();
     const capture = companionPhotoCapturePlan(companion, sceneDescription, atMs, options);
     const situation = options.photoContext ? {...capture.situation,...options.photoContext} : capture.situation;
-    const environment = companionWeatherLabel(situation.environment);
     if (options.locationReferenceOnly) return `Photograph of a place, with no people. ${sceneDescription}. Preserve the described room layout, architecture, furniture and materials. Natural available light. No captions, labels, diagrams or text overlays.`;
     const hasReference = options.hasReference === false ? false : options.hasReference === true || !!companion.basePhoto || options.photoContext?.bibleRoles?.some(r=>r.role==='identity');
     const age = Number(companion.age);
@@ -48351,39 +51751,41 @@ function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
     const subject = hasReference
         ? `${ageText}. Use the identity reference for the same face, body shape, proportions and distinguishing features. Do not redesign or idealize the person based on incidental scene wording.`
         : `${ageText}. ${companion.appearance || 'A natural-looking person'}`;
-    let scene = String(sceneDescription || '').trim().replace(/[.]+$/, '');
+    let originalScene = String(sceneDescription || '').trim();
+    // Expand only an outfit ID actually named by the request, not the wardrobe.
     for (const look of companion.lifeProfile?.wardrobe || []) {
-        if (look.id && look.items) scene = scene.replaceAll(look.id, look.items);
+        if (look.id && look.items) originalScene = originalScene.replaceAll(look.id, look.items);
     }
+    const scene = originalScene.replace(/[.]+$/, '');
     const locationReference = companionPhotoLocationReference(companion, sceneDescription, {...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
-    const continuity = options.previousPhoto ? 'Same photographic moment as the attached previous image: preserve its exact outfit, accessories, room, lighting and time of day. Visual evidence in that image wins over conflicting clothing or setting words in this follow-up request.' : options.historicalPhoto
-        ? 'This is an earlier photograph. Use the requested scene for its place, clothing and lighting; do not substitute the present-day schedule or weather.'
-        : `Current setting: ${situation.outfit ? `wearing ${situation.outfit}` : companion.currentOutfit ? `wearing ${companion.currentOutfit}` : 'outfit not otherwise established'}; ${situation.placeLabel || companion.currentLocationDetail || companion.locationLabel || 'specific surroundings not otherwise established'}${environment ? `; local conditions are ${environment}` : ''}.
-People present: ${situation.withNames?.length ? situation.withNames.join(', ') : 'no additional people established'}.
-${(companion.lifeProfile?.socialCircle||[]).filter(p=>situation.personIds?situation.personIds.includes(p.id):(situation.withNames||[]).includes(p.name)).map(p=>p.name+': '+(p.appearance||'Use their assigned person reference; physical appearance is otherwise unspecified.')+(p.age!=null?' Age: '+p.age+'.':'')).join('\n')}
-Do not derive anyone's physical appearance from their job, relationship, personality or name.
-Keep the established setting, clothing and time of day. Do not add an unseen friend or photographer.`;
-    return `${options.photoContext?.destination==='gallery'?'A personal photograph kept in the character’s camera gallery. It has not been shared or published.':'A personal photograph shared in a conversation.'}
-
-Subject: ${subject}
-Photographic personality: ${options.photoContext?.personality||companion.personality||'Use the established character'}. Translate personality into expression, posture and framing, without changing appearance or inventing company.
-Personal photo direction: ${options.photoContext?.direction??companion.photoDirection??'Use natural expressions and the established visual treatment.'}
-${options.previousPhoto ? `FOLLOW-UP TO THE SUPPLIED PREVIOUS PHOTO: Preserve the exact same garments, including cut, fabric, pattern, accessories and fit; the same room, lighting and time of day. The earlier image is visual ground truth. Change only the requested gesture or framing. Earlier scene: ${options.previousPhoto.scene}. Earlier outfit: ${options.previousPhoto.photoContext?.outfit||'match the attached photo exactly'}. Ignore contradictory outfit or room suggestions in the new scene. Earlier photo direction: ${options.previousPhoto.photoContext?.direction||''}` : ''}
-${companion.photoLargeBreasts === true ? 'Appearance emphasis: large breasts, with natural anatomy and realistic clothing fit. Retain this bust size even when using the identity reference; preserve the rest of the referenced identity and the established outfit.' : ''}
-${options.previousPhoto?'Follow-up gesture/framing request (ignore conflicting outfit or background suggestions)':'Scene'}: ${scene}.
-${continuity}
-${situation.zoneId ? `Current room zone: ${situation.zoneDescription || situation.zoneId}. Preserve this zone's layout and reviewed zone references; do not substitute another room within the same place.` : ''}
-${companionPhotoReferenceGuide(companion,sceneDescription,options)}
-
-
-Camera provenance — ${capture.label}:
-${capture.instruction}
-This camera provenance overrides any generic camera-angle wording in the visual style below.
-
-Visual treatment — ${style.label}:
-${style.appendix}
-
-Create one photograph of this moment, not a reference sheet, collage or multiple views. If an identity reference is a turnaround sheet, use its views to identify one person; do not reproduce its layout. Keep the scene clear, the person consistent, and the moment believable. Do not render instructions or labels as image text.`;
+    const sceneHasClothing = companionPhotoHasExplicitClothing(originalScene);
+    const sceneHasSpecificLocation = /\b(?:at|in|inside|outside|near|by|on)\s+(?:the\s+|a\s+|an\s+)?[a-z]/i.test(originalScene)
+        || /\b(?:living room|bedroom|kitchen|bathroom|office|studio|garden|park|beach|street|cafe|café|store|shop|car|train|bus|hotel|apartment|home|room|bed|sofa|couch|table|window|porch|yard|balcony|classroom|restaurant)\b/i.test(originalScene);
+    const explicitOutfitChange = companionPhotoHasExplicitClothing(originalScene);
+    const vh2ComfyuiPrompt = options.vh2Capture === true && companion.imageSource === 'comfyui';
+    const photography = vh2ComfyuiPrompt
+        ? 'Natural, photorealistic personal photograph with realistic skin texture and lighting. Preserve the character\'s facial identity and natural proportions. Follow the requested pose, camera angle, clothing, and framing.'
+        : style.appendix;
+    const continuity = options.previousPhoto && !explicitOutfitChange
+        ? 'Continue the attached photograph only where the request does not change it. Explicit clothing, location, activity and framing in this request take precedence over the earlier image.'
+        : options.historicalPhoto
+            ? 'Use the requested scene as the source of truth for clothing, location and lighting.'
+            : [
+                !explicitOutfitChange && !sceneHasClothing && (situation.outfit || companion.currentOutfit) ? `Relevant current outfit only when compatible with the requested moment: ${situation.outfit || companion.currentOutfit}.` : '',
+                !sceneHasSpecificLocation && !explicitOutfitChange && (situation.placeLabel || companion.currentLocationDetail || companion.locationLabel) ? `Relevant established location only when compatible with the requested moment: ${situation.placeLabel || companion.currentLocationDetail || companion.locationLabel}.` : '',
+                situation.withNames?.length ? `People already present: ${situation.withNames.join(', ')}. Do not add other people.` : 'Do not add other people or a photographer.'
+            ].filter(Boolean).join('\n');
+    const scenePriority = 'The current scene controls clothing, colors, coverage, pose, and setting.';
+    const details = [
+        options.photoContext?.destination === 'gallery' ? 'Private character camera-gallery photograph.' : 'Personal photograph shared in a conversation.',
+        explicitOutfitChange ? 'Follow the requested clothing and coverage exactly, including explicit exclusions; do not substitute saved or historical clothing.' : '',
+        continuity,
+        situation.zoneId && !sceneHasSpecificLocation ? `Room zone, only when compatible with the requested moment: ${situation.zoneDescription || situation.zoneId}.` : '',
+        companion.photoLargeBreasts === true ? 'Appearance emphasis: large breasts, with natural anatomy and realistic clothing fit; preserve the referenced identity.' : ''
+    ].filter(Boolean).join(' ');
+    const camera = vh2ComfyuiPrompt || sceneHasSpecificLocation ? '' : `${capture.instruction} Keep the requested framing; photography equipment stays outside the frame.`;
+    const prompt = `Requested scene:\n${originalScene}\n\nSubject identity:\n${subject}\n\nPhotography:\n${photography}\n\nReference guidance:\nUse identity references to preserve face, hair, and proportions. Do not copy incidental clothing from identity references when the current scene specifies different clothing.\n${scenePriority}${details ? ` ${details}` : ''}\n${companionPhotoReferenceGuide(companion,sceneDescription,options)}\n${camera ? `\n${camera}` : ''}\nDo not render instructions or labels as image text.`;
+    return prompt;
 }
 
 /**
@@ -48639,6 +52041,14 @@ async function pollGptProtoImagePrediction(data, headers, signal, requestedMedia
 
 async function requestCompanionPhoto(body, providerId = state.globalSettings.apiProvider) {
     const provider = String(providerId || '').toLowerCase() === 'fal' ? 'fal' : normalizedProviderId(providerId);
+    if (provider === 'horde') {
+        const result = await globalThis.HordeStudioHordeClient?.generateImage({
+            apiKey: state.hordeApiKey, model: body.model, prompt: body.prompt,
+            width: body.width || 640, height: body.height || 640
+        });
+        if (!result?.url) throw new Error('AI Horde completed without returning an image.');
+        return normalizeGeneratedImageSource(result.url);
+    }
     const catalogModel = companionImageModelCatalog.find(item => item.id === body.model);
     const usedReference = !!body.input_references?.length || !!body.image
         || !!body.imageDataUrl || !!body.imageDataUrls?.length;
@@ -48996,6 +52406,9 @@ async function generateCompanionPhoto(companion, sceneDescription, options = {})
         throw new Error(`Add a ${providerDisplayName(imageProvider)} API key in Settings before generating photos.`);
     }
     const modelId = companion.imageModel || companionImageModelFallback(imageProvider);
+    if (imageProvider === 'horde') {
+        return requestCompanionPhoto({ model: modelId, prompt: buildCompanionPhotoPrompt(companion, sceneDescription, options) }, imageProvider);
+    }
     let modelInfo = companionImageModelInfo(modelId);
     if (!modelInfo && imageProvider !== 'local') {
         const ranked = rankCompanionImageModels(
@@ -49033,7 +52446,7 @@ function worldVisualProvider(world) {
         ? normalizedProviderId(state.globalSettings.apiProvider) : presentation.imageProvider;
     if (requested === 'fal') return 'fal';
     const provider = normalizedProviderId(requested);
-    return ['openrouter', 'gptproto', 'nanogpt', 'local'].includes(provider) ? provider : 'openrouter';
+    return ['openrouter', 'gptproto', 'nanogpt', 'horde', 'local'].includes(provider) ? provider : 'openrouter';
 }
 
 function worldVisualModel(world, provider) {
@@ -49079,13 +52492,18 @@ async function makeWorldVisualPortable(source, maxDimension, quality) {
 async function generateWorldVisual(world, prompt, { aspectRatio = '16:9', maxDimension = 1600, quality = 0.78, kind, label } = {}) {
     const presentation = normalizeWorldPresentation(world);
     const provider = worldVisualProvider(world);
-    if (!['openrouter', 'gptproto', 'nanogpt', 'fal'].includes(provider)) {
-        throw new Error('Choose OpenRouter, GPTProto, NanoGPT or Fal under World Studio → Visuals, or upload an image manually.');
+    if (!['openrouter', 'gptproto', 'nanogpt', 'horde', 'fal'].includes(provider)) {
+        throw new Error('Choose OpenRouter, GPTProto, NanoGPT, AI Horde or Fal under World Studio → Visuals, or upload an image manually.');
     }
     if (!providerHasCredentials(provider)) {
         throw new Error(`Add a ${providerDisplayName(provider)} API key in Settings before generating world visuals.`);
     }
     const model = worldVisualModel(world, provider);
+    if (provider === 'horde') {
+        const generated = await requestCompanionPhoto({ model, prompt }, provider);
+        const portable = await makeWorldVisualPortable(generated, maxDimension, quality);
+        return addWorldMediaAsset(world, portable, kind, label, { generated: true, model, prompt });
+    }
     let modelInfo = companionImageModelInfo(model);
     if (!modelInfo) {
         const ranked = rankCompanionImageModels(await getCompanionOutputModels('image', false, provider), provider);
@@ -51349,6 +54767,13 @@ function commitCompanionStudioForm() {
     return companion;
 }
 
+async function loadCompanionVh2PhotoSettings(companion){
+    const timeline=getActiveCompanionTimeline(companion.id),daily=document.getElementById('cs-vh2-photo-daily-limit'),explicit=document.getElementById('cs-vh2-explicit-photo-daily-limit'),mode=document.getElementById('cs-vh2-photo-behaviour'),status=document.getElementById('cs-vh2-photo-budget-status');
+    const initialDaily=daily?.value,initialExplicit=explicit?.value;
+    try{const saved=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id)):await mcpBridgeRequest('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));if(state.editingCompanionId!==companion.id)return;if(saved.configured){if(daily&&daily.value===initialDaily)daily.value=saved.dailyLimit??100;if(explicit&&explicit.value===initialExplicit)explicit.value=saved.explicitDailyLimit??100;if(status)status.textContent=`Saved values · Spontaneous ${saved.dailyLimit??100}/day (${saved.autonomousBudget?.remaining??saved.dailyLimit??100} remaining) · Explicit ${saved.explicitDailyLimit??100}/day (${saved.explicitBudget?.remaining??saved.explicitDailyLimit??100} remaining).`;}else if(status)status.textContent='No VH2 provider limits are saved yet. Choose a VH2 provider and model before saving allowances.';if(mode)mode.value=companion.photoBehaviorMode||'natural';}
+    catch(error){if(status)status.textContent='VH2 limits unavailable: '+error.message;}
+}
+
 function renderCompanionStudioForm(options = {}) {
     const companion = getCompanion(state.editingCompanionId);
     if (!companion) return;
@@ -51456,6 +54881,10 @@ function renderCompanionStudioForm(options = {}) {
     document.getElementById('cs-always-on-enabled').checked = companion.alwaysOnEnabled;
     document.getElementById('cs-web-access').checked = companion.webAccess;
     document.getElementById('cs-allow-photos').checked = companion.allowPhotos;
+    const photoMode=document.getElementById('cs-vh2-photo-behaviour');if(photoMode)photoMode.value=companion.photoBehaviorMode||'natural';
+    const photoLimit=document.getElementById('cs-vh2-photo-daily-limit'),explicitLimit=document.getElementById('cs-vh2-explicit-photo-daily-limit');if(photoLimit)photoLimit.value=100;if(explicitLimit)explicitLimit.value=100;
+    const photoBudgetStatus=document.getElementById('cs-vh2-photo-budget-status');if(photoBudgetStatus)photoBudgetStatus.textContent='Loading saved VH2 photo allowances…';
+    loadCompanionVh2PhotoSettings(companion).catch(error=>{if(photoBudgetStatus)photoBudgetStatus.textContent='Could not load saved VH2 limits: '+error.message;});
     document.getElementById('cs-allow-voice-notes').checked = companion.allowVoiceNotes;
     document.getElementById('cs-voice-gender').value = companion.voiceGender;
     document.getElementById('cs-mood-baseline').value = companion.moodBaseline.valence;
@@ -52160,7 +55589,7 @@ function updateCompanionImageSourceUI(companion) {
         google.innerHTML='<label>Google image model<input class="form-input" data-model placeholder="gemini-2.5-flash-image"></label><label>Google AI Studio API key<input class="form-input" data-key type="password" autocomplete="off" placeholder="Blank keeps the saved key"></label><button type="button" class="tool-btn">Save Google image connection</button><p role="status"></p>';
         const model=google.querySelector('[data-model]'),key=google.querySelector('[data-key]'),button=google.querySelector('button'),status=google.querySelector('[role=status]');
         model.value=companion.imageModel||'gemini-2.5-flash-image';model.oninput=()=>{companion.imageModel=model.value.trim();};
-        button.onclick=async()=>{button.disabled=true;status.textContent='Saving…';try{const timeline=getActiveCompanionTimeline(companion.id),call=(path,options)=>timeline?.vh2&&typeof vh2Request==='function'?vh2Request(timeline,path,options):mcpBridgeRequest(path,options);const saved=await call('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));await call('/vh2/image-provider',{method:'POST',body:{scope:'horde:'+companion.id,provider:'gemini',model:model.value.trim(),apiKey:key.value,enabled:saved.provider==='gemini'&&saved.enabled===true,dailyLimit:saved.dailyLimit||4,maxReferences:/gemini-2\.5/.test(model.value)?3:14}});companion.imageModel=model.value.trim();key.value='';await saveState();status.textContent=timeline?.vh2?.hostId?'Google image connection saved on the private host.':'Google image connection saved.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
+        button.onclick=async()=>{button.disabled=true;status.textContent='Saving…';try{const timeline=getActiveCompanionTimeline(companion.id),call=(path,options)=>timeline?.vh2&&typeof vh2Request==='function'?vh2Request(timeline,path,options):mcpBridgeRequest(path,options);const saved=await call('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));await call('/vh2/image-provider',{method:'POST',body:{scope:'horde:'+companion.id,provider:'gemini',model:model.value.trim(),apiKey:key.value,enabled:saved.provider==='gemini'&&saved.enabled===true,dailyLimit:saved.dailyLimit||100,explicitDailyLimit:saved.explicitDailyLimit||100,maxReferences:/gemini-2\.5/.test(model.value)?3:14}});companion.imageModel=model.value.trim();key.value='';await saveState();status.textContent=timeline?.vh2?.hostId?'Google image connection saved on the private host.':'Google image connection saved.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
     }
     mcpControls?.classList.toggle('hidden', !isMcp);
     const textProvider = providerDisplayName(companionTextProviderId(companion));
@@ -53869,6 +57298,23 @@ function setupCompanionsLogic() {
         const companion = commitCompanionStudioForm();
         if (companion) vhAIHelpers(companion, 'places');
     };
+    document.getElementById('cs-vh2-photo-settings-save').onclick=async()=>{
+        const companion=getCompanion(state.editingCompanionId),status=document.getElementById('cs-vh2-photo-budget-status');if(!companion)return;
+        const timeline=getActiveCompanionTimeline(companion.id),daily=Number(document.getElementById('cs-vh2-photo-daily-limit').value),explicit=Number(document.getElementById('cs-vh2-explicit-photo-daily-limit').value),mode=document.getElementById('cs-vh2-photo-behaviour').value;
+        if(!Number.isInteger(daily)||daily<1||daily>100||!Number.isInteger(explicit)||explicit<1||explicit>100){if(status)status.textContent='Enter whole-number limits from 1 to 100.';return;}
+        try{
+            const read=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id)):await mcpBridgeRequest('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));
+            const provider=read.configured?read:vh2ImageConfiguration(companion,read);
+            const body={scope:'horde:'+companion.id,provider:provider.provider,tool:provider.tool||'',arguments:safeJsonClone(provider.arguments||{}),model:provider.model||'provider default',enabled:provider.enabled===true,dailyLimit:daily,explicitDailyLimit:explicit,maxReferences:provider.maxReferences||10,apiKey:provider.apiKey||'',imageParameters:provider.imageParameters||{},imageProviderOptions:provider.imageProviderOptions||{},imageProviderTag:provider.imageProviderTag||'',imageProviderSlug:provider.imageProviderSlug||''};
+            const receipt=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider',{method:'POST',body}):await mcpBridgeRequest('/vh2/image-provider',{method:'POST',body});
+            if(timeline?.vh2)timeline.vh2.imageProvider={...receipt,stale:false};
+            companion.photoBehaviorMode=mode;
+            if(timeline?.vh2?.worldId)await vh2Enqueue(timeline,'configure_expression_profile',{fields:{photoBehaviorMode:mode}});
+            await saveState();
+            if(status)status.textContent=`Saved · spontaneous ${receipt.dailyLimit}/day (${receipt.autonomousBudget?.remaining??receipt.dailyLimit} remaining) · explicit ${receipt.explicitDailyLimit}/day (${receipt.explicitBudget?.remaining??receipt.explicitDailyLimit} remaining) · ${mode.replace('_',' ')}.`;
+        }catch(error){if(status)status.textContent='Could not save VH2 photo settings: '+error.message;}
+    };
+    document.getElementById('cs-vh2-photo-behaviour').onchange=e=>{const companion=getCompanion(state.editingCompanionId);if(companion)companion.photoBehaviorMode=e.target.value;};
     document.getElementById('cs-allow-photos').onchange = (e) => {
         const companion = getCompanion(state.editingCompanionId);
         if (companion) {
@@ -53940,7 +57386,7 @@ function setupCompanionsLogic() {
     document.getElementById('cs-image-source').onchange = (e) => {
         const companion = getCompanion(state.editingCompanionId);
         if (!companion) return;
-        companion.imageSource = ['openrouter', 'gptproto', 'nanogpt', 'fal', 'local', 'local_image', 'comfyui', 'gemini', 'higgsfield', 'magnific'].includes(e.target.value)
+        companion.imageSource = ['openrouter', 'gptproto', 'nanogpt', 'horde', 'fal', 'local', 'local_image', 'comfyui', 'gemini', 'higgsfield', 'magnific'].includes(e.target.value)
             ? e.target.value : 'provider';
         companion.imageModel = '';
         companion.imageProviderTag = '';

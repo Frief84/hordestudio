@@ -15,6 +15,7 @@ let recordedReceipt = null;
 // stubs stand in for the state reducer and a scheduled NPC changing location
 // while the clock advances.
 const context = {
+    normalizeWorldKernelConfig() { return { enabled: true, sceneLedger: false }; },
     buildWorldSceneFrame(world, sess) {
         return {
             player_location_id: sess.playerLocation,
@@ -205,7 +206,7 @@ assert.match(turn, /reason: 'narrated_route_closure_uncommitted'/);
 assert.match(turn, /receiptContext\.narrativeText = stripWorldLedgerDirective\(scrubNarrativeArtifacts\(fullText\)\);[\s\S]{0,5000}\/\/ Legacy narrative-first turns may need a receipt after prose rescue/,
     'Narrative rescue must update receipt validation with its final prose.');
 assert.match(freeze, /else \{[\s\S]*?source: 'frozen_no_receipt'|else \{[\s\S]*?'frozen_no_receipt'/);
-assert.match(turn, /if \(frozenReceiptApplied\) \{\s*fullText = fallbackWaitApplied\s*\? worldUnverifiedWaitNotice\(world, sess, fallbackWaitApplied\)/);
+assert.match(turn, /if \(frozenReceiptApplied\) \{[\s\S]*?fullText = candidate \|\| \(fallbackWaitApplied\s*\? worldUnverifiedWaitNotice\(world, sess, fallbackWaitApplied\)/);
 assert.match(turn, /const completedExplicitWait = explicitWait && !frozenReceiptApplied/);
 assert.match(turn, /Number\(sess\.bonusTimeMinutes\)[\s\S]*?- \(Number\(turnSnapshot\?\.session\?\.bonusTimeMinutes\) \|\| 0\) >= explicitWait/);
 assert.match(turn, /if \(fallbackWaitApplied \|\| completedExplicitWait \|\| completedSceneTime\) \{[\s\S]*?sess\.bonusTimeMinutes = Math\.max\(0, \(sess\.bonusTimeMinutes \|\| 0\) - step\)/);
@@ -216,7 +217,7 @@ assert(waitAt >= 0 && outfitAt > waitAt, 'missing failed-generation wait preserv
 const failedTurnWait = turn.slice(waitAt, outfitAt);
 assert(turn.lastIndexOf('restoreWorldTurnState(world, sess, rollbackSnapshot)', waitAt) >= 0,
     'failed generation must roll back before reapplying the player wait');
-assert.match(failedTurnWait, /!isReroll && !committedMovement && !committedOutfit/);
+assert.match(failedTurnWait, /!isReroll && !committedMovement && !committedDoor && !committedOutfit/);
 assert.match(failedTurnWait, /parseExplicitWorldWaitMinutes\(submittedInput, currentTotalMinutes\)/);
 assert.match(failedTurnWait, /commitEngineWorldWait\(world, sess, elapsed\)/);
 assert.match(failedTurnWait, /if \(waitCommit\) \{[\s\S]*?waitPreserved = true/);
@@ -224,6 +225,6 @@ assert.match(failedTurnWait, /worldUnverifiedWaitNotice\(world, sess, elapsed, t
 assert.match(failedTurnWait, /sess\.turnCount = [^;]+ \+ 1/);
 assert.match(failedTurnWait, /sess\.bonusTimeMinutes = Math\.max\(0, \(sess\.bonusTimeMinutes \|\| 0\) - step\)/);
 assert.match(failedTurnWait, /addWorldMessage\('user', submittedInput,[\s\S]*?addWorldMessage\('system', notice,/);
-assert.match(turn, /!movementPreserved && !waitPreserved && !committedOutfit/);
+assert.match(turn, /!movementPreserved && !doorPreserved && !waitPreserved && !committedOutfit/);
 
 console.log('✓ explicit wait fallback saves one time event and the settled cast across receipt and generation failures');

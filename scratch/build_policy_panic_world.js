@@ -381,6 +381,7 @@ It is not yet nine o'clock.`,
     }
     world.relationships = [...relationships.values()];
 
+    require('../assets/worlds/bundled-content').update(world);
     fs.writeFileSync(outputFile, JSON.stringify(world, null, 2));
     fs.writeFileSync(
         bundledFile,

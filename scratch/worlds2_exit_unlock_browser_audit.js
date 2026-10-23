@@ -64,9 +64,33 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             const before = {
                 disabled: button?.disabled,
                 label: button?.textContent,
+                title: button?.title,
+                lockIcon: button ? getComputedStyle(button, '::after').content : '',
                 path: findWorldTravelPath(world, 'gate', 'cellar', { session })
             };
             const snapshot = captureWorldTurnState(world, session);
+            session.inventory.push({ name: 'tower key', quantity: 1 });
+            const openedWithKey = applyPlayerKeyDoorOpening(world, session,
+                'YouYou open the door to the Tower Cellar');
+            const keyDoor = {
+                committed: openedWithKey?.committed,
+                playerLocation: session.playerLocation,
+                unlocked: session.unlockedExits?.[exit.doorId] === true,
+                reverseUnlocked: exit.doorId === reverse.doorId
+                    && session.unlockedExits?.[reverse.doorId] === true,
+                loreLock: HordeWorldLore.exitLock(exit, session, 'gate', 'cellar').currentState
+            };
+            renderWorldPlayState();
+            const unlockedButton = [...document.querySelectorAll('#world-exits-list button')]
+                .find(item => item.textContent.includes('Tower Cellar'));
+            const unlockedIcon = getComputedStyle(unlockedButton, '::after').content;
+            const relockedWithKey = applyPlayerKeyDoorAction(world, session,
+                'YouYou lock the door of the Tower Cellar');
+            renderWorldPlayState();
+            const relockedButton = [...document.querySelectorAll('#world-exits-list button')]
+                .find(item => item.textContent.includes('Tower Cellar'));
+            const relockedIcon = getComputedStyle(relockedButton, '::after').content;
+            restoreWorldTurnState(world, session, snapshot);
             const direct = processStructuredActions({ exit_unlocks: [
                 { from_location_id: 'gate', to_location_id: 'cellar' }
             ] }, world, session);
@@ -86,7 +110,7 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             };
             await saveWorldsState({ worldId: world.id });
             const persisted = await HordeDB.get(`worldInstance:${world.id}`);
-            const savedUnlock = persisted?.sessions?.[0]?.unlockedExits?.['gate::cellar'] === true;
+            const savedUnlock = persisted?.sessions?.[0]?.unlockedExits?.[exit.doorId] === true;
             const travel = await travelThroughWorldExit(world, session, exit);
             const afterTravel = await HordeDB.get(`worldInstance:${world.id}`);
             const movementEvents = (afterTravel?.sessions?.[0]?.turnEvents || [])
@@ -105,12 +129,40 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             };
             restoreWorldTurnState(world, session, snapshot);
             const restored = worldExitRequirement(session, exit, 'gate').ok;
-            return { before, directRejected: direct.moduleRejections?.[0]?.reason,
-                afterDirect, afterCheck, savedUnlock, travelProof, restored };
+            world.entities.push({ id: 'linda', type: 'npc', name: 'Linda' });
+            session.playerLocation = 'gate';
+            session.entityStates.linda = { location: 'gate', status: 'alive' };
+            session.inventory = [{ name: 'tower key', quantity: 1 }];
+            const naturalTravelContext = applyUserDirectedMovement(world, session,
+                'Ich gehe mit Linda an der Hand in den Tower Cellar');
+            const naturalTravel = { playerLocation: session.playerLocation,
+                lindaLocation: session.entityStates.linda.location,
+                context: naturalTravelContext };
+            restoreWorldTurnState(world, session, snapshot);
+            session.playerLocation = 'gate';
+            session.entityStates.linda = { location: 'gate', status: 'alive' };
+            session.inventory = [{ name: 'tower key', quantity: 1 }];
+            const directTakeContext = applyUserDirectedMovement(world, session,
+                'You\nyou take linda to the Tower Cellar');
+            const directTake = { playerLocation: session.playerLocation,
+                lindaLocation: session.entityStates.linda.location,
+                context: directTakeContext };
+            return { before, keyDoor, unlockedIcon, relockedWithKey,
+                relockedIcon, directRejected: direct.moduleRejections?.[0]?.reason,
+                afterDirect, afterCheck, savedUnlock, travelProof, restored, naturalTravel, directTake };
         }, fixture);
         assert.equal(result.before.disabled, true);
-        assert.match(result.before.label, /requires tower key or a check/);
+        assert.doesNotMatch(result.before.label, /requires tower key|route closed/i);
+        assert.match(result.before.title, /Requires tower key or a successful check/);
+        assert.match(result.before.lockIcon, /🔒/);
         assert.equal(result.before.path, null);
+        assert.deepEqual(result.keyDoor, { committed: true, playerLocation: 'gate',
+            unlocked: true, reverseUnlocked: true, loreLock: 'unlocked' });
+        assert.match(result.unlockedIcon, /🔓/);
+        assert.equal(result.relockedWithKey.committed, true);
+        assert.equal(result.relockedWithKey.changed, true);
+        assert.match(result.relockedIcon, /🔒/,
+            'carrying a key must not show a relocked door as open');
         assert.equal(result.directRejected, 'requires_successful_check');
         assert.equal(result.afterDirect, false);
         assert.equal(result.afterCheck.success, true);
@@ -125,6 +177,12 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             actors: ['player', 'tomas'], allCommitted: true, engineReceiptCount: 1
         });
         assert.equal(result.restored, false, 'rewinding a timeline must re-lock the exit');
+        assert.equal(result.naturalTravel.playerLocation, 'cellar');
+        assert.equal(result.naturalTravel.lindaLocation, 'cellar');
+        assert.match(result.naturalTravel.context, /Linda accompanied the player/);
+        assert.equal(result.directTake.playerLocation, 'cellar');
+        assert.equal(result.directTake.lindaLocation, 'cellar');
+        assert.match(result.directTake.context, /Linda accompanied the player/);
         assert.deepEqual(errors, []);
         console.log('PASS: authored gate blocks, check unlocks, direct travel commits player and escort, rewind re-locks');
     } finally {

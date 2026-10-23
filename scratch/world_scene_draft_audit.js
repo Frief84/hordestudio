@@ -29,10 +29,56 @@ assert.equal(result.receipt.events[0].actor_id, 'denton');
 assert.equal(result.receipt.events[0].source_type, 'told');
 assert.deepEqual(result.receipt.scene.present_character_ids, context.present);
 const reasons = (candidate, ctx = context) => compile(candidate, ctx).errors?.map(e => e.reason) || [];
-assert(reasons({ ...draft, actions: draft.actions.slice(0, 1) }).includes('incomplete_player_request_coverage'));
+assert.match(compile({ ...draft, actions: draft.actions.slice(0, 1) }, context).unaddressedRequest,
+    /ask the deadline/, 'an omitted question is reported without discarding a separate action');
+const lindaInput = 'You take LInda with you into the round room, unlock the door, and lock it again behind you.';
+const lindaNarrative = 'Linda comes with you into the round room. You unlock the door and lock it behind you.';
+const lindaDraft = { ...draft, narrative: lindaNarrative, events: [], effects: {}, speech: [], commitments: [],
+    actions: [
+        { request: 'Take Linda with you into the round room', kind: 'travel', status: 'resolved', response: lindaNarrative },
+        { request: 'Unlock the door', kind: 'physical', status: 'resolved', response: lindaNarrative },
+        { request: 'Lock it again behind you.', kind: 'physical', status: 'resolved', response: lindaNarrative }
+    ] };
+const lindaContext = { ...context, input: lindaInput };
+assert.equal(compile(lindaDraft, lindaContext).unaddressedRequest, '',
+    'case, punctuation, articles and joining words must not reject a complete compound action');
+const attemptedDisplay = compile({ ...lindaDraft,
+    narrative: 'You hold up the object, but Linda looks away.',
+    actions: [{ request: 'You show Linda the object.', kind: 'physical', status: 'attempted',
+        response: 'You hold up the object, but Linda looks away.' }],
+    events: [] }, { ...lindaContext, input: 'You show Linda the object.' });
+assert(attemptedDisplay.ok, JSON.stringify(attemptedDisplay.errors));
+assert.equal(attemptedDisplay.receipt.events[0].type, 'interaction');
+assert.equal(attemptedDisplay.receipt.events[0].status, 'attempted');
+assert.equal(attemptedDisplay.receipt.events[0].actor_id, 'player');
+const partialNarrative = 'Linda follows you into the round room. You unlock the door.';
+const missingLock = compile({ ...lindaDraft, narrative: partialNarrative,
+    actions: lindaDraft.actions.slice(0, 2).map(action => ({ ...action, response: partialNarrative })) }, lindaContext);
+assert(missingLock.ok, JSON.stringify(missingLock.errors));
+assert.match(missingLock.unaddressedRequest, /lock it again behind you/,
+    'an omitted re-lock is reported without discarding earlier verified steps');
+assert.deepEqual(missingLock.receipt.state_updates, {}, 'an omitted lock step cannot create a lock change');
+const lostNegation = compile({ ...lindaDraft,
+    actions: [{ ...lindaDraft.actions[1], request: 'Unlock the door' }] },
+{ ...lindaContext, input: 'Do not unlock the door.' });
+assert.match(lostNegation.unaddressedRequest, /not unlock/, 'negation remains significant');
 assert(reasons({ ...draft, narrative: 'Nothing happens.' }).includes('response_missing_from_scene'));
 assert(reasons({ ...draft, speech: [{ ...draft.speech[0], listeners: ['absent'] }] }).includes('invalid_witnessed_speech'));
 assert(reasons({ ...draft, effects: { invented_state: true } }).includes('unsupported_draft_effect'));
+const emptyUnknownEffects = { ...draft, effects: {
+    invented_list: [], invented_object: {}, invented_text: '', invented_null: null
+} };
+assert.deepEqual(compile(emptyUnknownEffects, context).errors
+    .filter(error => error.reason === 'unsupported_draft_effect').map(error => error.detail).sort(),
+['effects.invented_list', 'effects.invented_null', 'effects.invented_object', 'effects.invented_text'],
+    'even empty unsupported fields must be reported, not discarded');
+assert.deepEqual(emptyUnknownEffects.effects,
+    { invented_list: [], invented_object: {}, invented_text: '', invented_null: null },
+    'compilation must preserve the rejected proposal for repair');
+assert(reasons({ ...draft, state_updates: { quests_update: [] }, effects: {} })
+    .includes('unsupported_draft_field'), 'an unapproved root wrapper must remain visible');
+assert(reasons({ ...draft, effects: { state_updates: { quests_update: [] } } })
+    .includes('unsupported_draft_effect'), 'an unapproved nested wrapper must remain visible');
 assert(reasons({ ...draft, effects: { quests_update: [{ objectives: [{ type: 'location', target: 'vault' }] }] } })
     .includes('unknown_quest_location'));
 const changedTime = { ...draft, commitments: [{ ...draft.commitments[0], minute_of_day: 1022 }] };
@@ -48,14 +94,69 @@ const contract = schema({ events: { type: 'array' }, checks: { type: 'array' }, 
 assert(!contract.properties.scene);
 assert(!contract.properties.effects.properties.world_events);
 assert(!contract.properties.effects.properties.npc_observations);
+const nestedContract = schema({ events: { type: 'array', items: { type: 'object',
+    properties: { type: { type: 'string', enum: ['activity'] }, actor_id: { type: 'string' },
+        status: { type: 'string' }, activity: { type: 'string' } } } },
+checks: { type: 'array', items: { type: 'object', properties: {
+    label: { type: 'string' }, on_success: { type: 'object',
+        properties: { inventory_remove: { type: 'array', items: { type: 'string' } } } }
+} } }, custom_values: { type: 'object', additionalProperties: { type: 'number' } } });
+assert.equal(nestedContract.properties.events.items.additionalProperties, false);
+assert.equal(nestedContract.properties.effects.properties.checks.items.additionalProperties, false);
+assert.equal(nestedContract.properties.effects.properties.checks.items.properties.on_success.additionalProperties, false);
+assert.deepEqual(nestedContract.properties.effects.properties.custom_values.additionalProperties,
+    { type: 'number' }, 'schema-defined dynamic maps remain available');
 console.log('PASS scene drafts: coverage, speech provenance, stable deadlines, location integrity, pure compilation');
 const linked = { ...draft, narrative: [{ id: 'p1', text: narrative }],
     actions: draft.actions.map(a => ({ request: a.request, kind: a.kind, status: a.status, response_id: 'p1' })),
     speech: [{ speaker: 'player', listeners: ['denton'], passage_id: 'p1' }],
     commitments: draft.commitments.map(({ evidence, ...c }) => ({ ...c, passage_id: 'p1' })) };
 assert(compile(linked, context).ok, 'passage links do not require repeated exact quotes');
-assert(reasons({ ...linked, speech: [{ speaker: 'player', listeners: ['denton'], passage_id: 'missing' }] })
-    .includes('unknown_passage_id'));
+const strictContext = { ...context, contract: nestedContract,
+    effectKeys: [...context.effectKeys, 'checks'] };
+assert(compile({ ...linked, events: [{ type: 'activity', actor_id: 'denton',
+    status: 'completed', activity: 'sitting', passage_id: 'p1', invented: true }] }, strictContext)
+    .errors.some(error => error.detail === 'events.0.invented'),
+    'unknown event fields are rejected even when the backend ignores the schema');
+const postureProposal = { ...linked, events: [{ type: 'posture', actor_id: 'denton',
+    status: 'completed', posture: 'sitting at the desk', passage_id: 'p1' }] };
+const normalizedPose = compile(postureProposal, strictContext);
+assert(normalizedPose.ok, JSON.stringify(normalizedPose.errors));
+assert.equal(normalizedPose.receipt.events[0].type, 'activity');
+assert.equal(normalizedPose.receipt.events[0].activity, 'sitting at the desk');
+assert.equal(postureProposal.events[0].posture, 'sitting at the desk',
+    'the rejected-provider field is carried into the canonical activity without changing the source');
+assert(compile({ ...linked, effects: { checks: [{ label: 'test', invented: true }] } }, strictContext)
+    .errors.some(error => error.detail === 'effects.checks.0.invented'),
+    'unknown nested effect fields are rejected without removing them');
+const witnessContract = schema({ events: { type: 'array', items: { type: 'object', properties: {
+    type: { type: 'string' }, actor_id: { type: 'string' }, status: { type: 'string' },
+    witnessed_by: { type: 'array', items: { type: 'string' } }
+} } } }, 'scene_draft_v2', { intentionallyEffectFree: true });
+const witnessTypo = { ...linked, events: [{ type: 'dialogue', actor_id: 'denton',
+    status: 'completed', passage_id: 'p1', witnessed_by__: ['player'] }] };
+const correctedWitness = compile(witnessTypo, { ...context, contract: witnessContract });
+assert(correctedWitness.ok, JSON.stringify(correctedWitness.errors));
+assert.deepEqual(correctedWitness.receipt.events[0].witnessed_by, ['player']);
+assert.deepEqual(witnessTypo.events[0].witnessed_by__, ['player'], 'alias handling cannot mutate the draft');
+assert(compile({ ...witnessTypo, events: [{ ...witnessTypo.events[0], witnessed_by: ['denton'] }] },
+    { ...context, contract: witnessContract }).errors.some(error =>
+    error.reason === 'conflicting_event_field'), 'conflicting witness lists remain rejected');
+const leakedEngineFields = compile({ ...linked, effects: {
+    present_character_ids: ['invented_actor'], activities: { invented_actor: 'walking' }
+} }, context);
+assert.deepEqual(leakedEngineFields.errors.filter(error => error.reason === 'unsupported_draft_effect')
+    .map(error => error.detail).sort(), ['effects.activities', 'effects.present_character_ids'],
+    'engine-owned cast/activity proposals must be reported, not silently removed');
+const singlePassageAlias = structuredClone(linked);
+singlePassageAlias.actions.forEach(action => { action.response_id = 'provider_mangled_id'; });
+singlePassageAlias.speech[0].passage_id = 'provider_mangled_id';
+assert(compile(singlePassageAlias, context).ok,
+    'a mismatched passage reference safely binds to the only available passage');
+const multiPassageLinked = { ...linked, narrative: [...linked.narrative,
+    { id: 'p2', text: 'The corridor remains quiet.' }] };
+assert(reasons({ ...multiPassageLinked, speech: [{ speaker: 'player', listeners: ['denton'], passage_id: 'missing' }] })
+    .includes('unknown_passage_id'), 'unknown references remain rejected when multiple passages make the target ambiguous');
 assert(reasons({ ...linked, narrative: [linked.narrative[0], linked.narrative[0]] }).includes('invalid_passage'));
 assert.equal(contract.properties.narrative.type, 'array');
 assert(contract.properties.actions.items.properties.response_id);
@@ -91,8 +192,9 @@ assert.equal(compile({...linked,events:[{actor_id:'player',status:'completed',mi
     .receipt.events[0].type,'time','an explicit duration is an unambiguous time operation, never prose inference');
 assert(compile(linked, {...context,input:'I alert Denton, and ask the deadline.'}).ok,
     'a comma between exact request excerpts is presentation, not a missing action');
-assert(!compile(linked, {...context,input:'I alert Denton and ask the deadline. I do not leave.'}).ok,
-    'an omitted constraint remains a real coverage failure');
+const omittedConstraint = compile(linked, {...context,input:'I alert Denton and ask the deadline. I do not leave.'});
+assert(omittedConstraint.ok && /not leave/.test(omittedConstraint.unaddressedRequest),
+    'an omitted constraint stays visible without discarding independently valid changes');
 const spacedPassages = structuredClone(linked);
 spacedPassages.narrative.forEach(p => { p.text = ' ' + p.text + ' '; });
 assert(compile(spacedPassages, context).ok, 'linked passages use the same whitespace normalization as displayed prose');

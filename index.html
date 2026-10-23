@@ -10,9 +10,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261009-v18-3-5">
-    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
-<link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
+    <link rel="stylesheet" href="style.css?v=20261024-release-18-3-7">
+    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261024-release-18-3-7">
+<link rel="stylesheet" href="horde-support.css?v=20261024-release-18-3-7">
 </head>
 <body>
 <div id="app">
@@ -393,7 +393,7 @@
 
         <!-- ────────── PIP LOCAL GUIDE ────────── -->
         <section id="manual-view" class="view hidden"><div class="manual-shell">
-            <aside class="manual-sidebar"><span class="vh-eyebrow">HORDE STUDIO</span><h2>Illustrated manual</h2><p class="form-hint">Setup, examples and reference · v18.3.6</p>
+            <aside class="manual-sidebar"><span class="vh-eyebrow">HORDE STUDIO</span><h2>Illustrated manual</h2><p class="form-hint">Setup, examples and reference · v18.3.7</p>
                 <input id="manual-search" class="form-input" type="search" placeholder="Search all guide topics…" aria-label="Search the complete manual">
                 <div class="manual-tools"><button id="manual-index-btn" class="btn btn-ghost" type="button">A–Z index</button><button id="manual-print-btn" class="btn btn-ghost" type="button">Print manual</button></div>
                 <span id="manual-search-count" class="form-hint" aria-live="polite"></span><nav id="manual-toc" class="manual-toc" aria-label="Guide chapters and topics"></nav>
@@ -560,6 +560,12 @@
                                             <button class="tool-btn" id="world-new-session-btn" type="button" title="New World Session">＋ New timeline</button>
                                             <button class="tool-btn" id="world-rename-session-btn" type="button" title="Rename Current Session">Rename timeline</button>
                                             <button class="tool-btn" id="world-correct-state-btn" type="button">Correct world state…</button>
+                                            <label class="tool-btn" style="display:flex; align-items:center; gap:6px; cursor:pointer;" title="Session override for deterministic background time">
+                                                Away time
+                                                <select id="world-background-time-override" class="tool-select" aria-label="Background time session override">
+                                                    <option value="inherit">World default</option><option value="off">Off</option><option value="on">On</option>
+                                                </select>
+                                            </label>
                                             <button class="tool-btn tool-btn-danger" id="world-del-session-btn" type="button" title="Delete Current Session" aria-label="Delete current timeline">Delete timeline</button>
                                         </div>
                                     </div>
@@ -604,7 +610,8 @@
                         </div>
                         <div id="world-mobile-exits-list" class="world-mobile-exits" aria-label="Travel routes"></div>
                     </section>
-                    <div id="world-urgent-stakes" class="world-urgent-stakes hidden" role="status" aria-live="polite"></div>
+                    <div id="world-scene-record-summary" class="form-hint hidden" aria-live="polite"></div>
+<div id="world-urgent-stakes" class="world-urgent-stakes hidden" role="status" aria-live="polite"></div>
                     <div id="world-vector-fallback-banner" class="fallback-banner hidden">
                         <span class="banner-icon">⚠️</span>
                         <span class="banner-text">OpenRouter Embeddings API failed (or credit exhausted). Using primitive keyword-matching fallback for world narrative memory.</span>
@@ -623,8 +630,12 @@
                         <span style="font-size:0.8rem; color:var(--text-3); font-style:italic;" id="world-dm-typing-label">DM is writing...</span>
                     </div>
                     <div class="input-wrap">
+                        <div id="world-turn-error" class="world-turn-error hidden" role="alert" aria-live="assertive">
+                            <span id="world-turn-error-text"></span>
+                            <button id="world-turn-error-dismiss" type="button" aria-label="Dismiss World turn error">✕</button>
+                        </div>
                         <div class="input-row">
-                            <textarea id="world-user-input" class="msg-input" placeholder="What do you do?..." rows="1"></textarea>
+                            <textarea id="world-user-input" class="msg-input" placeholder="Say &quot;...&quot;, act *...*, or write normally" rows="1"></textarea>
                             <button id="world-send-btn" class="send-btn" type="button" aria-label="Send message">
                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                             </button>
@@ -755,6 +766,7 @@
                     </section>
                     <section class="world-status-section world-insight-section" data-world-panel="director" aria-label="World director">
                         <div class="world-insight-heading"><h3>Director</h3><span id="world-director-version" class="mini-tag">v0</span></div>
+                        <button id="world-lore-debug-btn" type="button" class="btn btn-ghost">World Lore · Author / Debug</button>
                         <p class="world-insight-hint">Private author view. See which world changes actually committed, what was rejected, and which people are pursuing goals. This does not change the story.</p>
                         <div id="world-director-health" class="world-history-health" role="status"></div>
                         <h3 class="world-director-subheading">Recent turn receipts</h3>
@@ -821,7 +833,7 @@
                         <button class="world-studio-tab" data-tab="w-items">Items</button>
                         <button class="world-studio-tab" data-tab="w-factions">Factions</button>
                         <button class="world-studio-tab" data-tab="w-sandbox">Sandbox</button>
-                        <button class="world-studio-tab" data-tab="w-lore">Global Lore</button>
+                        <button class="world-studio-tab" data-tab="w-lore">World Lore</button>
                         <button class="world-studio-tab" data-tab="w-note">Author's Note</button>
                         <button class="world-studio-tab" data-tab="w-ai">AI Config</button>
                         <button class="world-studio-tab" data-tab="w-hud">HUD, Stats &amp; Quests</button>
@@ -844,6 +856,7 @@
                 <div class="studio-content-wrap">
                     <div id="tab-w-overview" class="studio-panel">
                         <div class="panel-header"><h2>Build your world</h2><p>Start with the essentials. Open advanced systems only when the world needs them.</p></div>
+                        <button type="button" class="btn btn-ghost" data-generate-world-structure>Generate World Structure</button>
                         <div class="form-body creator-overview-grid">
                             <button type="button" class="creator-overview-card primary" data-world-studio-target="w-basics"><span>01</span><strong>Identity &amp; opening</strong><small>Name the world, define its narrator and write the opening scene.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-locations"><span>02</span><strong>Places</strong><small>Create locations, exits, homes and the physical shape of play.</small></button>
@@ -981,6 +994,7 @@
                                         <option value="openrouter">OpenRouter</option>
                                         <option value="gptproto">GPTProto</option>
                                         <option value="nanogpt">NanoGPT</option>
+                                        <option value="horde">AI Horde</option>
                                         <option value="fal">Fal</option>
                                     </select>
                                 </div>
@@ -1186,6 +1200,9 @@
                                         <p class="form-hint">Current, adjacent and explicitly referenced places are always prioritized.</p>
                                     </div>
                                     <div>
+                                        <label class="form-label" for="w-kernel-scene-mode">Scene tracking</label>
+                                        <select id="w-kernel-scene-mode" class="form-select"><option value="strict" selected>Structured events (existing)</option><option value="linked">Linked actions (preview)</option><option value="ledger">Scene record + ledger (experimental)</option></select>
+                                        <p class="form-hint">Structured events is the default. Experimental scene record mode keeps failed readable replies as provisional story; saved state remains authoritative. Use Correct scene when needed.</p>
                                         <label class="form-label">Memory retrieval</label>
                                         <select id="w-kernel-memory-mode" class="form-select">
                                             <option value="ledger">Canonical ledger · no embedding calls</option>
@@ -1375,6 +1392,9 @@
                                     <label style="display:flex; align-items:center; gap:10px; cursor:pointer; color:var(--red); font-weight:700;">
                                         <input type="checkbox" id="w-hud-enable-schedules"> Enable NPC Schedules
                                     </label>
+                                    <label style="display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                        <input type="checkbox" id="w-time-advances-away"> Zeit läuft weiter wenn nicht im Spiel
+                                    </label>
                                 </div>
                             </div>
 
@@ -1547,8 +1567,8 @@
                     <!-- Visual Map -->
                     <div id="tab-w-visual-map" class="studio-panel hidden">
                         <div class="panel-header">
-                            <h2>Visual World Graph</h2>
-                            <p>Buildings contain their rooms and yards; streets, paths, and regions remain distinct. Select a location to edit its role, parent, floor, or exits.</p>
+                            <h2>World Architect</h2>
+                            <p>Map: Räume auf dem Grundriss verschieben und skalieren, Connections mit Wegpunkten und Sperren bearbeiten. Graph: automatische Übersicht. Die Arbeitsfläche lässt sich unten rechts vergrößern und verkleinern.</p>
                         </div>
                         <div class="form-body">
                             <div id="world-visual-canvas" class="world-visual-canvas"></div>
@@ -1558,15 +1578,30 @@
                     <!-- Global Lore -->
                     <div id="tab-w-lore" class="studio-panel hidden">
                         <div class="panel-header">
-                            <h2>Global Lore & RAG</h2>
-                            <p>Upload a "World Bible" or define core lore entries for the DM.</p>
+                            <h2>World Lore</h2>
+                            <p>Browse every place, how rooms connect, who may enter, door states and what is inside.</p>
                         </div>
                         <div class="form-body">
-                            <div class="form-section">
-                                <label class="form-label">World Lore Entries</label>
+                            <section class="lore-text-editor" aria-labelledby="w-lore-editor-title">
+                                <div class="lore-text-editor-header">
+                                    <div><h3 id="w-lore-editor-title">Lore text editor</h3><p>Add or edit the original lore entries that guide the world and its characters.</p></div>
+                                    <button id="add-w-lore-btn" class="btn btn-ghost" type="button">+ Add Lore Entry</button>
+                                </div>
                                 <div id="w-lore-list" class="lore-list"></div>
-                                <button id="add-w-lore-btn" class="btn btn-ghost btn-full" style="margin-top:10px;">+ Add Lore Entry</button>
-                            </div>
+                            </section>
+                            <details class="world-lore-structure-panel">
+                                <summary><span><strong>Explore World Structure</strong><small>Browse places, rooms, routes, access and current world details.</small></span><span class="world-lore-structure-chevron" aria-hidden="true">⌄</span></summary>
+                                <div class="world-lore-explore-controls">
+                                    <p class="form-hint">The place index updates automatically when you edit the world, without using AI. Generate it here for an unchanged older world or request optional AI suggestions with the world’s model or another model.</p>
+                                    <div class="world-lore-model-controls" data-world-lore-model-controls></div>
+                                    <div class="world-lore-explore-actions">
+                                        <button type="button" class="btn btn-primary" data-generate-world-structure>Generate World Structure</button>
+                                        <button type="button" class="btn btn-ghost" data-clear-world-structure hidden>Remove generated structure</button>
+                                    </div>
+                                    <p class="form-hint" data-world-structure-status role="status"></p>
+                                </div>
+                                <div id="w-lore-browser"></div>
+                            </details>
                         </div>
                     </div>
 
@@ -1596,13 +1631,14 @@
                                     <button type="button" data-world-architect-quick="Add new characters with homes, personalities, schedules and private goals.">Add characters</button>
                                     <button type="button" data-world-architect-quick="Find thin records and add missing useful detail without replacing authored writing.">Flesh things out</button>
                                     <button type="button" data-world-architect-quick="Connect inaccessible locations and repair the travel graph without changing intentional one-way routes.">Connect the map</button>
+                                    <button type="button" data-world-architect-quick="Review the existing location access rules. Keep everyone allowed by default, and only add person or faction restrictions when the authored lore explicitly supports them. Do not change unrelated routes or lore.">Review access</button>
                                     <button type="button" data-world-architect-quick="Add factions, memberships and meaningful relationships supported by the setting.">Build society</button>
                                 </div>
                                 <label class="form-label" for="w-architect-request">What should change?</label>
                                 <textarea id="w-architect-request" class="form-textarea" rows="7" placeholder="For example: Add 100 rooms across the existing city. Distribute them sensibly inside current buildings, make every room reachable, and add recurring staff where the fiction needs them."></textarea>
                                 <div class="world-architect-controls">
                                     <label><span>Scope</span><select id="w-architect-scope" class="form-select"><option value="whole">Whole world</option><option value="locations">Places &amp; map</option><option value="people">People &amp; society</option><option value="lore">Lore &amp; setting</option></select></label>
-                                    <label><span>Change policy</span><select id="w-architect-policy" class="form-select"><option value="add_only">Add only</option><option value="fill_gaps" selected>Fill gaps</option><option value="allow_edits">Allow safe edits</option></select></label>
+                                    <label><span>Change policy</span><select id="w-architect-policy" class="form-select"><option value="add_only">Add only</option><option value="fill_gaps">Fill gaps</option><option value="allow_edits" selected>Allow requested edits</option></select></label>
                                     <label><span>Detail</span><select id="w-architect-detail" class="form-select"><option value="draft">Draft</option><option value="standard" selected>Standard</option><option value="deep">Deep</option></select></label>
                                     <label><span>Batch size</span><select id="w-architect-batch-size" class="form-select"><option value="8">8 records</option><option value="12" selected>12 records</option><option value="20">20 records</option></select></label>
                                 </div>
@@ -1652,7 +1688,7 @@
                             <div class="form-section">
                                 <label class="form-label">Describe Your World in Detail</label>
                                 <textarea id="w-builder-prompt" class="form-textarea" rows="12" placeholder="Dump everything you want here! E.g. 'Build a cyberpunk dystopian metropolis called Neo-Chicago. There should be a neon-lit bar run by an ex-cop NPC, a high-tech corporate tower guarded by a combat drone, and an underground sewer system where hackers hide out. Add relevant lore about the corporate war...'"></textarea>
-                                <p class="form-hint" style="margin-top:8px;">Be as detailed, chaotic, or specific as you want. The builder handles connections, room designs, NPC attributes, and lorebooks automatically.</p>
+                                <p class="form-hint" style="margin-top:8px;">The builder reads the current world and lore. Merge updates matching records with generated values, adds new records and refreshes matching lore entries. Apply &amp; Overwrite replaces the complete authored world data. Both modes preserve the world ID and runtime save history.</p>
                             </div>
 
                             <!-- Action Buttons -->
@@ -1725,8 +1761,8 @@
                                     </div>
                                 </div>
                                 <div class="preview-action-row">
-                                    <button id="w-builder-apply-btn" class="btn btn-success" style="flex:1">Apply & Overwrite World</button>
-                                    <button id="w-builder-merge-btn" class="btn btn-primary" style="flex:1">Merge & Append to World</button>
+                                    <button id="w-builder-apply-btn" class="btn btn-success" style="flex:1">Apply &amp; Overwrite World</button>
+                                    <button id="w-builder-merge-btn" class="btn btn-primary" style="flex:1">Merge &amp; Update World</button>
                                 </div>
                             </div>
                         </div>
@@ -1938,6 +1974,7 @@
                                             <option value="openrouter">OpenRouter</option>
                                             <option value="gptproto">GPTProto</option>
                                             <option value="nanogpt">NanoGPT</option>
+                                            <option value="horde">AI Horde</option>
                                             <option value="fal">Fal</option>
                                             <option value="local">Local / self-hosted</option>
                                         </select>
@@ -3213,6 +3250,7 @@
                                     <option value="nanogpt">NanoGPT</option>
                                     <option value="nvidia">NVIDIA NIM</option>
                                     <option value="bedrock">AWS Bedrock</option>
+                                    <option value="horde">AI Horde</option>
                                     <option value="custom">Custom API</option>
                                     <option value="local">Local / self-hosted</option>
                                 </select>
@@ -3495,6 +3533,7 @@
                                             <option value="openrouter">OpenRouter</option>
                                             <option value="gptproto">GPTProto</option>
                                             <option value="nanogpt">NanoGPT</option>
+                                            <option value="horde">AI Horde</option>
                                             <option value="fal">Fal</option>
                                             <option value="local">Local / self-hosted</option>
                                             <option value="local_image">Local image server (OpenAI-compatible)</option>
@@ -3535,6 +3574,15 @@
                                     <p class="form-hint">“Provider default” omits that field entirely. Only parameters advertised by the selected endpoint are sent.</p>
                                     <div id="cs-image-request-preview" class="vh-image-request-preview">Request: model + prompt</div>
                                 </div>
+                                </div>
+                                <div class="form-section" id="cs-vh2-photo-limits" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+                                    <h3>VH2 photo behaviour &amp; daily limits</h3>
+                                    <p class="form-hint">Used by Virtual Humans 2.0 chat. Existing saved allowances are preserved until changed here. Limits reset at 00:00 UTC.</p>
+                                    <label class="form-label">Spontaneous photographs per day<input id="cs-vh2-photo-daily-limit" class="form-input" type="number" min="1" max="100" value="100"></label>
+                                    <label class="form-label">Explicitly requested photographs per day<input id="cs-vh2-explicit-photo-daily-limit" class="form-input" type="number" min="1" max="100" value="100"></label>
+                                    <label class="form-label">Photo behaviour<select id="cs-vh2-photo-behaviour" class="form-select"><option value="natural">Natural / Autonomous</option><option value="request_only">Request Only</option><option value="photo_friendly">Photo Friendly</option></select></label>
+                                    <p id="cs-vh2-photo-budget-status" class="form-hint" role="status">Loading saved VH2 photo allowances…</p>
+                                    <button id="cs-vh2-photo-settings-save" class="btn btn-ghost" type="button">Save VH2 photo settings</button>
                                 </div>
                                 <div id="cs-mcp-image-controls" class="vh-mcp-image-controls hidden">
                                     <div class="vh-mcp-tool-head">
@@ -3854,6 +3902,7 @@
                 <option value="nanogpt">☁️ NanoGPT (cloud · text, images &amp; speech)</option>
                 <option value="nvidia">☁️ NVIDIA NIM (cloud · text)</option>
                 <option value="bedrock">☁️ AWS Bedrock (cloud · text)</option>
+                <option value="horde">🛰️ AI Horde (queued · text)</option>
                 <option value="custom">🔧 Custom OpenAI-compatible API</option>
                 <option value="local">💻 Local / Self-hosted (offline, OpenAI-compatible)</option>
             </select>
@@ -4137,16 +4186,6 @@
                 <p class="form-hint"><b>Default is off.</b> The browser remains canonical and pauses the background worker while open. Credentials live only in the launcher’s memory—not saves, exports or disk—so reopen Horde Studio once after every launcher restart to re-arm it. Photos, voice and video are never generated in the background.</p>
                 <div class="settings-inline-actions"><button id="always-on-refresh-btn" class="btn btn-ghost" type="button">Check runtime</button><button id="always-on-stop-btn" class="btn btn-ghost" type="button">Stop &amp; forget credentials</button></div>
                 <div id="always-on-status-text" class="form-hint" aria-live="polite"></div>
-            </section>
-            <section class="mcp-settings-card" aria-labelledby="local-tts-settings-title">
-                <div class="mcp-settings-head"><div><span class="vh-eyebrow">OpenAI-compatible speech</span><h3 id="local-tts-settings-title">Local Neural TTS</h3></div></div>
-                <label class="form-label">Server Base URL</label>
-                <input id="global-local-tts-url" class="form-input" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
-                <label class="form-label" style="margin-top:8px;">API Key (optional)</label>
-                <input id="global-local-tts-key" type="password" class="form-input" placeholder="usually not needed">
-                <p class="form-hint">For VibeVoice, openedai-speech and other servers implementing <code>POST /v1/audio/speech</code>. You choose the local engine per Virtual Human under Photos &amp; Voice.</p>
-                <button id="test-local-tts-btn" class="btn btn-ghost" type="button" style="margin-top:10px;">Test local TTS server</button>
-                <div id="local-tts-result" class="form-hint" aria-live="polite"></div>
             </section>
             </section>
 
@@ -5208,6 +5247,16 @@
     </div>
 </div>
 
+<template id="room-bgm-template">
+<details class="room-bgm-panel" open><summary>Ambience / BGM</summary>
+<div id="bgmDropzone" style="border:2px dashed #555;padding:12px;text-align:center;cursor:pointer;border-radius:6px;margin:6px 0;">Drop an audio file here or click<br><small>.ogg.mp3.wav.flac -> assets/bgm/</small></div>
+<input id="bgmFileInput" type="file" accept=".ogg,.mp3,.wav,.flac,audio/*" hidden>
+<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap"><label style="flex:1 1 180px">Quelle: <input id="roomBgmSrc" type="text" style="width:100%"></label><label style="display:flex;align-items:center;gap:5px">Vol: <input id="roomBgmVol" type="range" min="0" max="1" step="0.05" value="0.4" style="width:100px"><output id="roomBgmVolValue" for="roomBgmVol">40%</output></label><label><input id="roomBgmLoop" type="checkbox" checked> Loop</label></div>
+<div id="bgmCurrent" style="margin-top:6px;font-size:11px;opacity:.8"></div>
+<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><button id="roomBgmPreview" type="button">Preview</button><button id="roomBgmStop" type="button">Stop</button><button id="roomBgmClearAssign" type="button">Zuordnung löschen</button><button id="roomBgmDeleteFile" type="button" style="color:#f55">Datei löschen</button></div>
+</details>
+</template>
+
 <!-- World Directory inspector. Locations and people stay compact in their
      directories; the complete record opens here without losing any fields. -->
 <div id="world-record-overlay" class="modal-overlay hidden" aria-hidden="true">
@@ -5319,44 +5368,54 @@
 
 <script src="boot-diagnostics.js"></script>
 <script src="presets.js"></script>
-<script src="policy-panic-world.js"></script>
-    <script src="labs-needle.js?v=20260822-v161" data-horde-needle-adapter="true"></script>
-<script src="labs-embedded.js?v=20260810-pip-conversation-v2"></script>
-<script src="labs-core.js?v=20260822-v161"></script>
-<script src="labs-tasks.js?v=20260822-v161"></script>
-<script src="horde-handbook.js?v=20261010-rag"></script>
-<script src="horde-manual.js?v=20261010"></script>
-<script src="pip-knowledge.js?v=20261010-rag"></script>
-<script src="pip-assistant.js?v=20261010-rag"></script>
-<script src="labs-guide.js?v=20261010-rag"></script>
-    <script src="help-system.js?v=20261010-pip-rag"></script>
-<script src="labs-ui.js?v=20261010-pip"></script>
-<script src="rpg-mechanics.js?v=20260823-v166-rpg-release"></script>
-<script src="multiplayer-engine.js?v=20261009-v18-3-5"></script>
-<script src="multiplayer.js?v=20261009-v18-3-5"></script>
-<script src="video-worlds.js?v=20261009-v18-3-5"></script>
-    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20260910-vh2-history"></script>
-    <script src="virtual_humans/engine/vh-activity-engine.js?v=20260912-consolidated-life"></script>
-    <script src="virtual_humans/engine/vh-world-engine.js?v=20260912-wardrobe-colors"></script>
-    <script src="virtual_humans/engine/vh-simulation-core.js?v=20260912-wardrobe-colors"></script>
-    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20260920-body-access"></script>
-    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20260920-body-access"></script>
-    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20260920-cognition"></script>
-    <script src="virtual_humans/engine/vh-mind-library.js?v=20260920-expanded-library"></script>
-    <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
-    <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
-    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261009-v18-3-5"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261009-chat-diagnostics"></script>
-    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
-    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
-    <script src="virtual_humans/frontend/vh-page-builder.js?v=20260925-v182"></script>
-    <script src="bundled-humans.js?v=20260913-v18-storage"></script>
-    <script src="human-package.js?v=20260913-v18-storage"></script>
-    <script src="large-archive.js?v=20261008-worlds-release"></script>
-    <script src="worlds/model-client.js?v=20261009-v18-3-5"></script>
-    <script src="worlds/scene-draft.js?v=20261009-worlds-check-contract"></script>
-    <script src="worlds/turn-context.js?v=20261009-worlds-check-contract"></script>
-    <script src="app.js?v=20261010-pip-rag"></script>
+<script src="assets/worlds/bundled-content.js?v=20261024-release-18-3-7"></script>
+<script src="policy-panic-world.js?v=20261024-release-18-3-7"></script>
+    <script src="labs-needle.js?v=20261024-release-18-3-7" data-horde-needle-adapter="true"></script>
+<script src="labs-embedded.js?v=20261024-release-18-3-7"></script>
+<script src="labs-core.js?v=20261024-release-18-3-7"></script>
+<script src="labs-tasks.js?v=20261024-release-18-3-7"></script>
+<script src="horde-handbook.js?v=20261024-release-18-3-7"></script>
+<script src="horde-manual.js?v=20261024-release-18-3-7"></script>
+<script src="pip-knowledge.js?v=20261024-release-18-3-7"></script>
+<script src="pip-assistant.js?v=20261024-release-18-3-7"></script>
+<script src="labs-guide.js?v=20261024-release-18-3-7"></script>
+    <script src="help-system.js?v=20261024-release-18-3-7"></script>
+<script src="labs-ui.js?v=20261024-release-18-3-7"></script>
+<script src="rpg-mechanics.js?v=20261024-release-18-3-7"></script>
+<script src="multiplayer-engine.js?v=20261024-release-18-3-7"></script>
+<script src="multiplayer.js?v=20261024-release-18-3-7"></script>
+<script src="video-worlds.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-activity-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-world-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-simulation-core.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-mind-library.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-mind-engine.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/engine/vh-life-schema.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261024-release-18-3-7"></script>
+    <script src="virtual_humans/frontend/vh-page-builder.js?v=20261024-release-18-3-7"></script>
+    <script src="bundled-humans.js?v=20261024-release-18-3-7"></script>
+    <script src="human-package.js?v=20261024-release-18-3-7"></script>
+    <script src="large-archive.js?v=20261024-release-18-3-7"></script>
+    <script src="assets/worlds/world-lore.js?v=20261024-release-18-3-7"></script>
+    <script src="assets/worlds/world-lore-ui.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/model-client.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/working-state.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/effect-registry.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/linked-world-actions.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/scene-ledger.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/scene-draft.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/turn-context.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/horde-client.js?v=20261024-release-18-3-7"></script>
+    <script src="worlds/background-sim.js?v=20261024-release-18-3-7"></script>
+    <script src="assets/worlds/map-editor.js?v=20261024-release-18-3-7"></script>
+    <script src="app.js?v=20261024-release-18-3-7"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

@@ -18,12 +18,57 @@ const context = buildContext(vm, [
     'worldFinalNarrativeConflicts', 'worldExitRequirement', 'findWorldTravelPath',
     'worldCheckScaffoldStart', 'worldImperativeCheckRequestStart',
     'worldNarrativeRequestsCheck', 'stripWorldCheckScaffolding',
-    'worldMissingCheckNotice', 'worldChecksDisabledNotice', 'worldResolvedCheckNotice'
+    'worldMissingCheckNotice', 'worldChecksDisabledNotice', 'worldResolvedCheckNotice',
+    'normalizeUnambiguousWorldEventTypes'
 ], {
     console: { log() {}, warn() {}, error() {} },
     showToast() {},
     state: { worldInstances: {} }
 });
+
+const abbreviatedMove = { events: [{ type: 'move', actor_id: 'mara', from_location_id: 'inn',
+    to_location_id: 'square', status: 'completed' }] };
+assert.equal(context.normalizeUnambiguousWorldEventTypes(abbreviatedMove).events[0].type, 'movement',
+    'an explicit local-model move must reach canonical route and access validation');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [{ type: 'move', actor_id: 'mara' }] })
+    .events[0].type, 'move', 'an ambiguous move must remain invalid');
+const playerGainAlias = context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'gain', actor_id: 'player', item: 'cell key' }
+] }).events[0];
+assert.equal(playerGainAlias.type, 'inventory', 'an explicit player item gain is normalized to a typed inventory event');
+assert.equal(playerGainAlias.action, 'add', 'a gain alias receives the canonical inventory action');
+const playerTakeAlias = context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'take', actor_id: 'player', item: 'cell key' }
+] }).events[0];
+assert.equal(playerTakeAlias.type, 'inventory', 'an explicit player item take is normalized to a typed inventory event');
+assert.equal(playerTakeAlias.action, 'take', 'a take alias preserves the canonical inventory action');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'gain', actor_id: 'mara', item: 'cell key' }
+] }).events[0].type, 'gain', 'an NPC gain alias is not converted into player inventory');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'gain', actor_id: 'player' }
+] }).events[0].type, 'gain', 'a gain without an explicit item remains invalid');
+const proposedPosture = { events: [{ type: 'posture', actor_id: 'mara',
+    status: 'completed', posture: 'kneeling beside the gate', evidence: 'Mara kneels beside the gate.' }] };
+const normalizedPosture = context.normalizeUnambiguousWorldEventTypes(proposedPosture).events[0];
+assert.equal(normalizedPosture.type, 'activity', 'an explicit completed pose uses the supported activity event');
+assert.equal(normalizedPosture.activity, 'kneeling beside the gate', 'the proposed pose is preserved as state');
+assert.equal(proposedPosture.events[0].type, 'posture', 'normalization cannot mutate the proposed receipt');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'posture', actor_id: 'mara', status: 'completed' }
+] }).events[0].type, 'posture', 'a pose without a description remains invalid');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'posture', actor_id: 'mara', status: 'completed', posture: 'kneeling', item: 'key' }
+] }).events[0].type, 'posture', 'a pose carrying another proposed change cannot lose that change');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', evidence: 'Mara looks at the item.' }
+] }).events[0].type, 'other', 'a status label without a lifecycle payload is non-mutating');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', evidence: 'Mara dies.' }
+] }).events[0].type, 'status', 'a possible death without next_status remains invalid');
+assert.equal(context.normalizeUnambiguousWorldEventTypes({ events: [
+    { type: 'status', actor_id: 'mara', status: 'completed', next_status: 'gone' }
+] }).events[0].next_status, 'gone', 'an explicit lifecycle change is preserved');
 
 function session(id) {
     return {

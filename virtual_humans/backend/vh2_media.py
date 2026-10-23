@@ -142,7 +142,7 @@ def command(service,db,world_id,revision,state,body):
             study={'role':role,'entityId':entity,'view':view,'requiresReference':role=='identity' and view not in ('front_face','turnaround'),'seedEntryId':seed_id,'prompt':reference_prompt(role,view,subject,description,char.get('photoStyle','realistic'),char)}
         if destination not in (('reference',) if kind=='capture_reference' else ('private_chat','gallery')):raise ValueError('Choose private chat or gallery.')
         if not isinstance(scene,str) or not 1<=len(scene.strip())<=600:raise ValueError('Describe the photo in 1–600 characters.')
-        if mode not in ('front_camera_selfie','mirror_selfie'):raise ValueError('Choose front camera or mirror selfie.')
+        if mode not in ('front_camera_selfie','mirror_selfie','personal_photograph'):raise ValueError('Choose a personal photograph, front camera or mirror selfie.')
         if any(p['status']=='captured' and p.get('origin')!='autonomous' or p['status']=='submitted' and (lambda j: j[0] in ('queued','submitted','rendered') if j else service.clock()-p.get('submittedWallAt',0)<15*60000)(db.execute('SELECT status FROM vh2_provider_jobs WHERE id=?',('image:'+p['id'],)).fetchone()) for p in photos):raise Conflict('An image is already being prepared or rendered. Open Image activity to see its progress.')
         revision,state=service.synchronize_communication(db,world_id,revision,state)
         after=json.loads(encode(state));photos=after.setdefault('photos',[])

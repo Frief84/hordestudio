@@ -29,7 +29,7 @@ assert(/pendingSecretReveals\.push\(args\.label\)/.test(execute)
     && /if \(!frozenReceiptApplied && \(successfulStateCall \|\| inlineStateApplied \|\| repairedReceiptApplied\)\) \{[\s\S]*?processStructuredActions\(\{ label \}, world, sess\)/.test(execute),
     'secret discovery must be deferred until a verified receipt and bound to the initiating timeline');
 
-assert(/let stateCallSeen = false/.test(execute),
+assert(/let stateCallSeen = (?:false|!!earlyDraftFailure)/.test(execute),
     'turn execution must track whether its single canonical receipt was already consumed');
 assert(/if \(successfulStateCall\) throw new Error\('Duplicate commit_world_turn ignored/.test(execute),
     'a second accepted canonical receipt must be rejected before mutation while rejected proposals remain retryable');

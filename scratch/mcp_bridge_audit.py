@@ -476,6 +476,16 @@ class McpBridgeAudit(unittest.TestCase):
             self.assertEqual(content_type, "text/javascript")
             self.assertTrue((bridge.APP_DIR / filename).is_file())
 
+    def test_integrated_world_modules_are_served(self):
+        for name in ("worlds/working-state.js", "worlds/effect-registry.js",
+                     "worlds/linked-world-actions.js", "worlds/scene-ledger.js",
+                     "worlds/background-sim.js", "worlds/horde-client.js", "worlds/bgm-player.js",
+                     "assets/worlds/world-lore.js", "assets/worlds/world-lore-ui.js",
+                     "assets/worlds/map-editor.js"):
+            filename, content_type = bridge.STATIC_FILES["/" + name]
+            self.assertEqual(content_type, "text/javascript")
+            self.assertTrue((bridge.APP_DIR / filename).is_file())
+
     def test_world_model_transport_is_served_by_local_bridge(self):
         filename, content_type = bridge.STATIC_FILES["/worlds/model-client.js"]
         self.assertEqual(content_type, "text/javascript")

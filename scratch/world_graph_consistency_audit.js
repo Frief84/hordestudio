@@ -59,7 +59,7 @@ test('session world view owns dynamic exits and timeline-created locations', () 
 test('renaming a location migrates authored and every live timeline reference', () => {
     const state = { worldInstances: { w: { sessions: [] } } };
     const context = buildContext(vm, ['renameWorldLocationId'], {
-        state,
+        state, saveState: async () => {}, saveWorldsState: async () => {}, showToast() {},
         isPlainObject: value => value && typeof value === 'object' && !Array.isArray(value)
     });
     const session = {
@@ -101,7 +101,7 @@ test('renaming a location migrates authored and every live timeline reference', 
 test('deleting a location removes dangling name exits and invalid future session work', () => {
     const state = { worldInstances: { w: { sessions: [] } } };
     const context = buildContext(vm, ['removeWorldLocationRecord'], {
-        state,
+        state, saveState: async () => {}, saveWorldsState: async () => {}, showToast() {},
         isPlainObject: value => value && typeof value === 'object' && !Array.isArray(value)
     });
     const session = {

@@ -100,8 +100,16 @@ try:
     for path, expected in [('/', b'<!DOCTYPE html>'), ('/app.js', b''),
                            ('/large-archive.js', b'HordeLargeArchive'),
                            ('/worlds/model-client.js', b'HordeWorldModelClient'),
+                           ('/worlds/scene-ledger.js', b'HordeWorldSceneLedger'),
+                           ('/worlds/working-state.js', b'HordeWorkingState'),
+                           ('/worlds/effect-registry.js', b'HordeEffectRegistry'),
+                           ('/worlds/linked-world-actions.js', b'HordeLinkedWorldActions'),
+                           ('/worlds/bgm-player.js', b'playBgm'),
+                           ('/assets/worlds/world-lore.js', b'HordeWorldLore'),
+                           ('/assets/worlds/world-lore-ui.js', b'HordeWorldLoreUI'),
                            ('/worlds/scene-draft.js', b'HordeWorldSceneDraft'),
                            ('/worlds/turn-context.js', b'HordeWorldTurnContext'),
+                           ('/assets/worlds/map-editor.js', b'HordeMapEditor'),
                            ('/virtual_humans/frontend/vh-page-builder.js', b'vhOpenPageBuilder'),
                            ('/health', b'Horde Studio')]:
         with opener.open('http://127.0.0.1:%s%s' % (server.server_port, path), timeout=10) as response:

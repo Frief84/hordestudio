@@ -9,6 +9,7 @@ const context = { structuredClone,
     isPlainObject: value => !!value && typeof value === 'object' && !Array.isArray(value) };
 vm.createContext(context);
 vm.runInContext(`${functionSource('worldActionResolutionFailures')}\nthis.check = worldActionResolutionFailures;`, context);
+vm.runInContext(`${functionSource('recoverActorScopedWorldAttempt')}\nthis.recoverAttempt = recoverActorScopedWorldAttempt;`, context);
 vm.runInContext(`${functionSource('canonicalizeWorldCheckNarrativeOutcomes')}\nthis.canonicalize = canonicalizeWorldCheckNarrativeOutcomes;`, context);
 context.normalizeWorldTurnReceipt = (_world, _session, receipt) => receipt;
 context.buildWorldSceneFrame = () => ({ present_character_ids: [] });
@@ -33,6 +34,19 @@ assert.equal(context.check({ ...base, action_resolution: {
 }}, 'I wait an hour.', {sceneDraft:true})[0].reason, 'uncommitted_player_wait');
 assert.deepEqual(check({ ...base, action_resolution: null }), ['missing_action_resolution']);
 assert.deepEqual(check(base), ['uncommitted_player_action']);
+const attempted = { events: [], state_updates: {}, action_resolution: { kind: 'physical',
+    status: 'attempted', outcome: 'You hold up the object, but Linda looks away.' } };
+assert.deepEqual(Array.from(context.check(attempted, 'I show Linda the object.'))
+    .map(failure => failure.reason), ['untracked_player_attempt']);
+assert.equal(context.recoverAttempt(attempted, { playerInput: 'I show Linda the object.',
+    narrativeText: 'You hold up the object, but Linda looks away.' }), true);
+assert.equal(attempted.events[0].type, 'interaction');
+assert.equal(attempted.events[0].status, 'attempted');
+assert.deepEqual(Array.from(context.check(attempted, 'I show Linda the object.')), []);
+const unsupportedAttempt = { events: [], state_updates: {}, action_resolution: attempted.action_resolution };
+assert.equal(context.recoverAttempt(unsupportedAttempt, { playerInput: 'I show Linda the object.',
+    narrativeText: 'Linda gives no answer.' }), false,
+    'a repair may not invent an attempted action absent from the proposed story');
 assert.deepEqual(check({ ...base, events: [{ type: 'activity', actor_id: 'player', status: 'completed' }] }), []);
 assert.deepEqual(check({ ...base, action_resolution: { ...base.action_resolution,
     status: 'pending_check' } }), ['uncommitted_action_check']);

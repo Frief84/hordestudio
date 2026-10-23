@@ -4,11 +4,12 @@ NUMBER={'socialPhotoRatio':(0,100),'socialThirstTrapLevel':(0,100),'socialSubscr
 TEXT={'privateLife','routine','playerKnowledge','initialMotive','connectionAuthenticity','startingScenario','openingMode','openingMessage','socialWorld','connectionType','connectionRole','relationshipContext','priorContact','regulationProfile','conflictRecovery','emotionExpression','ruminationStyle','reactionTiming','emotionalGranularity','socialPostFrequency','socialPlatform','socialAudience','socialPlayerRole','socialWritingStyle','socialPostingRules','socialMonetization','socialCurrency','socialAdultLevel','socialAccessRules','videoStyleRules','videoProvider','videoModel','videoResolution','videoReferencePolicy','sleepArchetype','locationMode','location','locationLabel','timezone','pronouns','occupation','initiativeMode','libidoBaseline','desirePattern','sexualConfidence','sexualRiskAppetite','intimacyBoundaries','alcoholPattern'}
 LIST={'socialContentTypes'}
 OBJECT={'mindProfile','embodimentProfile','cognitionProfile'}
+TEXT.add('photoBehaviorMode')
 FIELDS=BOOL|set(NUMBER)|TEXT|LIST|OBJECT
 
 AUTHORED_TEXT_LIMITS={'privateLife':2000,'routine':2000,'playerKnowledge':1800,'initialMotive':1600,'startingScenario':3000,'openingMode':16,'openingMessage':4000,'connectionAuthenticity':32}
 
-ENUMS={'connectionAuthenticity':{'genuine','mixed','performative','instrumental','deceptive'},'openingMode':{'player_first','vh_first'},'regulationProfile':{'steady','typical','sensitive','volatile'},'conflictRecovery':{'quick','normal','slow','grudge'},'emotionExpression':{'transparent','guarded','masked','performative'},'ruminationStyle':{'low','normal','high','sticky'},'reactionTiming':{'immediate','mixed','delayed'},'desirePattern':{'spontaneous','responsive','mixed'},'alcoholPattern':{'none','rare','social','frequent'},'sexualConfidence':{'inhibited','cautious','natural','direct'},'sexualRiskAppetite':{'low','moderate','high'}}
+ENUMS={'connectionAuthenticity':{'genuine','mixed','performative','instrumental','deceptive'},'openingMode':{'player_first','vh_first'},'regulationProfile':{'steady','typical','sensitive','volatile'},'conflictRecovery':{'quick','normal','slow','grudge'},'emotionExpression':{'transparent','guarded','masked','performative'},'ruminationStyle':{'low','normal','high','sticky'},'reactionTiming':{'immediate','mixed','delayed'},'desirePattern':{'spontaneous','responsive','mixed'},'alcoholPattern':{'none','rare','social','frequent'},'sexualConfidence':{'inhibited','cautious','natural','direct'},'sexualRiskAppetite':{'low','moderate','high'},'photoBehaviorMode':{'natural','request_only','photo_friendly'}}
 
 def validate(key,value):
  if key in ENUMS and (not isinstance(value,str) or value not in ENUMS[key]):raise ValueError('Unsupported '+key)

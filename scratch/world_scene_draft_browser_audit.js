@@ -35,7 +35,8 @@ const root = path.resolve(__dirname, '..');
                     { id: 'hall', name: 'Hall', exits: ['to Office'] }],
                 entities: [{ id: 'denton', name: 'Denton', type: 'npc', startLocation: 'office', persona: 'Manager' },
                     { id: 'examiner', name: 'Examiner', type: 'npc', startLocation: 'office', persona: 'Auditor' }],
-                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true },
+                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                    sceneDraftProtocol: 'scene_draft_v2' },
                 hudConfig: { startTimeHours: 8, startTimeMinutes: 57, timeStep: 5 } };
             state.worlds = [world];
             state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };
@@ -73,12 +74,12 @@ const root = path.resolve(__dirname, '..');
                 let proposal = structuredClone(draft);
                 if (phase === 'check') {
                     checkCall++;
-                    if (!body.tools) return new Response(JSON.stringify({choices:[{message:{content:sess.checkHistory.at(-1).narrativeOutcome}}]}),{headers:{'Content-Type':'application/json'}});
+                    if (!body.tools && sess.checkHistory?.length) return new Response(JSON.stringify({choices:[{message:{content:sess.checkHistory.at(-1).narrativeOutcome}}]}),{headers:{'Content-Type':'application/json'}});
                     proposal = { protocol:'scene_draft_v2', narrative:'The label reads Audit. You inspect the jammed drawer; the careful search is uncertain.',
                         actions:[{request:'What does the label say? ',kind:'question',status:'answered',response:'The label reads Audit.'},
                             {request:'I inspect the jammed drawer.',kind:'physical',status:'pending_check',response:'You inspect the jammed drawer; the careful search is uncertain.'}],
                         events:[{type:'observation',actor_id:'player',status:'completed',evidence:'The label reads Audit.',observation:'The label reads Audit.'}], effects:{checks:[{id:'drawer_search',label:'Search the drawer',stat_id:'wits',difficulty:5,
-                            success_text:'The careful search reveals the audit stamp.',failure_text:'The drawer stays jammed.',on_success:{},on_failure:{}}]},speech:[],commitments:[] };
+                            on_success:{},on_failure:{}}]},speech:[],commitments:[] };
                 }
                 if (phase === 'secret') {
                     secretCall++;
@@ -170,6 +171,10 @@ const root = path.resolve(__dirname, '..');
             phase = 'wait'; const waited = await run();
             phase = 'resolve'; const resolved = await run();
             phase = 'move'; const moved = await run();
+            await executeWorldTurn(true);
+            const movedReroll = { location: sess.playerLocation,
+                text: sess.history.at(-1)?.text,
+                audit: safeJsonClone(sess.lastTurnAudit), calls };
             const beforeFailedSave = safeJsonClone(sess.inventory);
             const realSave = saveWorldsState;
             saveWorldsState = async () => { throw new Error('Injected storage failure'); };
@@ -192,6 +197,7 @@ const root = path.resolve(__dirname, '..');
             const invalidArrival={calls:calls-arrivalStart,text:sess.history.at(-1)?.text,source:sess.history.at(-1)?.stateSource};
             let transport=null;
             if(provider==='openrouter') {
+                sess.sceneDraftJsonModels=[];state.globalSettings.toolShyModels=[];
                 phase='malformed_transport';const start=calls;const repair=await run();
                 phase='json_transport';const recovered=await run();
                 transport={repair,recovered,calls:calls-start};
@@ -200,7 +206,8 @@ const root = path.resolve(__dirname, '..');
             await saveWorldsState();
             const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.find(item => item.id === sess.id);
             window.fetch = realFetch;
-            return { first, second, repaired, invalid, waited, resolved, moved, failedSave, beforeFailedSave, contract,
+            return { first, second, repaired, invalid, waited, resolved, moved, movedReroll,
+                failedSave, beforeFailedSave, contract,
                 checked,discovered,sameTurn,sameTurnEvent,sameTurnElapsed,invalidArrival,transport,checkCall,secretCall,secrets:saved.revealedSecrets,checks:saved.checkHistory,
                 resolution: saved?.scheduledEvents?.find(event => event.id === 'audit_due')?.sceneResolution,
                 pending: (saved?.consequences || []).filter(item => item.type === 'deadline' && item.state !== 'resolved'),
@@ -224,6 +231,10 @@ const root = path.resolve(__dirname, '..');
         assert.equal(result.pending.length, 0, 'observed consequence closes deadline task');
         assert.equal(result.moved.location, 'hall', JSON.stringify(result.moved));
         assert.equal(result.moved.calls, 9);
+        assert.equal(result.movedReroll.location, 'hall', JSON.stringify(result.movedReroll));
+        assert.match(result.movedReroll.text, /reach the hall/i);
+        assert.equal(result.movedReroll.audit.protocol, 'scene_draft_v2');
+        assert.equal(result.movedReroll.calls, 10);
         assert.deepEqual(result.failedSave.inventory, result.beforeFailedSave,
             'unsaved scene must roll back its item transfer');
         assert(!result.contract.properties.scene, 'engine computes ending scene');

@@ -199,7 +199,7 @@ test('player rules enforce bounded stats, defeat, commerce, and checks', () => {
     assert(app.includes('function executeCommerceTransactions'));
     assert(app.includes('function performAuthoritativeChecks'));
     assert(actionSource.includes('executeCommerceTransactions(world, sess, args.transactions)'));
-    assert(actionSource.includes('performAuthoritativeChecks(world, sess, requestedChecks)'));
+    assert(/performAuthoritativeChecks\(world, sess, requestedChecks\s*[,)]/.test(actionSource));
     assert(actionSource.includes('unconditional_update_beside_check'));
     assert(actionSource.includes('applyPlayerStatChanges(world, sess, args.stat_changes'));
     assert(executeSource.includes('12d. Commerce:'));
@@ -285,7 +285,7 @@ test('streamed tool calls are accumulated and answered in parallel-safe order', 
     const source = app.slice(start, end);
     assert(source.includes('const streamedToolCalls = new Map()'));
     assert(source.includes('incomingCalls.forEach(tc => accumulateWorldToolCall'));
-    assert(source.includes('if (buffer.trim()) processWorldStreamLine(buffer)'));
+    assert(/if \(buffer\.trim\(\)(?: && !earlyDraftFailure)?\) processWorldStreamLine\(buffer\)/.test(source));
     assert(app.includes('function parseWorldToolArguments'));
     assert(source.includes('for (const call of toolCalls)'));
     assert(source.includes('...toolResponses'));

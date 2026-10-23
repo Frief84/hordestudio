@@ -1,0 +1,10 @@
+const assert=require('node:assert/strict'),vm=require('node:vm');
+const {buildContext}=require('./app_source');const c={};buildContext(vm,['worldUnverifiedTurnNotice'],c);
+assert.match(c.worldUnverifiedTurnNotice(),/story text was discarded/);
+assert(!c.worldUnverifiedTurnNotice().includes('Verification reason'));
+const text=c.worldUnverifiedTurnNotice([{reason:'missing_mandatory_receipt'},{reason:'unknown_scene_location',detail:'PRIVATE REJECTED PROSE'}]);
+assert.match(text,/Verification reason: unknown_scene_location/);assert(!text.includes('PRIVATE'));assert(!text.includes('Verification reason: missing_mandatory_receipt'));
+assert.match(c.worldUnverifiedTurnNotice([{reason:'wrong_turn_protocol'}]),/selected World model\/provider/);
+assert.equal((c.worldUnverifiedTurnNotice([{reason:'bad'},{reason:'bad'}]).match(/bad/g)||[]).length,1);
+assert(!c.worldUnverifiedTurnNotice([null,{}]).includes('Verification reason'));
+console.log('PASS: specific rejection codes, deduplication, safe details and transport guidance.');

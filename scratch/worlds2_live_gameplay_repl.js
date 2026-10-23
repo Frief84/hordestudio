@@ -74,6 +74,12 @@ const lifeSeedWarnings = [];
 let blockedProviderCalls = 0;
 let key = '';
 
+function checkpoint() {
+    fs.writeFileSync(reportPath, JSON.stringify({model,maxOutputTokens,contextTokens,worldId,calls,
+        priorConservativeSpend,maxConservativeSpend,conservativeSpend,provider,turns,pageErrors,
+        lifeSeedWarnings,blockedProviderCalls,incomplete:true}, null, 2));
+}
+
 function checkoutSource(route) {
     const url = new URL(route.request().url());
     if (url.origin !== origin) return route.abort();
@@ -96,9 +102,13 @@ async function routeRequest(route) {
     catch { throw new Error('Worlds sent malformed provider JSON.'); }
     const systemText = (request.messages || []).filter(message => message.role === 'system')
         .map(message => String(message.content || '')).join('\n');
+    const userText = (request.messages || []).filter(message => message.role === 'user')
+        .map(message => String(message.content || '')).join('\n');
     const worldsRequest = systemText.includes('[ENGINE MANDATE: CANONICAL TURN COMMIT]')
+        || systemText.includes('[SCENE DRAFT V2]')
         || systemText.includes('world_turn_receipt')
         || systemText.includes('[WORLD TURN RECEIPT REPAIR]')
+        || userText.includes('[AUTHORITATIVE COMMITTED TURN]')
         || systemText.includes('Generate 4-10 people');
     if (!worldsRequest) {
         blockedProviderCalls++;
@@ -115,14 +125,21 @@ async function routeRequest(route) {
     // the complete requested output. Stop below the user's $2 ceiling.
     const preflight = 8 * ((Buffer.byteLength(body, 'utf8') * price.input + maxTokens * price.output) / 1_000_000);
     if (conservativeSpend + preflight > maxConservativeSpend) {
-        throw new Error('Live playtest budget guard reached.');
+        blockedProviderCalls++;
+        return route.fulfill({status:429,contentType:'application/json',body:JSON.stringify({
+            error:{message:'Live playtest budget guard reached. No provider request was sent.'}
+        })});
     }
     conservativeSpend += preflight;
     if (freshBudget) fs.writeFileSync(freshBudgetPath,
         JSON.stringify({ reserved: priorConservativeSpend + conservativeSpend, ceiling: freshBudgetCeiling }));
     const record = { status: 0, ms: null, headersMs: null, bodyCompleteMs: null, startedAt: Date.now(),
+        reservation: preflight,
         requestBytes: Buffer.byteLength(body, 'utf8'), maxTokens,
         stream: !!request.stream, usage: null,
+        correctionFailures: (request.messages || []).map(message => String(message.content || ''))
+            .filter(text => text.includes('[WORLD SCENE DRAFT CORRECTION]'))
+            .map(text => text.split('\nFailures: ')[1]?.split('\nRejected draft:')[0] || ''),
         requestMessages: (request.messages || []).map(message => ({
             role: message.role,
             chars: typeof message.content === 'string' ? message.content.length : JSON.stringify(message.content || '').length,
@@ -132,7 +149,11 @@ async function routeRequest(route) {
     provider.push(record);
     // Continue the browser's request so SSE bytes arrive as they are emitted.
     // Buffering them in route.fulfill caused a false 45-second idle timeout.
-    return route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${key}` } });
+    // Bound routing prices as well as token reservations. Do not assume the
+    // cheapest endpoint is the endpoint OpenRouter will actually choose.
+    request.provider = { ...request.provider, max_price: { prompt: price.input * 8, completion: price.output * 8 } };
+    return route.continue({ postData: JSON.stringify(request),
+        headers: { ...route.request().headers(), authorization: `Bearer ${key}` } });
 }
 
 async function snapshot() {
@@ -252,7 +273,21 @@ async function boot() {
                 }
             }
         } catch (error) { record.responseTail = trim(error.message, 300); }
-        finally { markResponseComplete(record); }
+        finally {
+            // Settle only explicit provider-reported charges. Failed/aborted
+            // requests without a cost retain their entire reservation.
+            const cost = record.usage?.cost;
+            if (!record.settled && typeof cost === 'number' && Number.isFinite(cost) && cost >= 0) {
+                conservativeSpend += cost - record.reservation;
+                record.settled = true;
+                if (freshBudget) fs.writeFileSync(freshBudgetPath, JSON.stringify({
+                    reserved: priorConservativeSpend + conservativeSpend, ceiling: freshBudgetCeiling,
+                    accounting: 'Reported costs plus full reservations for unsettled requests.'
+                }));
+            }
+            markResponseComplete(record);
+            checkpoint();
+        }
     });
     await page.goto(`${origin}/`);
     await page.waitForFunction(() => typeof companionAgencyTimer !== 'undefined' && !!companionAgencyTimer, { timeout: 30000 });
@@ -307,11 +342,13 @@ async function action(text) {
     await page.locator('#world-send-btn').click();
     let timeout = '';
     try {
-        await page.waitForFunction(({ id, count }) => {
+        await page.waitForFunction(({ id, count, attempts }) => {
             const inst = state.worldInstances[id];
             const sess = inst?.sessions?.find(item => item.id === inst.activeSessionId);
-            return !!sess && sess.history.length > count && sess.history.at(-1)?.role === 'dm' && !worldTurnInProgress;
-        }, { id: worldId, count: before.historyLength }, { timeout: 180000 });
+            return !!sess && !worldTurnInProgress && (
+                (sess.history.length > count && sess.history.at(-1)?.role === 'dm')
+                || (sess.worldModelAttempts?.length || 0) > attempts);
+        }, { id: worldId, count: before.historyLength, attempts: before.modelAttempts }, { timeout: 180000 });
     } catch (error) { timeout = trim(error.message, 300); }
     const after = await snapshot();
     const wallMs = Date.now() - started;
@@ -324,6 +361,7 @@ async function action(text) {
         newProviderCalls: provider.slice(firstCall), after, timeout,
         pageErrors: pageErrors.slice(-3), conservativeSpend };
     turns.push(result);
+    checkpoint();
     say(result);
 }
 
@@ -359,6 +397,7 @@ async function travel(to) {
         newProviderCalls: provider.slice(firstCall), after, timeout,
         pageErrors: pageErrors.slice(-3), conservativeSpend };
     turns.push(result);
+    checkpoint();
     say(result);
 }
 

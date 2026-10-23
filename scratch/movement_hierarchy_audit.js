@@ -83,7 +83,7 @@ const context = {
     isNpcActive(actor) { return !!actor && !['dead', 'gone'].includes(actor.status); }
 };
 vm.createContext(context);
-const sources = [
+const sourceNames = [
     // STARTER_WORLDS is evaluated in production after both factory-backed
     // presets are defined. Keep the audit harness on that same boot path so
     // changes to the registry cannot make this focused movement suite fail
@@ -108,17 +108,9 @@ const sources = [
     'getWorldPathTravelTime',
     'movePlayerAlongWorldPath',
     'extractUserMovementTarget'
-].map(functionSource).join('\n');
-vm.runInContext(`${sources}\n${constSource('STARTER_WORLDS')}\n` +
-    'this.extractUserMovementTarget = extractUserMovementTarget;' +
-    'this.resolveWorldMovementTarget = resolveWorldMovementTarget;' +
-    'this.resolveWorldContainmentParent = resolveWorldContainmentParent;' +
-    'this.findWorldTravelPath = findWorldTravelPath;' +
-    'this.getWorldPathTravelTime = getWorldPathTravelTime;' +
-    'this.movePlayerAlongWorldPath = movePlayerAlongWorldPath;' +
-    'this.resolveWorldExitTarget = resolveWorldExitTarget;' +
-    'this.getExitTargetName = getExitTargetName;' +
-    'this.STARTER_WORLDS = STARTER_WORLDS;', context);
+];
+require('./app_source').buildContext(vm, sourceNames, context);
+vm.runInContext(constSource('STARTER_WORLDS') + '\nthis.STARTER_WORLDS = STARTER_WORLDS;', context);
 
 const aldenmere = context.STARTER_WORLDS.find(candidate => candidate?.id === 'world_aldenmere');
 assert(aldenmere, 'Aldenmere starter world is present');
@@ -276,12 +268,11 @@ test('movePlayerAlongWorldPath applies an outward move end-to-end', () => {
 
 // ---------- Containment is a two-way route, not a one-way trap ----------
 
-// A room authored the way the Studio presents it: attached to its parent, with
-// an exit back out — but no reciprocal exit on the parent, because only the
-// Studio's own edit handler creates those.
+// Authored connections have explicit reverse links. Bare containment remains
+// available for old maps but cannot bypass an authored edge or restriction.
 function houseWorld() {
     return { id: 'w_house', locations: [
-        { id: 'loc_house', name: 'Smith House', exits: [] },
+        { id: 'loc_house', name: 'Smith House', exits: [{ targetLocationId: 'loc_bathroom' }] },
         { id: 'loc_bathroom', name: 'Bathroom', region: 'Smith House',
           parentLocationId: 'Smith House', mapType: 'room', mapFloor: '2',
           exits: [{ text: 'to Smith House', travelTime: 0, isOneWay: false }] },
@@ -305,6 +296,13 @@ test('the reported case resolves: "I go to the bathroom" from the house', () => 
         context.extractUserMovementTarget('I go to the bathroom'));
     assert(target, 'the bathroom exists and is attached to the house, but was unreachable');
     assert.equal(target.id, 'loc_bathroom');
+});
+
+test('an unreachable named room never resolves to a different nearby room', () => {
+    const world = houseWorld();
+    world.locations[0].exits = [];
+    assert.equal(context.resolveWorldMovementTarget(world, 'loc_house',
+        context.extractUserMovementTarget('I go to the bathroom')), null);
 });
 
 test('sibling rooms route through their shared parent', () => {

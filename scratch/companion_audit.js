@@ -587,7 +587,7 @@ test('an established intimacy outcome creates calm, cooldown and a bounded after
     assert(c.humanDynamics.sexualCooldownUntil >= now + 90 * 60_000);
 });
 
-test('a photo while home alone resolves to a physically held front camera', () => {
+test('a photo while home alone does not require visible photography equipment', () => {
     const now = Date.now();
     const c = freshCompanion({ photoCapturePolicy: 'auto' });
     c.lifeRuntime.temporarySituation = {
@@ -596,8 +596,8 @@ test('a photo while home alone resolves to a physically held front camera', () =
         startedAt: now - 1000, endsAt: now + HOUR
     };
     const plan = context.companionPhotoCapturePlan(c, 'a casual photo on the sofa', now);
-    assert.equal(plan.type, 'front_camera_selfie');
-    assert.match(plan.instruction, /no invisible photographer/i);
+    assert.equal(plan.type, 'personal_photograph');
+    assert.match(plan.instruction, /phone, camera, tripod, selfie stick and photographer stay outside the frame/i);
 });
 
 test('an established mirror produces a mirror selfie instead of an observer shot', () => {
@@ -629,7 +629,7 @@ test('another photographer is allowed only when company is established', () => {
     assert.notEqual(alone.type, 'taken_by_someone');
 });
 
-test('wide candid framing while alone uses a propped phone and prompt carries that provenance', () => {
+test('wide candid framing while alone follows the request without requiring a propped phone', () => {
     const now = Date.now();
     const c = freshCompanion({ photoCapturePolicy: 'auto' });
     c.lifeRuntime.temporarySituation = {
@@ -638,8 +638,7 @@ test('wide candid framing while alone uses a propped phone and prompt carries th
         startedAt: now - 1000, endsAt: now + HOUR
     };
     const prompt = context.buildCompanionPhotoPrompt(c, 'wide candid of me walking across the room with both hands visible', { atMs: now });
-    assert.match(prompt, /Camera provenance — Timer \/ propped phone/);
-    assert.match(prompt, /Do not add an unseen friend or photographer/);
+    assert.match(prompt, /Requested scene:\nwide candid of me walking across the room with both hands visible/);
 });
 
 test('self-capture policy prevents a present friend from becoming photographer', () => {
@@ -1798,25 +1797,45 @@ test('the system contract explicitly bans roleplay prose in the texting simulato
 
 // --- photo prompt and model ranking ---------------------------------------------
 
-test('the photo prompt names specific camera imperfections, not just the word "realistic"', () => {
-    const prompt = context.buildCompanionPhotoPrompt(freshCompanion(), 'at a coffee shop, laughing');
-    ['iPhone', 'handheld', 'skin texture', 'ISO', 'bloom', 'compression'].forEach(cue =>
+test('realistic photo prompts use the short natural photograph treatment', () => {
+    const prompt = context.buildCompanionPhotoPrompt(freshCompanion({ imageSource: 'comfyui' }), 'at a coffee shop, laughing', { vh2Capture: true });
+    ['Natural, photorealistic personal photograph with realistic skin texture and lighting. Preserve the character\'s facial identity and natural proportions. Follow the requested pose, camera angle, clothing, and framing.'].forEach(cue =>
         assert(prompt.includes(cue), `the realism cue "${cue}" is missing`));
-    assert(/coffee shop/.test(prompt), 'the requested scene was dropped from the prompt');
+    assert.equal(prompt.split('Natural, photorealistic personal photograph with realistic skin texture and lighting. Preserve the character\'s facial identity and natural proportions. Follow the requested pose, camera angle, clothing, and framing.').length - 1, 1);
+    assert(prompt.startsWith('Requested scene:\nat a coffee shop, laughing'), 'the requested scene is not first');
+    assert.doesNotMatch(prompt, /computational HDR|highlight recovery|chroma noise|lens smudge|sharpening halo|motion softness|HEIC|JPEG compression|fabric detail/i);
 });
 
 test('unknown and legacy photo styles safely fall back to realistic', () => {
     const c = freshCompanion({ photoStyle: 'oil-on-mars' });
     assert.equal(c.photoStyle, 'realistic');
-    assert(context.buildCompanionPhotoPrompt(c, 'at home').includes('Realistic iPhone'));
+    assert(context.buildCompanionPhotoPrompt(c, 'at home').includes('computational HDR'));
 });
 
-test('illustrated photos use the requested painterly treatment while retaining phone-photo language', () => {
+test('the shorter realistic treatment is isolated to VH2 ComfyUI captures', () => {
+    const companion = freshCompanion({ imageSource: 'comfyui' });
+    const ordinary = context.buildCompanionPhotoPrompt(companion, 'at home');
+    const vh2Comfy = context.buildCompanionPhotoPrompt(companion, 'at home', { vh2Capture: true });
+    assert(ordinary.includes('computational HDR'));
+    assert(!vh2Comfy.includes('computational HDR'));
+    assert(vh2Comfy.includes('Natural, photorealistic personal photograph with realistic skin texture and lighting.'));
+});
+
+test('VH2 ComfyUI preserves scene direction and omits conflicting default camera guidance', () => {
+    const scene = 'Standing sideways beside the bed, body turned 90 degrees away from the camera, head turned back over the shoulder. Blue short-sleeved T-shirt and black jeans. Camera at eye level, bedroom with bed visible.';
+    const prompt = context.buildCompanionPhotoPrompt(freshCompanion({ imageSource: 'comfyui', basePhoto: 'IDENTITY_REFERENCE' }), scene, { vh2Capture: true });
+    assert(prompt.startsWith(`Requested scene:\n${scene}`));
+    assert(!/front.camera|selfie|handheld|arm length|camera stays outside/i.test(prompt));
+    assert(prompt.includes('Do not copy incidental clothing from identity references'));
+    assert(prompt.includes('Image 1: Main person: preserve facial identity and body proportions; clothing and background come from the requested moment.'));
+});
+
+test('illustrated photos retain their requested painterly treatment', () => {
     const prompt = context.buildCompanionPhotoPrompt(
         freshCompanion({ photoStyle: 'illustrated' }),
         'waiting for a late train'
     );
-    ['Arcane-inspired', 'hand-painted', 'phone', 'off-center'].forEach(cue =>
+    ['Arcane-inspired', 'hand-painted', 'off-center'].forEach(cue =>
         assert(prompt.includes(cue), `the illustrated cue "${cue}" is missing`));
     assert(prompt.includes('waiting for a late train'));
 });
@@ -1830,6 +1849,140 @@ test('the additional styles generate distinct treatments while preserving charac
         assert(prompt.includes('auburn hair, freckles'));
         assert(prompt.includes('reading by the window'));
     });
+});
+
+test('Phase 10G prompt construction keeps explicit scenes, identity and framing authoritative', () => {
+    const now = Date.UTC(2026, 9, 11, 12, 0);
+    const base = freshCompanion({
+        id: 'vh2-test-a', name: 'Avery', age: 29,
+        basePhoto: 'data:image/png;base64,IDENTITY_A',
+        appearance: 'auburn hair, freckles',
+        personality: 'A long nonvisual personality profile that must not enter image prompts.',
+        currentOutfit: 'winter coat, leggings, hoodie and socks',
+        currentLocationDetail: 'snowy bus stop',
+        photoCapturePolicy: 'auto'
+    });
+    base.lifeRuntime.temporarySituation = {
+        activity: 'waiting outside', placeLabel: 'snowy bus stop', outfit: 'winter coat',
+        withNames: [], availability: 'available', startedAt: now - HOUR, endsAt: now + HOUR
+    };
+
+    const pajamas = context.buildCompanionPhotoPrompt(base,
+        'A photograph of the character wearing grey flannel pajama pants and a white tank top.', { atMs: now });
+    assert.match(pajamas, /grey flannel pajama pants and a white tank top/i);
+    assert.doesNotMatch(pajamas, /winter coat|leggings|hoodie|socks/i);
+    assert.doesNotMatch(pajamas, /Relevant established location.*snowy bus stop/i);
+    assert.doesNotMatch(pajamas, /long nonvisual personality profile/i);
+    assert.match(pajamas, /IDENTITY|identity reference/i);
+
+    const summer = context.buildCompanionPhotoPrompt(base,
+        'A photograph in a summer dress at a garden party.', { atMs: now });
+    assert.match(summer, /summer dress at a garden party/i);
+    assert.doesNotMatch(summer, /winter coat|leggings|hoodie|socks|snowy bus stop/i);
+
+    const fullBody = context.buildCompanionPhotoPrompt(base,
+        'A full-body photograph standing in a living room.', { atMs: now });
+    assert.match(fullBody, /full-body photograph standing in a living room/i);
+    assert.doesNotMatch(fullBody, /close selfie geometry|holding the phone|propped their own phone/i);
+    assert.match(fullBody, /Do not add other people or a photographer/i);
+
+    const fullBodyThroughTest = context.buildCompanionImageRequest(base,
+        'A full-body photograph standing in a living room.', { includeReference: true });
+    assert.doesNotMatch(fullBodyThroughTest.prompt, /close selfie geometry|holding the phone|propped their own phone/i);
+
+    const noEquipment = context.buildCompanionPhotoPrompt(base,
+        'A casual photograph with no visible photography equipment.', { atMs: now });
+    assert.doesNotMatch(noEquipment, /physically holding the phone|phone is visible in the reflection|propped their own phone/i);
+    assert.match(noEquipment, /Do not add other people or a photographer/i);
+
+    const complete = context.buildCompanionPhotoPrompt(base,
+        'A photograph of the character wearing grey flannel pajama pants and a white tank top, sitting on the bed with one hand resting on the pillow.', { atMs: now });
+    assert.match(complete, /one hand resting on the pillow/i);
+
+    const adultArt = context.buildCompanionPhotoPrompt(base,
+        'An adult artistic portrait in a sheer summer dress, posed in a sunlit studio.', { atMs: now });
+    assert.match(adultArt, /sheer summer dress/i);
+    assert.doesNotMatch(adultArt, /winter coat|leggings|hoodie|socks/i);
+
+    const second = freshCompanion({ id: 'vh2-test-b', name: 'Morgan', age: 34,
+        basePhoto: 'data:image/png;base64,IDENTITY_B', appearance: 'dark curls, brown eyes',
+        currentOutfit: 'blue scrubs', currentLocationDetail: 'clinic', personality: 'Different profile.' });
+    const secondPrompt = context.buildCompanionPhotoPrompt(second, 'A full-body photograph wearing a yellow raincoat in a garden.', { atMs: now });
+    assert.match(secondPrompt, /yellow raincoat in a garden/i);
+    assert.doesNotMatch(secondPrompt, /winter coat|leggings|hoodie|socks|blue scrubs|snowy bus stop/i);
+    assert.match(secondPrompt, /dark curls, brown eyes|identity reference/i);
+    assert.doesNotMatch(secondPrompt, /IDENTITY_A|long nonvisual personality profile/i);
+
+    const request = context.buildCompanionImageRequest(base, 'wearing grey flannel pajama pants');
+    assert.equal(request.input_references[0].image_url.url, base.basePhoto);
+    assert.match(request.prompt, /grey flannel pajama pants/i);
+});
+
+test('VH2 ComfyUI prompt preserves exact requested clothing and coverage', () => {
+    const now = Date.UTC(2026, 9, 11, 12, 0);
+    const scenes = [
+        'Wearing a black lace bra, no shirt.',
+        'Wearing a plain red T-shirt.',
+        'Wearing a yellow summer dress.',
+        'Topless, no shirt or bra.',
+        'Wearing a purple sweater and white shorts.'
+    ];
+    for (const [index, scene] of scenes.entries()) {
+        const companion = freshCompanion({
+            id: `vh2-clothing-${index}`, age: 29,
+            basePhoto: 'data:image/png;base64,IDENTITY_FIXTURE',
+            currentOutfit: 'historical light blue bra and white crop top',
+            photoDirection: 'Usual saved wardrobe: old blue bra with a white camisole.'
+        });
+        companion.lifeRuntime.temporarySituation = {
+            activity: 'relaxing', placeLabel: 'bedroom',
+            outfit: 'historical light blue bra and white crop top',
+            withNames: [], availability: 'available', startedAt: now - HOUR, endsAt: now + HOUR
+        };
+        const prompt = context.buildCompanionPhotoPrompt(companion, scene, {
+            atMs: now,
+            previousPhoto: { photo: 'data:image/png;base64,PREVIOUS_OUTFIT', photoContext: { direction: 'Old wardrobe direction.' } }
+        });
+        assert(prompt.includes(scene), `request wording was lost: ${scene}`);
+        assert.doesNotMatch(prompt, /historical light blue bra|white camisole|Usual saved wardrobe|Old wardrobe direction|Previous moment/i);
+        assert.match(prompt, /identity reference|same face/i);
+        assert.match(prompt, /Follow the requested clothing and coverage exactly, including explicit exclusions/i);
+    }
+});
+
+test('photo prompt preserves exact scene first, identity guidance, and clothing safeguards', () => {
+    const now = Date.UTC(2026, 9, 11, 12);
+    const scene = 'Photograph: Exact scene text, wearing a plain green shirt with no jacket; seated beside the open window.';
+    const companion = freshCompanion({
+        age: 31, basePhoto: 'IDENTITY_REFERENCE', currentOutfit: 'SAVED_WARDROBE_SENTINEL',
+        photoDirection: 'SAVED_DIRECTION_SENTINEL: always use a red jacket',
+        lifeProfile: { wardrobe: [{ id: 'wardrobe-id', items: 'WARDROBE_EXPANSION_SENTINEL' }] }
+    });
+    const prompt = context.buildCompanionPhotoPrompt(companion, scene, {
+        atMs: now,
+        previousPhoto: { photo: 'PREVIOUS_PHOTO_SENTINEL', scene: 'old scene', photoContext: { outfit: 'OLD_PHOTO_CLOTHING' } },
+        photoContext: { outfit: 'SAVED_CONTEXT_OUTFIT_SENTINEL', bibleRoles: [{ role: 'identity', label: 'Identity' }, { role: 'garment', label: 'Saved garment' }], garmentIds: ['saved'] },
+        bibleReferences: ['IDENTITY_REFERENCE', 'GARMENT_REFERENCE_SENTINEL']
+    });
+    assert(prompt.startsWith(`Requested scene:\n${scene}`));
+    assert(prompt.includes('Subject identity:\n31 years old. Use the identity reference'));
+    assert(prompt.includes('Use identity references to preserve face, hair, and proportions.'));
+    assert(prompt.includes('The current scene controls clothing, colors, coverage, pose, and setting.'));
+    for (const sentinel of ['SAVED_WARDROBE_SENTINEL', 'SAVED_DIRECTION_SENTINEL', 'SAVED_CONTEXT_OUTFIT_SENTINEL', 'PREVIOUS_PHOTO_SENTINEL', 'OLD_PHOTO_CLOTHING', 'GARMENT_REFERENCE_SENTINEL', 'WARDROBE_EXPANSION_SENTINEL']) {
+        assert(!prompt.includes(sentinel), `saved clothing or photo direction leaked: ${sentinel}`);
+    }
+    const regular = context.buildCompanionPhotoPrompt(freshCompanion({ currentOutfit: 'blue sweater' }), 'Reading quietly');
+    assert(regular.startsWith('Requested scene:\nReading quietly'));
+    assert(regular.includes('blue sweater'));
+    assert(!regular.includes('Follow the requested clothing and coverage exactly'));
+});
+
+test('ComfyUI local route receives the same prompt returned by the prompt builder', async () => {
+    const companion = freshCompanion({ imageSource: 'comfyui', basePhoto: 'IDENTITY_REFERENCE' });
+    const scene = 'A candid photograph wearing a yellow coat in the garden.';
+    const expected = context.buildCompanionPhotoPrompt(companion, scene, { hasReference: true });
+    const request = context.buildCompanionImageRequest(companion, scene, { providerId: 'openrouter' });
+    assert.equal(request.prompt, expected);
 });
 
 test('the image API request sends only the generation reference, never the profile photo', () => {
@@ -2380,7 +2533,7 @@ test('cloud media endpoints and CSP are wired into the production paths', () => 
     assert(functionSource('generateOpenRouterSpeech').includes("'/audio/speech'"));
     assert(app.includes('https://gptproto.com'));
     assert(app.includes('https://nano-gpt.com'));
-    assert(app.includes("['openrouter', 'gptproto', 'nanogpt', 'local']"));
+    for (const provider of ['openrouter', 'gptproto', 'nanogpt', 'local']) assert(app.includes(`'${provider}'`));
 });
 
 test('ComfyUI generation uses the active named workflow profile', () => {

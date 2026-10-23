@@ -56,6 +56,7 @@
         'w-sandbox-scale': 'Controls how broadly background simulation looks beyond the player’s immediate scene.',
         'w-kernel-enabled': 'Compile a compact authoritative scene packet each turn instead of resending the entire World.',
         'w-kernel-location-limit': 'Maximum number of relevant locations included in a normal scene packet. Current, adjacent and named places are prioritized.',
+        'w-kernel-scene-mode': 'Experimental scene record mode asks for the ending location, cast and anonymous groups instead of every intermediate event. Enabled mechanics and movement permissions still apply. Structured events remains the default. Linked actions is a separate preview for transactional action chains; scene record mode remains an independent experiment.',
         'w-kernel-memory-mode': 'Controls when semantic memories are retrieved for the DM prompt.',
         'w-kernel-repair-mode': 'Controls if and when a secondary repair pass may correct malformed structured updates.',
         'w-kernel-compact-tools': 'Use smaller tool descriptions to reduce prompt cost while preserving the same canonical operations.',

@@ -2,6 +2,13 @@
 from importlib import import_module as _vh_import_module
 import base64,concurrent.futures,hashlib,json,math,re,sqlite3,urllib.request,urllib.error,uuid
 from .vh2_provider import NoRedirect, UnknownOutcome, RejectedOutput
+_EXPLICIT_CLOTHING = re.compile(
+ r"\b(?:wear(?:ing)?|dressed? in|outfit|clothes|clothing|garments?|"
+ r"(?:no|without)\s+(?:a\s+)?(?:shirt|bra|top|clothing)|"
+ r"topless|shirtless|braless|nude|naked|bare(?:\s+(?:chest|breasts?|upper\s+body))?|"
+ r"bra|bralette|camisole|tank\s+top|crop\s+top|t-?shirt|shirt|blouse|sweater|"
+ r"hoodie|jacket|coat|dress|skirt|shorts|pants|jeans|leggings|underwear|lingerie)\b", re.I)
+_EXPLICIT_SETTING = re.compile(r"\b(?:in|at|inside|outside|near|by|on)\s+(?:(?:the|a|an|my|your|her|his)\s+)?(?:living room|bedroom|kitchen|bathroom|office|studio|garden|park|beach|street|caf[eé]|store|shop|car|train|bus|hotel|apartment|home|room|bed|sofa|couch|porch|yard|balcony|classroom|restaurant)\b", re.I)
 SCHEMA='''CREATE TABLE IF NOT EXISTS vh2_service_providers(id TEXT PRIMARY KEY,scope TEXT NOT NULL,config TEXT NOT NULL,api_key TEXT NOT NULL,created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS vh2_provider_jobs(id TEXT PRIMARY KEY,world_id TEXT NOT NULL REFERENCES worlds(id),kind TEXT NOT NULL,status TEXT NOT NULL,snapshot TEXT NOT NULL,result TEXT,error TEXT NOT NULL DEFAULT '',created_at INTEGER NOT NULL,submitted_at INTEGER,finished_at INTEGER);
 CREATE TABLE IF NOT EXISTS vh2_provider_outputs(job_id TEXT PRIMARY KEY REFERENCES vh2_provider_jobs(id),image TEXT NOT NULL);
@@ -134,7 +141,13 @@ def autonomous_budget(db,scope,config,now):
  # their own authorization and neither consume nor depend on this allowance.
  day=now//86400000*86400000;reset=day+86400000
  used=db.execute("SELECT COUNT(*) FROM vh2_provider_jobs WHERE kind='image' AND created_at>=? AND created_at<? AND json_extract(snapshot,'$.scope')=? AND json_extract(snapshot,'$.automatic')=1",(day,reset,scope)).fetchone()[0]
- limit=config['dailyLimit']
+ limit=config.get('dailyLimit',100)
+ return {'used':used,'limit':limit,'remaining':max(0,limit-used),'resetsAt':reset}
+
+def explicit_budget(db,scope,config,now):
+ day=now//86400000*86400000;reset=day+86400000
+ used=db.execute("SELECT COUNT(*) FROM vh2_provider_jobs WHERE kind='image' AND created_at>=? AND created_at<? AND json_extract(snapshot,'$.scope')=? AND json_extract(snapshot,'$.explicitRequest')=1",(day,reset,scope)).fetchone()[0]
+ limit=config.get('explicitDailyLimit',100)
  return {'used':used,'limit':limit,'remaining':max(0,limit-used),'resetsAt':reset}
 
 def retry_photo_id(key):return str(uuid.uuid5(uuid.NAMESPACE_URL,'vh2-photo-retry:'+key))
@@ -187,9 +200,12 @@ def settings(service,body=None,scope=None):
  from .vh2_runtime import encode
  with service.connect() as db:
   if body is not None:
-   scope=body.get('scope');enabled=body.get('enabled');model=body.get('model');limit=body.get('dailyLimit',4);refs=body.get('maxReferences',10)
+   scope=body.get('scope')
+   if not isinstance(scope,str) or not scope.startswith('horde:') or len(scope)>120:raise ValueError('Choose a Horde profile.')
+   saved=current(db,scope);saved_config=json.loads(saved['config']) if saved else {}
+   scope=body.get('scope');enabled=body.get('enabled');model=body.get('model');limit=body.get('dailyLimit',saved_config.get('dailyLimit',100));explicit_limit=body.get('explicitDailyLimit',saved_config.get('explicitDailyLimit',100));refs=body.get('maxReferences',10)
    if not isinstance(scope,str) or not scope.startswith('horde:') or len(scope)>120 or type(enabled) is not bool:raise ValueError('Choose a Horde profile and enabled state.')
-   if not isinstance(model,str) or not 1<=len(model.strip())<=200 or type(limit) is not int or not 1<=limit<=100 or type(refs) is not int or not 1<=refs<=20:raise ValueError('Choose an image model, daily cap and supported reference limit.')
+   if not isinstance(model,str) or not 1<=len(model.strip())<=200 or type(limit) is not int or not 1<=limit<=100 or type(explicit_limit) is not int or not 1<=explicit_limit<=100 or type(refs) is not int or not 1<=refs<=20:raise ValueError('Choose an image model, daily caps and supported reference limit.')
    key=body.get('apiKey','')
    if not isinstance(key,str) or len(key)>4096 or any(c in key for c in '\r\n'):raise ValueError('Invalid key.')
    provider=body.get('provider','openrouter')
@@ -197,7 +213,7 @@ def settings(service,body=None,scope=None):
    arguments=body.get('arguments',{});tool=body.get('tool','')
    if not isinstance(arguments,dict) or len(json.dumps(arguments))>30000 or not isinstance(tool,str) or len(tool)>300:raise ValueError('Invalid MCP image configuration.')
    if provider in ('magnific','higgsfield') and not tool:raise ValueError('Select an MCP image generation tool first.')
-   config=dict(scope=scope,enabled=enabled,provider=provider,tool=tool,arguments=arguments,model=model.strip(),dailyLimit=limit,maxReferences=refs,baseUrl='https://openrouter.ai/api/v1',**image_options(body))
+   config=dict(scope=scope,enabled=enabled,provider=provider,tool=tool,arguments=arguments,model=model.strip(),dailyLimit=limit,explicitDailyLimit=explicit_limit,maxReferences=refs,baseUrl='https://openrouter.ai/api/v1',**image_options(body))
    prior=current(db,scope)
    if not key and prior and json.loads(prior['config']).get('provider','openrouter')==provider and not body.get('clearKey'):key=prior['api_key']
    if enabled and provider in ('openrouter','gemini') and not key:raise ValueError('Configure this image provider’s API key first.')
@@ -205,7 +221,7 @@ def settings(service,body=None,scope=None):
    if not prior or json.loads(prior['config'])!=config or prior['api_key']!=key:db.execute('INSERT INTO vh2_service_providers VALUES (?,?,?,?,?)',(str(uuid.uuid4()),scope,encode(config),key,service.clock()))
   row=current(db,scope)
   config=json.loads(row['config']) if row else {}
-  return {'version':row['id'] if row else None,'configured':bool(row),**config,'hasKey':bool(row and row['api_key']),'autonomousBudget':autonomous_budget(db,scope,config,service.clock()) if row else None}
+  return {'version':row['id'] if row else None,'configured':bool(row),**config,'hasKey':bool(row and row['api_key']),'autonomousBudget':autonomous_budget(db,scope,config,service.clock()) if row else None,'explicitBudget':explicit_budget(db,scope,config,service.clock()) if row else None}
 
 def image_transport(config,key,body):
  if config.get('provider')=='gemini':return _vh_import_module('.vh2_image_adapters',__package__).gemini(config,key,body)
@@ -231,6 +247,9 @@ def asset_data(db,world,ident):
 
 def compile_image(db,world,state,snapshot,config,photo=None):
  c=snapshot['companion'];ctx=snapshot['photoContext'];refs=[];roles=[];ref_ids=[]
+ scene_request=snapshot['scene']
+ explicit_clothing=bool(_EXPLICIT_CLOTHING.search(scene_request))
+ explicit_setting=bool(_EXPLICIT_SETTING.search(scene_request))
  def add(value,role,ident):
   if value and value not in refs:refs.append(value);roles.append(role);ref_ids.append(ident)
  entries=snapshot.get('referenceAssets',[])
@@ -239,29 +258,31 @@ def compile_image(db,world,state,snapshot,config,photo=None):
  if not refs and (not ctx.get('assetStudy') or ctx['assetStudy']['requiresReference']):raise ValueError('Approve identity references before background rendering; this capture has none.')
  previous=None
  if not ctx.get('referenceStudy'):
-  candidates=[p for p in state.get('photos',[]) if p.get('assetId') and p.get('destination')==snapshot['destination'] and 0<ctx['atMs']-p['at']<=90*60000 and p.get('photoContext',{}).get('placeId')==ctx.get('placeId') and p.get('photoContext',{}).get('zoneId')==ctx.get('zoneId') and p.get('photoContext',{}).get('zoneRevision')==ctx.get('zoneRevision') and p.get('photoContext',{}).get('outfitRevision')==ctx.get('outfitRevision') and p.get('photoContext',{}).get('outfit')==ctx.get('outfit') and p.get('photoContext',{}).get('garmentIds',[])==ctx.get('garmentIds',[])]
+  candidates=[] if explicit_clothing or explicit_setting else [p for p in state.get('photos',[]) if p.get('assetId') and p.get('destination')==snapshot['destination'] and 0<ctx['atMs']-p['at']<=90*60000 and p.get('photoContext',{}).get('placeId')==ctx.get('placeId') and p.get('photoContext',{}).get('zoneId')==ctx.get('zoneId') and p.get('photoContext',{}).get('zoneRevision')==ctx.get('zoneRevision') and p.get('photoContext',{}).get('outfitRevision')==ctx.get('outfitRevision') and p.get('photoContext',{}).get('outfit')==ctx.get('outfit') and p.get('photoContext',{}).get('garmentIds',[])==ctx.get('garmentIds',[])]
   previous=max(candidates,key=lambda p:p['at']) if candidates else None
   if previous:add(asset_data(db,world,previous['assetId']),'previous photograph: preserve exact outfit and setting',previous['assetId'])
  for e in entries:
-  if e['role']!='identity':add(asset_data(db,world,e['assetId']),e['role']+': '+e['label'],e['assetId'])
+  if e['role']!='identity' and not (explicit_clothing and e['role']=='garment') and not (explicit_setting and e['role'] in ('place','zone') and str(e.get('label','')).lower() not in scene_request.lower()):
+   add(asset_data(db,world,e['assetId']),e['role']+': '+e['label'],e['assetId'])
  if len(refs)>config['maxReferences']:raise ValueError('The frozen references exceed the configured provider capacity. No image submitted.')
  if ctx.get('assetStudy'):
   prompt=ctx['assetStudy']['prompt']
  elif ctx.get('referenceStudy'):
   prompt=f"Neutral identity reference: {ctx['referenceStudy']}. Same {(_vh_import_module('.vh2_calendar',__package__).current_age(c) or 'unspecified-age')}-year-old person as the identity references. Preserve natural proportions and facial identity. Plain opaque clothing, neutral lighting and background. No phone, mirror, props, lettering or other people."
  else:
-  camera='The subject holds a visible phone reflected in a real mirror; physically coherent reflection and hands.' if snapshot['captureType']=='mirror_selfie' else 'Front-camera phone selfie, handheld at arm length by the subject; no external photographer.'
-  visible='; '.join(str(ctx[k]) for k in ('placeLabel','zoneDescription','outfit') if ctx.get(k))
+  camera='The subject holds a visible phone reflected in a real mirror; physically coherent reflection and hands.' if snapshot['captureType']=='mirror_selfie' else ('Front-camera phone selfie, handheld at arm length by the subject; no external photographer.' if snapshot['captureType']=='front_camera_selfie' else 'Natural personal photograph. Follow the requested framing; camera equipment and photographer remain outside the frame.')
+  visible='' if explicit_setting else '; '.join(str(ctx[k]) for k in ('placeLabel','zoneDescription') if ctx.get(k))
+  if not explicit_clothing and ctx.get('outfit'):visible='; '.join(filter(None,(visible,str(ctx['outfit']))))
   present=[p for p in c.get('lifeProfile',{}).get('socialCircle',[]) if p['id'] in ctx.get('personIds',[]) or ('personIds' not in ctx and p.get('name') in ctx.get('withNames',[]))]
   cast='; '.join(p['name']+': '+(p.get('appearance') or 'use assigned person reference; appearance otherwise unspecified') for p in present)
-  prompt=f"One personal photograph of the {(_vh_import_module('.vh2_calendar',__package__).current_age(c) or 'unspecified-age')}-year-old person in the identity references. Preserve their face, age and natural proportions. Reference-sheet views identify ONE person; do not reproduce a sheet, collage or multiple views.\nScene request: {snapshot['scene']}\nCaptured setting and clothing: {visible}.\nOther people present: {cast or 'none established'}. Do not infer appearance from occupation, relationship or name.\n{camera}\nPreserve the established outfit and location. Personality may affect expression and gesture only, never identity: {str(c.get('personality',''))[:2000]}."
+  prompt=f"One personal photograph of the {(_vh_import_module('.vh2_calendar',__package__).current_age(c) or 'unspecified-age')}-year-old person in the identity references. Preserve their face, age and natural proportions. Reference-sheet views identify ONE person; do not reproduce a sheet, collage or multiple views.\nScene request: {scene_request}\nCaptured setting and clothing: {visible}.\nOther people present: {cast or 'none established'}. Do not infer appearance from occupation, relationship or name.\n{camera}\n{('The scene request is the authoritative current instruction for garments, colors and body coverage; follow it exactly, including stated exclusions. Do not retain, add or substitute any saved or captured outfit.' if explicit_clothing else 'Preserve the established outfit and location unless the scene request changes them.') }"
   treatments={'realistic':'Natural phone-camera photograph, realistic skin texture, available light and subtle sensor grain.', 'illustrated':'Hand-painted animation illustration with textured shadows, expressive brushwork and casual phone framing.', 'film':'Candid 35mm consumer-film snapshot with fine grain and soft halation.', 'instant':'Instant-film photo with soft flash falloff, imperfect color dyes and spontaneous framing.', 'graphic_novel':'Painterly graphic-novel image with ink contours and textured color fills.'}
   prompt+='\nVisual treatment: '+treatments.get(c.get('photoStyle'),treatments['realistic'])
-  if c.get('photoDirection'):prompt+='\nPersonal photo direction: '+str(c['photoDirection'])[:4000]
   if c.get('photoStyle'):prompt+='\nPreferred visual style: '+str(c['photoStyle'])[:120]
-  if previous:prompt+='\nFollow-up: preserve the previous photograph\'s exact clothing, room and lighting. Change only the requested gesture or framing.'
- prompt+='\nReference roles in attachment order: '+ '; '.join(str(i+1)+'. '+r for i,r in enumerate(roles))+'. Use references only for their assigned roles. Identity references establish face, hair and body, not clothing. Use the captured outfit description and assigned garment references for clothing colors, fabrics and cuts; do not copy clothing from identity or place references. Do not render instructions as text.'
+  if previous and not explicit_clothing:prompt+='\nFollow-up: preserve the previous photograph\'s exact clothing, room and lighting unless changed by the scene request.'
+ prompt+='\nReference roles in attachment order: '+ '; '.join(str(i+1)+'. '+r for i,r in enumerate(roles))+'. Use references only for their assigned roles. Identity references establish face, hair and body, not clothing. '+('The current scene request establishes clothing, colors and coverage; do not copy or infer garments from any reference.' if explicit_clothing else 'Use the captured outfit description and assigned garment references for clothing colors, fabrics and cuts; do not copy clothing from identity or place references.')+' Do not render instructions as text.'
  if photo and photo.get('publicationIntent'):prompt+='\nPhotograph selected for this saved social post: '+photo['publicationIntent']['scene']+'\nKeep the captured place, clothing and identity references unchanged.'
+ if explicit_clothing:prompt+='\nCurrent clothing priority: follow the scene request exactly, including colors and explicit coverage or exclusion instructions; do not retain, add or substitute saved clothing.'
  request={'model':config['model'],'prompt':prompt,'n':1,'input_references':[{'type':'image_url','image_url':{'url':r}} for r in refs],'provider':{'allow_fallbacks':False}}
  selected=image_options(config)
  if config.get('provider','openrouter')=='openrouter':
@@ -270,7 +291,7 @@ def compile_image(db,world,state,snapshot,config,photo=None):
   if selected['imageProviderOptions']:request['provider']['options']={selected['imageProviderSlug']:selected['imageProviderOptions']}
  return request,[hashlib.sha256(r.encode()).hexdigest() for r in refs],ref_ids
 
-def queue_image(service,db,world,revision,state,photo_id,automatic=False,purpose=None):
+def queue_image(service,db,world,revision,state,photo_id,automatic=False,purpose=None,explicit_request=False):
  from . import vh2_media
  from .vh2_runtime import encode, Conflict
  scope=state.get('integration',{}).get('providerScope');provider=current(db,scope)
@@ -280,6 +301,7 @@ def queue_image(service,db,world,revision,state,photo_id,automatic=False,purpose
  if config.get('provider','openrouter') in ('openrouter','gemini') and not provider['api_key']:raise ValueError('Add the selected image provider’s API key in image settings first.')
  if db.execute('SELECT 1 FROM vh2_provider_jobs WHERE id=?',(job_id,)).fetchone():raise Conflict('This capture already has a background job. Resolve it instead of submitting again.')
  if automatic and not autonomous_budget(db,scope,config,service.clock())['remaining']:raise ValueError('Today’s automatic image allowance is used up. It resets at 00:00 UTC; manual generation is still available.')
+ if explicit_request and not explicit_budget(db,scope,config,service.clock())['remaining']:raise ValueError('Today’s requested-photo allowance is used up. It resets at 00:00 UTC; you can continue chatting normally.')
  row=db.execute('SELECT snapshot FROM photo_jobs WHERE world_id=? AND id=?',(world,photo_id)).fetchone()
  if not row:raise ValueError('Unknown capture.')
  photo=next((p for p in state.get('photos',[]) if p['id']==photo_id),None) or _vh_import_module('.vh2_library',__package__).get(db,world,'photo',photo_id)
@@ -289,7 +311,7 @@ def queue_image(service,db,world,revision,state,photo_id,automatic=False,purpose
  frozen=json.loads(row['snapshot']);request,hashes,ref_ids=compile_image(db,world,state,frozen,config,photo)
  revision,after,_=vh2_media.command(service,db,world,revision,state,{'type':'submit_photo','photoId':photo_id,'manifest':{'provider':config.get('provider','openrouter')+'-background','model':config['model'],'promptPreview':request['prompt'],'referenceHashes':hashes}})
  request.pop('input_references',None)
- db.execute('INSERT INTO vh2_provider_jobs VALUES (?,?,?,?,?,?,?,?,?,?)',(job_id,world,'image','queued',encode({'scope':scope,'providerId':provider['id'],'photoId':photo_id,'personaId':state.get('communication',{}).get('personaId'),'request':request,'referenceAssetIds':ref_ids,'automatic':automatic,'purpose':purpose}),None,'',service.clock(),None,None))
+ db.execute('INSERT INTO vh2_provider_jobs VALUES (?,?,?,?,?,?,?,?,?,?)',(job_id,world,'image','queued',encode({'scope':scope,'providerId':provider['id'],'photoId':photo_id,'personaId':state.get('communication',{}).get('personaId'),'request':request,'referenceAssetIds':ref_ids,'automatic':automatic,'explicitRequest':bool(explicit_request),'purpose':purpose}),None,'',service.clock(),None,None))
  return revision,after
 
 def command(service,db,world,revision,state,body):
@@ -464,9 +486,9 @@ def _poll(service):
     (j.kind='image' AND json_extract(j.snapshot,'$.automatic')=0)
     OR (json_extract(w.state,'$.running')=1 AND (j.kind<>'image' OR (
      COALESCE(json_extract(w.state,'$.truth.companion.vh2AutonomyPaused'),0)=0
-     AND EXISTS (SELECT 1 FROM vh2_service_providers p WHERE p.id=(
+     AND (json_extract(j.snapshot,'$.explicitRequest')=1 OR EXISTS (SELECT 1 FROM vh2_service_providers p WHERE p.id=(
       SELECT id FROM vh2_service_providers WHERE scope=json_extract(j.snapshot,'$.scope') ORDER BY rowid DESC LIMIT 1
-     ) AND json_extract(p.config,'$.enabled')=1)
+     ) AND json_extract(p.config,'$.enabled')=1))
     )))
    ) ORDER BY CASE WHEN j.kind='image' AND json_extract(j.snapshot,'$.automatic')=0 THEN 0 ELSE 1 END,j.created_at LIMIT 4""",(service.kernel_version,)).fetchall()
  for job in jobs:
@@ -506,7 +528,7 @@ def _poll(service):
 
 def status(service,world):
  with service.connect() as db:
-  rows=[dict(r) for r in db.execute("SELECT id,kind,status,error,created_at,submitted_at,finished_at,json_extract(snapshot,'$.photoId') AS photoId,json_extract(snapshot,'$.automatic') AS automatic,json_extract(result,'$.providerAccepted') AS providerAccepted,json_extract(result,'$.providerJobIds') AS providerJobIds,json_extract(result,'$.referenceProgress') AS referenceProgress FROM vh2_provider_jobs WHERE world_id=? ORDER BY created_at DESC,rowid DESC LIMIT 60",(world,))]
+  rows=[dict(r) for r in db.execute("SELECT id,kind,status,error,created_at,submitted_at,finished_at,json_extract(snapshot,'$.photoId') AS photoId,json_extract(snapshot,'$.automatic') AS automatic,json_extract(snapshot,'$.explicitRequest') AS explicitRequest,json_extract(result,'$.providerAccepted') AS providerAccepted,json_extract(result,'$.providerJobIds') AS providerJobIds,json_extract(result,'$.referenceProgress') AS referenceProgress FROM vh2_provider_jobs WHERE world_id=? ORDER BY created_at DESC,rowid DESC LIMIT 60",(world,))]
   for row in rows:
    row['providerAccepted']=bool(row['providerAccepted']);row['providerJobIds']=json.loads(row['providerJobIds'] or '[]');row['referenceProgress']=json.loads(row['referenceProgress']) if row['referenceProgress'] else None
   return rows

@@ -173,7 +173,7 @@
     }
   ],
   "dmPrompt": "You are the showrunner, referee and living-world engine for POLICY PANIC AT BRAMBLE & PIKE, an original adult workplace comedy set in the small town of Maplebridge.\n\nCORE PROMISE\n- The player may be any adult and pursue any life: intern, receptionist, adjuster, salesperson, accountant, cleaner, executive, regulator, client, rival, romantic partner, saboteur or accidental local celebrity.\n- There is no mandatory plot and no reset-to-status-quo. Promotions, firings, romances, grudges, lawsuits, office elections, branch closure, buyouts and public scandals persist.\n- Treat work as a real system. Claims have evidence, policy language, reserves, liability and human stakes. Sales have targets, commissions and ethical compromises. HR has procedures, gossip and leverage. The town remembers what happens.\n\nCOMEDY ENGINE\n- Characters are extreme, immediately readable archetypes, but they are never empty props. Each has competence, vanity, vulnerability, boundaries, private needs and something they are right about.\n- Escalate from a concrete mundane problem: a cake, printer, parking space, suspicious claim, dress-code memo, client, storm, audit, rumor, charity drive or town event. Let incentives collide until the office creates its own farce.\n- Keep jokes inside the fiction. No meta commentary, canned sitcom applause, meme dumping or references to existing television characters.\n- Use running gags sparingly and let them evolve. Consequences remain after the punchline.\n\nADULT SOCIAL LIFE\n- Flirting, attraction, dating, jealousy and consensual adult relationships may emerge naturally. Never assume consent, never narrate the player's attraction, and never reduce Gloria or any woman to a reward. Gloria deliberately performs a glamorous bimbo persona because people underestimate her; she has firm boundaries, sharp social intelligence and independent ambitions.\n- Coworkers can refuse advances, misread signals, date each other, break up, reconcile, gossip or choose professionalism. Power imbalances matter.\n\nSIMULATION DISCIPLINE\n- Honor the world clock, direct exits, work schedules, homes and who is actually present. Nobody teleports with the player.\n- NPCs pursue goals off-screen. Denton chases branch glory; Gloria builds influence and a private event business; Mara investigates anomalies; Prudence protects the books; Connor protects his ranking; Nisha limits legal exposure; Eli seeks belonging; Wade quietly protects the building and its secrets.\n- Information travels through overheard calls, email, meetings, gossip, client visits, town news and paperwork. Do not give characters knowledge they could not have.\n- Use world tools for durable movement, cast, time, relationships, stats, inventory, quests, schedules, conditions and events. Commit one complete world-turn receipt every response.\n\nPLAYER AGENCY\n- Never write the player's dialogue, thoughts, consent or completed voluntary action. Resolve only what they attempt and what the world does in response.\n- Use checks only when failure is interesting: persuasion, investigation, deception, office politics, technical work or physical mishap. Failure creates complication, not a dead end.\n- End most turns with a changed situation, pressure, opportunity or a clear person waiting for an answer.\n\nVOICE\nSecond person, present tense. Fast, concrete, character-driven. Dialogue should be short and distinctive. Sensory detail comes from stale coffee, toner, rain, cheap perfume, wet wool, filing dust, humming lights and small-town weather—not purple prose.",
-  "intro": "Monday, 8:57 a.m. Rain needles the glass doors of Bramble & Pike Mutual while the lobby switchboard blinks like a tiny distress signal.\n\nGloria Bell sits behind the curved reception desk in magenta, perfectly composed, one manicured finger holding down three phone lines at once. She looks up at you with a smile that says she already knows why you are here—and probably knows a better reason you should leave.\n\nBehind her, something heavy crashes in the bullpen. Eli Finch yelps. The copier begins emitting a continuous alarm. Denton Pike's voice rolls out of his office: “Nobody panic. This is what controlled momentum sounds like.”\n\nThen a soaked woman from the state insurance commission walks through the door, shows Gloria a badge, and asks to see the branch manager.\n\nIt is not yet nine o'clock.",
+  "intro": "Monday, 8:57 a.m. Rain needles the glass doors of Bramble & Pike Mutual. In the Reception Lobby, a brass nameplate identifies the woman behind the curved desk: GLORIA BELL. She keeps one finger on the switchboard while its lights blink red.\n\nSomething crashes beyond the door marked MAIN BULLPEN. A voice yelps; a copier alarm follows. From farther inside, someone calls, “Nobody panic. This is what controlled momentum sounds like.”\n\nThe fax beside Gloria begins printing. STATE INSURANCE COMMISSION is visible across the first page. She stops smiling. “You may have picked an interesting morning.”",
   "authorNote": "Keep the office funny because people want incompatible things, not because reality stops mattering. Keep every NPC voice distinct. Maintain clock, presence, reporting lines and town memory. Let quiet workdays, romance, friendship and competence matter as much as scandals.",
   "startLocationId": "loc_reception",
   "kernel": {
@@ -351,6 +351,54 @@
           "text": "to Rainier Main Street",
           "travelTime": 8,
           "isOneWay": false
+        },
+        {
+          "text": "to Gloria's Apartment",
+          "targetLocationId": "loc_gloria_home",
+          "travelTime": 10,
+          "isOneWay": false
+        },
+        {
+          "text": "to Denton's Split-Level",
+          "targetLocationId": "loc_denton_home",
+          "travelTime": 14,
+          "isOneWay": false
+        },
+        {
+          "text": "to Mara's Duplex",
+          "targetLocationId": "loc_mara_home",
+          "travelTime": 12,
+          "isOneWay": false
+        },
+        {
+          "text": "to Prudence's House",
+          "targetLocationId": "loc_prudence_home",
+          "travelTime": 11,
+          "isOneWay": false
+        },
+        {
+          "text": "to Connor's Condo",
+          "targetLocationId": "loc_connor_home",
+          "travelTime": 13,
+          "isOneWay": false
+        },
+        {
+          "text": "to Nisha's Townhouse",
+          "targetLocationId": "loc_nisha_home",
+          "travelTime": 15,
+          "isOneWay": false
+        },
+        {
+          "text": "to Eli's Rental Room",
+          "targetLocationId": "loc_eli_home",
+          "travelTime": 16,
+          "isOneWay": false
+        },
+        {
+          "text": "to Wade's Workshop",
+          "targetLocationId": "loc_wade_home",
+          "travelTime": 20,
+          "isOneWay": false
         }
       ],
       "visuals": {
@@ -423,6 +471,12 @@
           "text": "to Records Basement",
           "travelTime": 2,
           "isOneWay": false
+        },
+        {
+          "text": "to Bramble & Pike Mutual — Maplebridge Regional",
+          "targetLocationId": "loc_office",
+          "travelTime": 1,
+          "isOneWay": false
         }
       ],
       "visuals": {
@@ -479,6 +533,12 @@
         },
         {
           "text": "to Denton Pike's Office",
+          "travelTime": 1,
+          "isOneWay": false
+        },
+        {
+          "text": "to Bramble & Pike Mutual — Maplebridge Regional",
+          "targetLocationId": "loc_office",
           "travelTime": 1,
           "isOneWay": false
         }
@@ -1862,7 +1922,7 @@
         "insight": 5,
         "charm": 5
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Reception Lobby. Your new employee badge is still sealed in its plastic sleeve. Gloria Bell’s nameplate sits between you and three blinking phone lines. She slides an onboarding checklist across the desk. The last box reads ASSIGNED SUPERVISOR; nobody has filled it in. Behind the bullpen door, a copier alarm starts. The fax beside her is printing a page headed STATE INSURANCE COMMISSION."
     },
     {
       "id": "origin_temp_reception",
@@ -1872,7 +1932,7 @@
       "socialRank": "contract worker",
       "title": "",
       "legalStatus": "agency temp",
-      "description": "Gloria is away for one morning. You inherit the switchboard, the lobby and everyone’s assumption that the desk is easy.",
+      "description": "Gloria is handing you the switchboard for a morning. You inherit the lobby, the message pads and everyone’s assumption that the desk is easy.",
       "startLocationId": "loc_reception",
       "factionId": "fac_frontdesk",
       "factionReputation": 10,
@@ -1899,7 +1959,7 @@
         "insight": 6,
         "charm": 6
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Reception Lobby. Gloria is still beside the switchboard, handing you its laminated cheat sheet. Two phone lines are holding; the third begins to ring before she can explain it. “If Denton asks, you have not seen the blue envelope.” A blue envelope lies beneath the message pad. She has not left the desk yet."
     },
     {
       "id": "origin_adjuster",
@@ -1942,7 +2002,7 @@
         "insight": 8,
         "charm": 4
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Claims Cave. Three roof-claim folders are spread across the desk. Mara has circled the same contractor’s name in each, but the storm dates do not match. Your claim notebook lies open beside your badge. Through the wall comes the copier’s continuous alarm. Mara taps an empty space on the evidence sheet. “I need something we can actually prove.”"
     },
     {
       "id": "origin_sales",
@@ -1984,7 +2044,7 @@
         "insight": 4,
         "charm": 8
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Main Bullpen. Your prospect list lies beneath a sales chart on which Connor’s column is twice the height of yours. Beside the copier, a gift basket has tipped across a stack of policy summaries. The machine is sounding an alarm. Your desk phone lights up with an internal message: DENTON—COUNTY ACCOUNT. No one has answered it for you."
     },
     {
       "id": "origin_regulator",
@@ -2027,7 +2087,7 @@
         "insight": 8,
         "charm": 4
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Reception Lobby. Rain drips from your coat onto the mat. Your state credentials and sealed examination scope are in your hand. The receptionist’s nameplate reads GLORIA BELL. She looks from the credentials to the switchboard, then back at you. “Is Mr. Pike expecting you?” Beyond the bullpen door, a copier alarm begins. You have not yet asked for the records."
     },
     {
       "id": "origin_cleaner",
@@ -2066,7 +2126,7 @@
         "insight": 7,
         "charm": 3
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Supply Closet. Your overnight shift should have ended, but a thin thread of water has appeared beneath the basement door. The supply cart is parked beside your gloves. On the clipboard, a note asks you to leave the old boiler’s pressure gauge alone until somebody photographs it. The day staff are audible in the bullpen. Your radio is still off."
     },
     {
       "id": "origin_pike_heir",
@@ -2109,7 +2169,7 @@
         "insight": 5,
         "charm": 7
       },
-      "intro": ""
+      "intro": "Monday, 8:57 a.m., Denton Pike’s Office. Your corporate assessment folder is on the visitor’s chair. Denton stands behind his desk, straightening a sales trophy that was already straight. A printed expense report lies face down under his elbow. “Family or corporate first?” he asks. Through the glass wall, the bullpen copier begins to howl."
     }
   ],
   "lorebook": [

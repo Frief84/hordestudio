@@ -156,13 +156,20 @@ test('the dead and departed are never pulled into a scene', () => {
         'a dead character was pulled into the scene');
 });
 
-test('applying presence moves them and reports what it did', () => {
+test('applying presence follows a real route and reports what it did', () => {
     const world = makeWorld();
     const sess = makeSession();
+    world.locations[1].exits = [{ targetLocationId: 'hall' }];
     const applied = context.applyNarratedPresence(world, sess, 'Emily is right there, watching.');
     assert.equal(applied.length, 1);
     assert.equal(sess.entityStates.e_emily.location, 'hall', 'the character was not actually moved');
     assert(applied[0].evidence, 'no evidence recorded for an inferred move');
+});
+
+test('inferred presence cannot move an NPC across a disconnected map', () => {
+    const world = makeWorld(), sess = makeSession();
+    assert.equal(context.applyNarratedPresence(world, sess, 'Emily is right there, watching.').length, 0);
+    assert.equal(sess.entityStates.e_emily.location, 'kitchen');
 });
 
 // Possession: a person's voice places them; their belongings do not ----------
