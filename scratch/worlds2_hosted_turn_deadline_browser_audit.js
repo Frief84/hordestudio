@@ -113,7 +113,9 @@ const host = 'world-hosted-deadline.test';
                     input: document.getElementById('world-user-input').value,
                     busy: worldTurnInProgress,
                     stopButton: document.getElementById('world-send-btn').classList.contains('stop'),
-                    toast: document.querySelector('#toast-container .toast:last-child')?.textContent || ''
+                    toast: document.querySelector('#toast-container .toast:last-child')?.textContent || '',
+                    error: document.getElementById('world-turn-error-text')?.textContent || '',
+                    errorVisible: !document.getElementById('world-turn-error')?.classList.contains('hidden')
                 };
             };
             const outcomes = {
@@ -137,13 +139,15 @@ const host = 'world-hosted-deadline.test';
         for (const outcome of [result.keepalive, result.bodyHang]) {
             assert.equal(outcome.caps, 1);
             assert.equal(outcome.clears, 1);
-            assert.match(outcome.toast, /Hosted Worlds turn exceeded 150s/i);
-            assert.doesNotMatch(outcome.toast, /local timeout/i);
+            assert(outcome.errorVisible, 'hosted timeout must stay visible');
+            assert.match(outcome.error, /Hosted Worlds turn exceeded 150s/i);
+            assert.doesNotMatch(outcome.error, /local timeout/i);
         }
         assert.equal(result.hostedIdle.caps, 1);
         assert.equal(result.hostedIdle.clears, 1);
-        assert.match(result.hostedIdle.toast, /Hosted model sent no data for 45s/i);
-        assert.doesNotMatch(result.hostedIdle.toast, /local timeout/i);
+        assert(result.hostedIdle.errorVisible, 'idle timeout must stay visible');
+        assert.match(result.hostedIdle.error, /Hosted model sent no data for 45s/i);
+        assert.doesNotMatch(result.hostedIdle.error, /local timeout/i);
         assert.equal(result.localStop.caps, 0, 'local generation must not have a hosted hard cap');
         assert.match(result.localStop.toast, /Generation stopped/i);
         assert.deepEqual(errors, []);

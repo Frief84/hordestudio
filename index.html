@@ -10,9 +10,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261024-release-18-3-7">
-    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261024-release-18-3-7">
-<link rel="stylesheet" href="horde-support.css?v=20261024-release-18-3-7">
+    <link rel="stylesheet" href="style.css?v=20261024-release-18-3-7-r2">
+    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261024-release-18-3-7-r2">
+<link rel="stylesheet" href="horde-support.css?v=20261024-release-18-3-7-r2">
 </head>
 <body>
 <div id="app">
@@ -3913,6 +3913,11 @@
                 <div id="global-default-model-results" class="searchable-dropdown-results hidden" role="listbox"></div>
             </div>
             <p class="form-hint">This catalog follows the provider selected above—even before you save. If the platform does not expose <code>/models</code>, type its exact model ID.</p>
+            <div id="horde-provider-fields" style="display:none; margin-top:12px; padding:12px; background:var(--surface2); border-radius:8px; border:1px solid var(--border);">
+                <label class="form-label" for="global-horde-key">AI Horde API key (optional)</label>
+                <input type="password" id="global-horde-key" class="form-input" autocomplete="off" placeholder="Leave blank for anonymous access">
+                <p class="form-hint">AI Horde uses a generation queue. Choose an available text model above; queue delays count toward the turn timeout.</p>
+            </div>
             <div id="local-provider-fields" style="display:none; margin-top:12px; padding:12px; background:var(--surface2); border-radius:8px; border:1px solid var(--border);">
                 <label class="form-label">Local Server URL</label>
                 <input type="text" id="global-local-url" class="form-input" placeholder="http://localhost:11434/v1">
@@ -5368,54 +5373,54 @@
 
 <script src="boot-diagnostics.js"></script>
 <script src="presets.js"></script>
-<script src="assets/worlds/bundled-content.js?v=20261024-release-18-3-7"></script>
-<script src="policy-panic-world.js?v=20261024-release-18-3-7"></script>
-    <script src="labs-needle.js?v=20261024-release-18-3-7" data-horde-needle-adapter="true"></script>
-<script src="labs-embedded.js?v=20261024-release-18-3-7"></script>
-<script src="labs-core.js?v=20261024-release-18-3-7"></script>
-<script src="labs-tasks.js?v=20261024-release-18-3-7"></script>
-<script src="horde-handbook.js?v=20261024-release-18-3-7"></script>
-<script src="horde-manual.js?v=20261024-release-18-3-7"></script>
-<script src="pip-knowledge.js?v=20261024-release-18-3-7"></script>
-<script src="pip-assistant.js?v=20261024-release-18-3-7"></script>
-<script src="labs-guide.js?v=20261024-release-18-3-7"></script>
-    <script src="help-system.js?v=20261024-release-18-3-7"></script>
-<script src="labs-ui.js?v=20261024-release-18-3-7"></script>
-<script src="rpg-mechanics.js?v=20261024-release-18-3-7"></script>
-<script src="multiplayer-engine.js?v=20261024-release-18-3-7"></script>
-<script src="multiplayer.js?v=20261024-release-18-3-7"></script>
-<script src="video-worlds.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-activity-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-world-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-simulation-core.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-mind-library.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-mind-engine.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/engine/vh-life-schema.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261024-release-18-3-7"></script>
-    <script src="virtual_humans/frontend/vh-page-builder.js?v=20261024-release-18-3-7"></script>
-    <script src="bundled-humans.js?v=20261024-release-18-3-7"></script>
-    <script src="human-package.js?v=20261024-release-18-3-7"></script>
-    <script src="large-archive.js?v=20261024-release-18-3-7"></script>
-    <script src="assets/worlds/world-lore.js?v=20261024-release-18-3-7"></script>
-    <script src="assets/worlds/world-lore-ui.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/model-client.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/working-state.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/effect-registry.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/linked-world-actions.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/scene-ledger.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/scene-draft.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/turn-context.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/horde-client.js?v=20261024-release-18-3-7"></script>
-    <script src="worlds/background-sim.js?v=20261024-release-18-3-7"></script>
-    <script src="assets/worlds/map-editor.js?v=20261024-release-18-3-7"></script>
-    <script src="app.js?v=20261024-release-18-3-7"></script>
+<script src="assets/worlds/bundled-content.js?v=20261024-release-18-3-7-r2"></script>
+<script src="policy-panic-world.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="labs-needle.js?v=20261024-release-18-3-7-r2" data-horde-needle-adapter="true"></script>
+<script src="labs-embedded.js?v=20261024-release-18-3-7-r2"></script>
+<script src="labs-core.js?v=20261024-release-18-3-7-r2"></script>
+<script src="labs-tasks.js?v=20261024-release-18-3-7-r2"></script>
+<script src="horde-handbook.js?v=20261024-release-18-3-7-r2"></script>
+<script src="horde-manual.js?v=20261024-release-18-3-7-r2"></script>
+<script src="pip-knowledge.js?v=20261024-release-18-3-7-r2"></script>
+<script src="pip-assistant.js?v=20261024-release-18-3-7-r2"></script>
+<script src="labs-guide.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="help-system.js?v=20261024-release-18-3-7-r2"></script>
+<script src="labs-ui.js?v=20261024-release-18-3-7-r2"></script>
+<script src="rpg-mechanics.js?v=20261024-release-18-3-7-r2"></script>
+<script src="multiplayer-engine.js?v=20261024-release-18-3-7-r2"></script>
+<script src="multiplayer.js?v=20261024-release-18-3-7-r2"></script>
+<script src="video-worlds.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-activity-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-world-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-simulation-core.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-mind-library.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-mind-engine.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/engine/vh-life-schema.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="virtual_humans/frontend/vh-page-builder.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="bundled-humans.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="human-package.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="large-archive.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="assets/worlds/world-lore.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="assets/worlds/world-lore-ui.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/model-client.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/working-state.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/effect-registry.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/linked-world-actions.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/scene-ledger.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/scene-draft.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/turn-context.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/horde-client.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="worlds/background-sim.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="assets/worlds/map-editor.js?v=20261024-release-18-3-7-r2"></script>
+    <script src="app.js?v=20261024-release-18-3-7-r2"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

@@ -14158,9 +14158,11 @@ function setupGlobalSettings() {
         if (invalidatedEmbeddings) {
             showToast(`Embedding model changed · ${invalidatedEmbeddings} memories will re-index safely`, 'info');
         }
-        state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
-            document.getElementById('global-local-tts-url').value, 'http://127.0.0.1:8000/v1');
-        state.globalSettings.localTtsApiKey = document.getElementById('global-local-tts-key').value.trim().slice(0, 500);
+        const localTtsUrl = document.getElementById('global-local-tts-url');
+        const localTtsKey = document.getElementById('global-local-tts-key');
+        if (localTtsUrl) state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
+            localTtsUrl.value, 'http://127.0.0.1:8000/v1');
+        if (localTtsKey) state.globalSettings.localTtsApiKey = localTtsKey.value.trim().slice(0, 500);
         state.globalSettings.mcpBridgeUrl = normalizeMcpBridgeUrl(
             document.getElementById('global-mcp-bridge-url').value
         );
@@ -15152,8 +15154,10 @@ function showGlobalSettings() {
         document.getElementById('global-embedding-url').value = state.globalSettings.embeddingBaseUrl || '';
         document.getElementById('global-embedding-key').value = state.globalSettings.embeddingApiKey || '';
         document.getElementById('global-embedding-model').value = state.globalSettings.embeddingModel || '';
-        document.getElementById('global-local-tts-url').value = state.globalSettings.localTtsBaseUrl || 'http://127.0.0.1:8000/v1';
-        document.getElementById('global-local-tts-key').value = state.globalSettings.localTtsApiKey || '';
+        const localTtsUrl = document.getElementById('global-local-tts-url');
+        const localTtsKey = document.getElementById('global-local-tts-key');
+        if (localTtsUrl) localTtsUrl.value = state.globalSettings.localTtsBaseUrl || 'http://127.0.0.1:8000/v1';
+        if (localTtsKey) localTtsKey.value = state.globalSettings.localTtsApiKey || '';
         document.getElementById('global-mcp-bridge-url').value = state.globalSettings.mcpBridgeUrl || HORDE_MCP_BRIDGE_DEFAULT;
         document.getElementById('global-companion-always-on').checked = state.globalSettings.companionAlwaysOnEnabled === true;
         document.getElementById('global-always-on-messages').checked = state.globalSettings.companionAlwaysOnMessages !== false;

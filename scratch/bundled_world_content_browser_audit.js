@@ -42,7 +42,7 @@ const {chromium,launchOptions}=require('./browser_runtime').browserRuntime();con
   }
   return{migrations,results};
  },JSON.parse(fs.readFileSync(path.join(root,'scratch/fixtures/bundled-worlds-before-content-v1.json'),'utf8')));
- fs.writeFileSync('/private/tmp/horde-bundled-worlds-20261023/browser-results.json',JSON.stringify(result,null,2));
+ if(process.env.HORDE_BUNDLED_CONTENT_REPORT){const report=path.resolve(process.env.HORDE_BUNDLED_CONTENT_REPORT);fs.mkdirSync(path.dirname(report),{recursive:true});fs.writeFileSync(report,JSON.stringify(result,null,2));}
  for(const m of result.migrations){assert.deepEqual(m.skipped,[],m.id+' normalized migration');assert(m.sessionUnchanged);}
  for(const r of result.results){assert.equal(r.introLocation,r.start,JSON.stringify(r));assert.equal(r.after,r.start,JSON.stringify(r));assert.equal(r.source,'tool_call',JSON.stringify(r));assert.deepEqual(r.rejections,[],JSON.stringify(r));assert.equal(r.calls,1,JSON.stringify(r));if(r.world==='world_aldenmere'){assert(r.cast.includes('ent_rowena'));assert(r.cast.includes('ent_quill'));}if(r.origin==='origin_queen'){assert(!r.queenVisible);assert(r.roleHint);}if(r.origin==='bw_origin_mayor'){assert(!r.mayorVisible);assert(r.roleHint);}}
  assert.equal(result.results.length,38);

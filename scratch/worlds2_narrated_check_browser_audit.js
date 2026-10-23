@@ -203,7 +203,9 @@ The gate remains shut, the heavy bars immovable as you search for the internal t
                 if (/The requested tools have been processed/i.test(prompt)) {
                     calls.push(`${phase}:follow-up`);
                     if (phase === 'late') return respond(narrative);
-                    const unlocked = getCurrentWorldSession()?.unlockedExits?.['gate::cellar'] === true;
+                    const current = getCurrentWorldSession();
+                    const active = state.worlds.find(world => world.id === state.activeWorldId);
+                    const unlocked = worldExitRequirement(current, active.locations.find(location => location.id === 'gate').exits.find(exit => exit.targetLocationId === 'cellar'), 'gate').ok;
                     return respond(unlocked
                         ? 'The tumblers yield and the gate unlocks. The cellar route is open.'
                         : 'The wire bends against the tumblers. The gate remains locked.');
@@ -244,6 +246,8 @@ The gate remains shut, the heavy bars immovable as you search for the internal t
                 const gate = world.locations.find(location => location.id === 'gate');
                 const exit = gate.exits.find(item => item.targetLocationId === 'cellar');
                 const last = [...session.history].reverse().find(message => message.role === 'dm');
+                const saved = await HordeDB.get(`worldInstance:${world.id}`);
+                const savedSession = saved?.sessions?.find(item => item.id === session.id);
                 return { source: last?.stateSource || session.lastTurnStateSource,
                     text: last?.text || '', pending: session.pendingChecks?.length || 0,
                     checks: session.checkHistory?.length || 0,
@@ -253,10 +257,13 @@ The gate remains shut, the heavy bars immovable as you search for the internal t
                     audit: session.lastTurnAudit?.rejected?.map(item => item.reason) || [],
                     auditSource: session.lastTurnAudit?.source || '',
                     auditSalvaged: session.lastTurnAudit?.salvaged || '',
-                    saved: await HordeDB.get(`worldInstance:${world.id}`) };
+                    saved, savedUnlocked: !!savedSession && worldExitRequirement(savedSession, exit, 'gate').ok };
             };
             const player = await play('player', 'player');
+            const originalRoll = rollSecureDie;
+            rollSecureDie = () => 20;
             const automatic = await play('automatic', 'automatic');
+            rollSecureDie = originalRoll;
             const failed = await play('failed', 'player');
             const late = await play('late', 'player');
             const disabled = await play('disabled', 'automatic');
@@ -297,7 +304,7 @@ The gate remains shut, the heavy bars immovable as you search for the internal t
         assert.equal(result.automatic.checks, 1, 'automatic mode must roll exactly once');
         assert.equal(result.automatic.unlocked, result.automatic.rollSuccess,
             'the gate must open iff the authoritative roll succeeds');
-        assert.equal(result.automatic.saved?.sessions?.[0]?.unlockedExits?.['gate::cellar'] === true,
+        assert.equal(result.automatic.savedUnlocked,
             result.automatic.rollSuccess, 'the persisted route must match the authoritative roll');
         assert.doesNotMatch(result.automatic.text, /Check Required|provide a d20/i);
         assert.equal(result.failed.source, 'frozen_no_receipt');

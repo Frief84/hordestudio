@@ -82,7 +82,7 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
                 open: worldExitRequirement(session, edge, 'gate').ok,
                 route: findWorldTravelPath(world, 'gate', 'cellar', { session }),
                 disabled: exitButton?.disabled,
-                savedOpen: succeeded.persisted?.sessions?.[0]?.unlockedExits?.['gate::cellar'] === true,
+                savedOpen: succeeded.persisted?.sessions?.[0]?.unlockedExits?.[edge.doorId] === true,
                 message: session.history.at(-1)?.text || ''
             };
             const snapshot = captureWorldTurnState(world, session);
@@ -94,7 +94,7 @@ const fixture = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures',
             return {
                 failed: { opened: failed.opened, preview: failed.preview,
                     roll: failed.history[0]?.roll,
-                    savedOpen: failed.persisted?.sessions?.[0]?.unlockedExits?.['gate::cellar'] === true },
+                    savedOpen: failed.persisted?.sessions?.[0]?.unlockedExits?.[edge.doorId] === true },
                 succeeded: { roll: succeeded.history[0]?.roll, ...afterSuccess },
                 rollbackRestored
             };
