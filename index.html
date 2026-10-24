@@ -769,6 +769,16 @@
                         <button id="world-lore-debug-btn" type="button" class="btn btn-ghost">World Lore · Author / Debug</button>
                         <p class="world-insight-hint">Private author view. See which world changes actually committed, what was rejected, and which people are pursuing goals. This does not change the story.</p>
                         <div id="world-director-health" class="world-history-health" role="status"></div>
+                        <h3 class="world-director-subheading">World Monitor</h3>
+                        <div id="world-debug-summary" class="world-director-fact"></div>
+                        <div class="world-debug-filters">
+                            <input id="world-debug-search" class="form-input" type="search" placeholder="Search NPC name or ID" aria-label="Search NPC name or ID">
+                            <select id="world-debug-location" class="form-select" aria-label="Filter NPC location"><option value="">All locations</option></select>
+                            <select id="world-debug-goal-filter" class="form-select" aria-label="Filter NPC goal"><option value="">All goals</option><option value="active">Active goals</option><option value="blocked">Blocked goals</option></select>
+                        </div>
+                        <div id="world-debug-monitor" class="world-insight-list"></div>
+                        <h3 class="world-director-subheading">NPC Inspector</h3>
+                        <div id="world-debug-inspector" class="world-insight-list"></div>
                         <h3 class="world-director-subheading">Recent turn receipts</h3>
                         <div id="world-director-receipts" class="world-insight-list"></div>
                         <h3 class="world-director-subheading">Active minds</h3>
@@ -5434,6 +5444,8 @@
     <script src="worlds/working-state.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/effect-registry.js?v=20261015-linked-actions-fix2"></script>
     <script src="worlds/linked-world-actions.js?v=20261018-server-bound-turns"></script>
+    <script src="worlds/perception.js?v=20261024-p27a"></script>
+    <script src="worlds/npc-goal-actions.js?v=20261024-goal-actions"></script>
     <script src="worlds/scene-draft.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/turn-binding.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/turn-context.js?v=20261020-worlds-context-budget"></script>

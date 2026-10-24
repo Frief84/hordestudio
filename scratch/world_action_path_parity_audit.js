@@ -147,6 +147,11 @@ const root = path.resolve(__dirname, '..');
             teleportPlan.events[0].cause = 'An explicit portal opens.';
             const direct = HordeLinkedWorldActions.executeLinkedActions(teleportPlan,
                 world, clone(base), movementContext);
+            const missingDirectEvent = HordeLinkedWorldActions.executeLinkedActions(
+                { ...teleportPlan, events: [] }, world, clone(base), movementContext);
+            const repeatedDirectSession = clone(direct.working.prepare().session);
+            const repeatedDirect = HordeLinkedWorldActions.executeLinkedActions(teleportPlan,
+                world, repeatedDirectSession, movementContext);
             const directDuringJourney = HordeLinkedWorldActions.executeLinkedActions(teleportPlan,
                 world, clone(journey.working.prepare().session), movementContext);
             const directAcrossLock = HordeLinkedWorldActions.executeLinkedActions(teleportPlan,
@@ -209,9 +214,26 @@ const root = path.resolve(__dirname, '..');
             const companionPlan = clone(elapsedPlan);
             companionPlan.actions[1].action_effects.actor_move[0].actor_id = 'player';
             companionPlan.actions[1].action_effects.actor_move[0].companion_ids = ['c'];
+            companionPlan.events[0].id = 'move_n_player';
             companionPlan.events[0].actor_id = 'player';
+            companionPlan.events.push({ id: 'move_n_companion', action_id: 'move_n', passage_id: 'move_p',
+                type: 'movement', actor_id: 'c', status: 'completed',
+                from_location_id: 'a', to_location_id: 'b' });
             const accompanied = HordeLinkedWorldActions.executeLinkedActions(companionPlan,
                 companionWorld, companionSession, movementContext);
+            const missingCompanionEventPlan = clone(companionPlan);
+            missingCompanionEventPlan.events.pop();
+            const missingCompanionEventSession = clone(companionSession);
+            const missingCompanionEvent = HordeLinkedWorldActions.executeLinkedActions(
+                missingCompanionEventPlan, companionWorld, missingCompanionEventSession, movementContext);
+            const wrongCompanionActionPlan = clone(companionPlan);
+            wrongCompanionActionPlan.events[1].action_id = 'different_action';
+            const wrongCompanionAction = HordeLinkedWorldActions.executeLinkedActions(
+                wrongCompanionActionPlan, companionWorld, clone(companionSession), movementContext);
+            const unavailableCompanionSession = clone(companionSession);
+            unavailableCompanionSession.entityStates.c.location = 'b';
+            const unavailableCompanion = HordeLinkedWorldActions.executeLinkedActions(
+                companionPlan, companionWorld, unavailableCompanionSession, movementContext);
             const keyedCompanionWorld = clone(companionWorld);
             keyedCompanionWorld.locations[0].exits[0].requiredItem = 'key';
             const keyedCompanionSession = clone(companionSession);
@@ -600,6 +622,10 @@ const root = path.resolve(__dirname, '..');
                     .state?.conditions?.some(item => item.label === 'impassable'),
                 directOk: direct.ok, directErrors: direct.errors,
                 directLocation: direct.ok && direct.working.getEntity('n').state.location,
+                missingDirectEventOk: missingDirectEvent.ok,
+                missingDirectEventReason: missingDirectEvent.errors[0]?.reason,
+                repeatedDirectOk: repeatedDirect.ok,
+                repeatedDirectLocation: repeatedDirectSession.entityStates.n.location,
                 directDuringJourneyOk: directDuringJourney.ok,
                 directDuringJourneyErrors: directDuringJourney.errors,
                 directDuringJourneyLocation: directDuringJourney.ok
@@ -614,6 +640,15 @@ const root = path.resolve(__dirname, '..');
                 accompaniedOk: accompanied.ok, accompaniedErrors: accompanied.errors,
                 accompaniedPlayer: accompanied.ok && accompanied.working.getSession('playerLocation'),
                 accompaniedNpc: accompanied.ok && accompanied.working.getEntity('c').state.location,
+                missingCompanionEventOk: missingCompanionEvent.ok,
+                missingCompanionEventReason: missingCompanionEvent.errors[0]?.reason,
+                missingCompanionEventLocations: [missingCompanionEventSession.playerLocation,
+                    missingCompanionEventSession.entityStates.c.location],
+                wrongCompanionActionOk: wrongCompanionAction.ok,
+                wrongCompanionActionReason: wrongCompanionAction.errors[0]?.reason,
+                unavailableCompanionOk: unavailableCompanion.ok,
+                unavailableCompanionLocations: [unavailableCompanionSession.playerLocation,
+                    unavailableCompanionSession.entityStates.c.location],
                 keyedCompanionOk: keyedCompanion.ok,
                 multiAgentLegs: multiAgent.entityStates.n.journey?.legTravelMinutes,
                 multiScheduleLegs: multiSchedule.entityStates.n.journey?.legTravelMinutes,
@@ -736,6 +771,9 @@ const root = path.resolve(__dirname, '..');
         ['blocked', 'a', 'triggered', true]);
         assert.equal(result.directOk, true, JSON.stringify(result.directErrors));
         assert.equal(result.directLocation, 'b');
+        assert.deepEqual([result.missingDirectEventOk, result.missingDirectEventReason],
+            [false, 'unverified_direct_move']);
+        assert.deepEqual([result.repeatedDirectOk, result.repeatedDirectLocation], [false, 'b']);
         assert.equal(result.directDuringJourneyOk, true,
             JSON.stringify(result.directDuringJourneyErrors));
         assert.deepEqual([result.directDuringJourneyLocation,
@@ -747,6 +785,13 @@ const root = path.resolve(__dirname, '..');
         assert.equal(result.exploredOk, true, JSON.stringify(result.exploredErrors));
         assert.equal(result.accompaniedOk, true, JSON.stringify(result.accompaniedErrors));
         assert.deepEqual([result.accompaniedPlayer, result.accompaniedNpc], ['b', 'b']);
+        assert.deepEqual([result.missingCompanionEventOk, result.missingCompanionEventReason,
+            result.missingCompanionEventLocations],
+        [false, 'unwitnessed_companion_or_actor_move', ['a', 'a']]);
+        assert.deepEqual([result.wrongCompanionActionOk, result.wrongCompanionActionReason],
+            [false, 'unwitnessed_companion_or_actor_move']);
+        assert.deepEqual([result.unavailableCompanionOk, result.unavailableCompanionLocations],
+            [false, ['a', 'b']]);
         assert.equal(result.keyedCompanionOk, true, 'the player key authorizes their accompanying NPC');
         assert.deepEqual(result.multiAgentLegs, [60, 30]);
         assert.deepEqual(result.multiScheduleLegs, [60, 30]);

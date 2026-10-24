@@ -2,6 +2,7 @@
 const assert = require('node:assert/strict');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
+const fs = require('node:fs');
 const scene = require('../worlds/scene-draft');
 const binding = require('../worlds/turn-binding');
 const linked = require('../worlds/linked-world-actions');
@@ -151,6 +152,27 @@ He shifts slightly on his sun-warmed stone.
     const checkContract = binding.schema(checkCanonical);
     assert(checkContract.properties.actions.items.properties.status.enum.includes('pending_check'));
     assert.match(checkContract.properties.actions.items.properties.status.description, /exactly one|one real/u);
+    const savedDraft = (file, callIndex) => {
+        const saved = JSON.parse(fs.readFileSync(path.join(__dirname, file), 'utf8'))[0].calls[callIndex].response;
+        const raw = saved.startsWith('data:') ? saved.split(/\r?\n/u).filter(line => line.startsWith('data: {'))
+            .map(line => JSON.parse(line.slice(6)).choices?.[0]?.delta?.content || '').join('')
+            : JSON.parse(saved).choices[0].message.content;
+        return JSON.parse(raw);
+    };
+    for (const file of ['world_p28_qwen_t08.json', 'world_p28_qwen_t08_after_coverage.json']) {
+        const original = savedDraft(file, 0);
+        const final = savedDraft(file, 2);
+        for (const draft of [original, final]) {
+            const bound = binding.bind(draft, { ...context, input: 'I take Linda to the Round Room.' },
+                checkCanonical);
+            assert(bound.errors.some(error => error.reason === 'request_coverage_mismatch'),
+            'competing Qwen outcomes cannot share the same complete player request');
+            assert(new Set(draft.actions.map(action => JSON.stringify(action.response))).size > 1,
+                'the saved Qwen actions are distinct proposals, not identical duplicates');
+            if (draft.actions.every(action => action.request === 'I take Linda to the Round Room.'))
+                assert(bound.errors.some(error => /distinct responses/u.test(error.detail)));
+        }
+    }
     const rawBound = binding.bind(rawOverlap, { ...context, input: rawInput }, checkCanonical);
     assert(rawBound.ok, JSON.stringify(rawBound.errors));
     assert.equal(rawBound.draft.actions[1].request, 'ask him to walk to path.');
@@ -259,13 +281,13 @@ He shifts slightly on his sun-warmed stone.
     delete missingNpcEvent.reactions[0].events;
     const missingWitness = compile(missingNpcEvent);
     assert.equal(missingWitness.executed.ok, false);
-    assert.equal(missingWitness.executed.errors[0].reason, 'unwitnessed_world_effect');
+    assert.equal(missingWitness.executed.errors[0].reason, 'unwitnessed_companion_or_actor_move');
     assert.equal(missingWitness.session.entityStates.lorne.location, 'stone');
     const wrongActor = structuredClone(autonomous);
     wrongActor.reactions[0].events[0].actor_id = 'player';
     const wrongActorResult = compile(wrongActor);
     assert.equal(wrongActorResult.executed.ok, false);
-    assert.equal(wrongActorResult.executed.errors[0].reason, 'unlinked_movement_event');
+    assert.equal(wrongActorResult.executed.errors[0].reason, 'unwitnessed_companion_or_actor_move');
     const unreachable = structuredClone(autonomous);
     unreachable.reactions[0].effects.actor_move[0].to_location_id = 'unknown_place';
     const unreachableResult = compile(unreachable);
@@ -274,7 +296,7 @@ He shifts slightly on his sun-warmed stone.
     const wrongOrigin = structuredClone(autonomous);
     wrongOrigin.reactions[0].events[0].from_location_id = 'path';
     assert.equal(compile(wrongOrigin).executed.errors[0].reason,
-        'event_movement_origin_mismatch');
+        'unwitnessed_companion_or_actor_move');
     const falseRelation = dialogue();
     falseRelation.reactions = [{ text: 'Lorne speaks warmly.',
         effects: { relation_set: [{ subject_id: 'lorne', target_id: 'player', value: 50 }] },
@@ -362,7 +384,7 @@ He shifts slightly on his sun-warmed stone.
     assert(binding.bind(missingPart, { ...context, input: mixedInput }, canonical).errors.some(error =>
         error.reason === 'request_coverage_mismatch'));
     assert.equal(mixedFailure.executed.ok, false);
-    assert.equal(mixedFailure.executed.errors[0].reason, 'unwitnessed_world_effect');
+    assert.equal(mixedFailure.executed.errors[0].reason, 'unwitnessed_companion_or_actor_move');
     assert.equal(mixedFailure.executed.verifiedEffects.length, 1,
         'only the earlier player action has a verified chain');
     assert.deepEqual(mixedFailure.executed.confirmedEffects, [],

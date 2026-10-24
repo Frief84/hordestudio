@@ -4474,6 +4474,16 @@ input[type=number].form-input::-webkit-inner-spin-button {
 .world-director-mind .world-director-fact { margin: 0; }
 .world-director-mind .world-insight-meta { color: var(--text-3); font-size: 0.7rem; }
 .world-director-mind .tool-btn { margin-top: 4px; }
+.world-debug-filters { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 7px; margin: 10px 0; }
+.world-debug-filters .form-input { grid-column: 1 / -1; }
+.world-debug-filters .form-input, .world-debug-filters .form-select { min-width: 0; }
+.world-debug-npc { width: 100%; text-align: left; cursor: pointer; }
+.world-debug-npc[aria-pressed="true"] { border-color: var(--accent); }
+.world-debug-npc strong, .world-debug-npc span { display: block; }
+.world-debug-inspector-section { padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface2); overflow-wrap: anywhere; }
+.world-debug-inspector-section h4 { margin: 0 0 8px; }
+.world-debug-inspector-section p { margin: 6px 0; font-size: .78rem; line-height: 1.45; }
+.world-debug-inspector-section pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: .72rem; }
 .world-history-pagination { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 14px; }
 .world-history-pagination span { font-size: 0.72rem; color: var(--text-2); white-space: nowrap; }
 .world-history-pagination button:disabled { opacity: 0.45; cursor: not-allowed; }

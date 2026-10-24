@@ -1,0 +1,44 @@
+[
+  {
+    "id": "T08",
+    "model": "gemma4:31b-it-q4_K_M",
+    "input": "I take Linda to the Round Room.",
+    "error": "Generation stopped. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 300046,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "pageErrors": []
+  }
+]

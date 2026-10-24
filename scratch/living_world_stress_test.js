@@ -333,6 +333,32 @@ function json(value) {
 }
 
 // GM tool pipeline: all new state types work together in one atomic update.
+// Legacy callers without movementAuthority may redirect an agenda, but cannot
+// turn a model claim into progress or completion without a committed action.
+{
+    const world = makeWorld();
+    const sess = makeSession(world);
+    context.state = { activeWorldId: world.id, worlds: [world],
+        worldInstances: { [world.id]: {} }, editingWorld: null };
+    context.getCurrentWorldSession = () => sess;
+    context.normalizeLivingWorldState(world, sess);
+    context.processStructuredActions({ npc_goal_updates: [{
+        npc_id: 'npc_0', goal: 'Find a key'
+    }] });
+    assert.equal(sess.entityStates.npc_0.goal, 'Find a key');
+    for (const claimedResult of [{ progress_change: 100 },
+        { status: 'completed' }]) {
+        const result = context.processStructuredActions({ npc_goal_updates: [{
+            npc_id: 'npc_0', goal: 'Find a key', ...claimedResult
+        }] });
+        assert(result.moduleRejections.some(entry =>
+            entry.reason === 'goal_result_requires_confirmed_action'));
+    }
+    assert.equal(sess.entityStates.npc_0.goalProgress, 0);
+    assert.equal(sess.entityStates.npc_0.goalStatus, 'active');
+}
+
+// GM tool pipeline: all new state types work together in one atomic update.
 {
     const world = makeWorld();
     const sess = makeSession(world);

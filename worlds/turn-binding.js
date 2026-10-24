@@ -242,7 +242,15 @@ function bind(proposal, context, canonical) {
     const requestSpans = proposal.actions.length === 1
         ? [{ start: 0, end: context.input.length }]
         : proposal.actions.length ? alignRequests(context.input, proposal.actions) : [];
-    if (!requestSpans) errors.push({ reason: 'request_coverage_mismatch', detail: 'actions' });
+    if (!requestSpans) {
+        const repeatedWholeInput = proposal.actions.length > 1
+            && requestAnchors.every(anchor => anchor === context.input.trim());
+        errors.push({ reason: 'request_coverage_mismatch',
+            detail: repeatedWholeInput
+                ? `actions: ${proposal.actions.length} copies of the full player request with ${new Set(
+                    proposal.actions.map(action => JSON.stringify(action.response))).size} distinct responses`
+                : 'actions' });
+    }
     if (errors.length) return { ok: false, errors };
     if (proposal.actions.length > 1 && requestSpans.some((span, index) =>
         String(proposal.actions[index].request).trim() !== context.input.slice(span.start, span.end).trim()))

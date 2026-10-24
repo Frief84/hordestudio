@@ -19,13 +19,28 @@ const technicalEffects = new Map(Object.entries({
         companion_ids: list(field('Exact accompanying actor ID.')) },
     ['actor_id', 'to_location_id'])),
     interactable_transition: list(shape({ target_id: field('Exact object or door ID.'),
-        to_state: field('Authored target state.', 80) })),
+        to_state: field('Authored target state.', 80),
+        actor_id: field('Exact acting player or NPC ID; defaults to player.') },
+    ['target_id', 'to_state'])),
     item_transfer: list(shape({ item_id: field('Exact item ID or owned item name.'),
         from_id: field('Exact actor or location ID.'), to_id: field('Exact actor or location ID.'),
+        actor_id: field('Exact acting player or NPC ID; defaults to player.'),
+        container_id: field('Exact container ID when placing an item inside it.'),
         quantity: { type: 'integer', minimum: 1, maximum: 100 } },
     ['item_id', 'from_id', 'to_id'])),
+    item_consume: list(shape({ item_id: field('Exact owned item ID or name.'),
+        actor_id: field('Exact owning actor ID.'),
+        quantity: { type: 'integer', minimum: 1, maximum: 100 } },
+    ['item_id', 'actor_id'])),
     item_introduce: list(shape({ id: field('New stable item ID.'), name: field('Item name.', 160),
-        location_id: field('Exact present location ID.'), description: field('Short description.', 500) },
+        location_id: field('Exact present location ID.'), description: field('Short description.', 500),
+        quantity: { type: 'integer', minimum: 1, maximum: 100 },
+        actor_id: field('Exact creating or discovering actor ID.'),
+        cause: { type: 'string', enum: ['discovery', 'crafting', 'conjuration', 'transmutation', 'replication'] },
+        category: field('Authored ordinary discovery category.'),
+        rule_id: field('Exact authored item creation rule ID.'),
+        source_item_id: field('Exact owned input item ID or name.'),
+        duration_minutes: { type: 'integer', minimum: 1, maximum: 10080 } },
     ['id', 'name', 'location_id'])),
     entity_introduce: list(shape({ id: field('New stable NPC ID.'), name: field('NPC name.', 160),
         location_id: field('Exact present location ID.'), persona: field('NPC persona.', 500) })),
@@ -40,12 +55,64 @@ const technicalEffects = new Map(Object.entries({
         value: { type: 'integer', minimum: -100, maximum: 100 } })),
     event_emit: list(shape({ id: field('Stable event ID.'), type: field('Registered event type.', 80),
         description: field('Observed event.', 500) })),
+    knowledge_share: list(shape({ actor_id: field('Exact NPC sender ID.'),
+        recipient_id: field('Exact NPC recipient ID.'),
+        observation_id: field('Exact ID of a shareable observation owned by the sender.') })),
     time_advance: list(shape({ minutes: { type: 'integer', minimum: 1, maximum: 10080 } })),
     outfit_set: list(shape({ actor_id: field('Exact actor ID.'),
         outfit: field('Complete resulting outfit.', 500) }))
 }).map(([name, schema]) => [name, { name, schema, protocols: ['scene_draft_v3'],
     executionModes: ['linked'], operation: name }]));
-const effectModules = Object.freeze({ item_transfer: 'inventory', item_introduce: 'inventory',
+// NPC candidates are explicit, local and opt-in. The ordinary reducer still
+// validates ownership and commits the effect against the current working state.
+technicalEffects.get('item_consume').npcAction = {
+    options: ({ npc, world, session }) => (session.entityStates?.[npc.id]?.inventory || [])
+        .map(entry => world.entities?.find(item => item.type === 'item'
+            && (item.id === (typeof entry === 'string' ? entry : entry.id)
+                || item.name === (typeof entry === 'string' ? entry : entry.name))))
+        .filter(item => item?.properties?.npcConsumable === true)
+        .map(item => ({ label: `consume ${item.name || item.id}`,
+            targetId: item.id, payload: { actor_id: npc.id, item_id: item.id,
+                quantity: 1 }, prerequisites: ['owned', 'npc_consumable'] })),
+    event: ({ step }) => ({ type: 'inventory', action: 'consume',
+        item: step.effect.payload.item_id })
+};
+technicalEffects.get('knowledge_share').npcAction = {
+    options: ({ npc, world, session, locationId }) => {
+        const source = session.entityStates?.[npc.id];
+        if (world.communication?.inPerson === false || source?.canSpeak === false
+            || source?.communicationBlocked === true) return [];
+        const recipients = (world.entities || []).filter(item => item.type === 'npc'
+            && item.id !== npc.id && session.entityStates?.[item.id]?.location === locationId
+            && !['dead', 'gone'].includes(session.entityStates[item.id].status)
+            && session.entityStates[item.id].canHear !== false
+            && session.entityStates[item.id].communicationBlocked !== true);
+        const observations = (source?.observations || []).filter(item => item?.id
+            && item.allowedToShare !== false && item.text
+            && ['witnessed', 'told', 'suspected', 'believed', 'public']
+                .includes(item.sourceType)).slice(-8);
+        return recipients.slice(0, 8).flatMap(recipient => observations
+            .filter(item => (session.entityStates[recipient.id].observations || [])
+                .filter(known => known.sourceObservationId === item.id
+                    && known.sourceNpcId === npc.id).length < 8)
+            .slice(-4).map(item => ({
+                label: `tell ${recipient.name || recipient.id}: ${item.text.slice(0, 90)}`,
+                targetId: recipient.id,
+                payload: { actor_id: npc.id, recipient_id: recipient.id,
+                    observation_id: item.id },
+                prerequisites: ['same_location', 'shareable_knowledge', 'can_speak', 'can_hear']
+            })));
+    },
+    event: ({ step }) => ({ type: 'dialogue', action: 'report',
+        target_id: step.effect.payload.recipient_id }),
+    satisfied: ({ npc, step, session }) => (session.entityStates?.[
+        step.effect.payload.recipient_id]?.observations || []).some(item =>
+        item.sourceNpcId === npc.id
+            && item.sourceObservationId === step.effect.payload.observation_id)
+};
+technicalEffects.get('knowledge_share').eventTypes = ['dialogue'];
+const effectModules = Object.freeze({ item_transfer: 'inventory', item_consume: 'inventory',
+    item_introduce: 'inventory',
     condition_change: 'conditions' });
 function moduleVerdict(effect, modules) {
     const module = effectModules[effect];

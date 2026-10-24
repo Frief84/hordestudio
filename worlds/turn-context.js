@@ -108,7 +108,8 @@ function eventAudience(event) {
     return [...new Set([event?.actor_id, ...witnesses].filter(Boolean))];
 }
 function circulatesAsWorldFact(event) {
-    return event?.status === 'completed' && !['observation', 'dialogue'].includes(event.type)
+    return event?.status === 'completed'
+        && !['observation', 'dialogue', 'communication'].includes(event.type)
         && event.allowed_to_share !== false
         && !['told', 'suspected', 'believed'].includes(event.source_type)
         && !!String(event.evidence || '').trim();
@@ -119,7 +120,10 @@ function sceneMemory(draft, receiptId, location, turn) {
         const records = [];
         const events = Array.isArray(draft.events) ? draft.events : [];
         events.forEach((event, eventIndex) => {
-            if (event?.status !== 'completed' || outcomes.get(event.action_id) !== 'succeeded') return;
+            if (event?.status !== 'completed'
+                || event.type === 'dialogue' && draft.confirmed_effects.some(effect =>
+                    effect.action_id === event.action_id && effect.type === 'knowledge_share')
+                || outcomes.get(event.action_id) !== 'succeeded') return;
             const text = String(event.type === 'observation'
                 ? event.observation || event.evidence || '' : event.evidence || '').trim();
             if (!text) return;

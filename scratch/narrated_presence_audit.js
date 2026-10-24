@@ -158,6 +158,8 @@ test('the dead and departed are never pulled into a scene', () => {
 
 test('applying presence moves them and reports what it did', () => {
     const world = makeWorld();
+    world.locations[0].exits = [{ targetLocationId: 'kitchen' }];
+    world.locations[1].exits = [{ targetLocationId: 'hall' }];
     const sess = makeSession();
     const applied = context.applyNarratedPresence(world, sess, 'Emily is right there, watching.');
     assert.equal(applied.length, 1);
@@ -226,6 +228,9 @@ test('explicit departures are detected without treating possessions as movement'
     const sess = makeSession();
     sess.entityStates.e_emily.location = 'hall';
     assert.deepEqual(Array.from(context.detectNarratedDepartures(world, sess, 'Emily Carter walks out.'), hit => hit.id), ['e_emily']);
+    assert.deepEqual(Array.from(context.detectNarratedDepartures(world, sess,
+        'Emily Carter walks away from the table and stands by the window.'), hit => hit.id), [],
+    'movement within the room is not a departure');
     assert.deepEqual(Array.from(context.detectNarratedDepartures(world, sess, 'Emily leaves her bag beside you.')), []);
 });
 

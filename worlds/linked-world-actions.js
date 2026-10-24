@@ -31,6 +31,101 @@ const removeInventoryUnits = (inventory, item, quantity) => {
         else { entry.quantity = units - consumed; index++; }
     }
 };
+const actorInventory = (working, id) => id === 'player'
+    ? working.getSession('inventory') : working.getEntity(id).state?.inventory;
+const actorAt = (working, id) => id === 'player'
+    ? working.getSession('playerLocation') : working.getEntity(id).state?.location;
+function expireCreatedItems(working, elapsed = 0) {
+    const now = Number(working.getSession('worldClock')?.absoluteMinutes) + elapsed;
+    if (!Number.isFinite(now)) return;
+    for (const item of working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+        && Number.isFinite(entity.state?.expiresAtMinute)
+        && entity.state.expiresAtMinute <= now && !entity.state.expired)) {
+        const id = item.definition.id;
+        working.writeEntity(id, entity => {
+            entity.state.expired = true; entity.state.quantity = 0; entity.state.location = '';
+        });
+        working.writeEvent('engineEvents', field => {
+            field.value ||= [];
+            field.value.push({ id: `item_expired_${id}`, type: 'item_expired',
+                item_id: id, atMinute: now });
+        });
+        working.writeSession('inventory', field => {
+            field.value = (field.value || []).filter(entry => !itemMatches(entry, id));
+        });
+        for (const npc of working.getEntitiesByFilter(entity => entity.definition?.type === 'npc'
+            && inventoryHas(entity.state?.inventory, id)))
+            working.writeEntity(npc.definition.id, entity => {
+                entity.state.inventory = entity.state.inventory.filter(entry => !itemMatches(entry, id));
+            });
+    }
+}
+// Only the author's structured room contents are inventory claims. Prose is
+// deliberately excluded; it can describe scenery without granting ownership.
+function seedAuthoredSceneItems(working, locationId, sessionId) {
+    const seeded = working.getSession('sceneItemSeeds');
+    if (!seeded || seeded[locationId]) return;
+    const location = working.getLocation(locationId).definition;
+    if (!location) return;
+    const entries = Array.isArray(location.items) ? location.items : [];
+    const grouped = new Map();
+    for (const raw of entries) {
+        let name = String(typeof raw === 'string' ? raw : raw?.name || '').trim();
+        let quantity = typeof raw === 'string' ? 1 : Number(raw?.quantity ?? 1);
+        if (typeof raw === 'string') {
+            const count = name.match(/^(one|two|three|four|five|six|seven|eight|nine|ten|\d{1,2})\s+(.+)$/i);
+            if (count) {
+                quantity = Number(count[1]) || ['one', 'two', 'three', 'four', 'five',
+                    'six', 'seven', 'eight', 'nine', 'ten'].indexOf(count[1].toLowerCase()) + 1;
+                name = count[2].replace(/^pairs of\s+/i, 'pair of ');
+            }
+        }
+        if (!name || name.length > 160 || !Number.isInteger(quantity)
+            || quantity < 1 || quantity > 100) continue;
+        const containerId = typeof raw === 'object' ? raw.containerId || raw.container_id : undefined;
+        const blockedBy = typeof raw === 'object' ? raw.blockedBy || raw.blocked_by : undefined;
+        const key = JSON.stringify([itemKey(name), containerId || '', blockedBy || '']);
+        const prior = grouped.get(key);
+        grouped.set(key, { name, quantity: (prior?.quantity || 0) + quantity,
+            description: typeof raw === 'object' ? raw.description : '',
+            reachable: prior?.reachable === false || typeof raw === 'object'
+                && raw?.reachable === false ? false : true,
+            containerId, blockedBy });
+    }
+    const used = new Set(working.entityIds());
+    for (const { name, quantity, description, reachable, containerId, blockedBy } of grouped.values()) {
+        if (quantity > 100) continue;
+        const existing = working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+            && (!entity.definition.sessionOrigin || entity.definition.sessionOrigin === sessionId)
+            && itemKey(entity.definition.name) === itemKey(name)
+            && (entity.state?.containerId || entity.definition?.properties?.containerId || '')
+                === (containerId || '')
+            && (entity.state?.blockedBy || entity.definition?.properties?.blockedBy || '')
+                === (blockedBy || '')
+            && (entity.state?.location === locationId
+                || [entity.definition.locationId, entity.definition.location,
+                    entity.definition.startLocation].includes(locationId)));
+        if (existing.length) continue;
+        const slug = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '').slice(0, 45) || 'object';
+        const base = `scene_${locationId}_${slug}`.slice(0, 105);
+        let id = base;
+        for (let suffix = 2; used.has(id); suffix++) id = `${base}_${suffix}`;
+        used.add(id);
+        working.writeEntity(id, entity => {
+            entity.definition = { id, name, type: 'item', description:
+                String(description || '').slice(0, 500),
+                sessionOrigin: sessionId, sceneOrigin: locationId,
+                ...(reachable === false ? { properties: { reachable: false } } : {}) };
+            entity.state = { location: locationId, quantity,
+                ...(safeId(containerId) ? { containerId } : {}),
+                ...(safeId(blockedBy) ? { blockedBy } : {}) };
+        });
+    }
+    working.writeSession('sceneItemSeeds', field => {
+        field.value ||= {}; field.value[locationId] = true;
+    });
+}
 const pairKey = (a, b) => [a, b].sort().join('|');
 class BlockedAction extends Error {
     constructor(reason) { super(reason); this.name = 'BlockedAction'; this.reason = reason; }
@@ -155,6 +250,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 < Number(verdict.travelTime)) throw new BlockedAction('insufficient_travel_time');
         moveActor(working, value.actor_id, target.id);
         for (const companion of companions) moveActor(working, companion, target.id);
+        if (value.actor_id === 'player')
+            seedAuthoredSceneItems(working, target.id, context.sessionId);
         if (context.travelSpent && value.mode !== 'teleport')
             for (const actor of [value.actor_id, ...companions]) context.travelSpent.set(actor,
                 (context.travelSpent.get(actor) || 0) + Number(verdict.travelTime || 0));
@@ -167,15 +264,25 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         });
     });
     registerNative('interactable_transition', value => ids(value?.target_id)
+        && (value.actor_id === undefined || safeId(value.actor_id))
         && typeof value?.to_state === 'string' && !!value.to_state, (value, working, context) => {
+        const actor = value.actor_id || 'player';
+        const actorPlace = actorAt(working, actor);
+        if (!actorPlace || actor !== 'player'
+            && working.getEntity(actor).definition?.type !== 'npc')
+            throw new BlockedAction('unknown_interaction_actor');
         const entity = working.getEntity(value.target_id);
         if (entity.definition?.interactable) {
+            const place = entity.state?.location || entity.definition.locationId
+                || entity.definition.location || entity.definition.startLocation;
+            if (place && place !== actorPlace)
+                throw new BlockedAction('interactable_out_of_reach');
             const current = entity.state?.interactableState
                 || entity.definition.interactable.initialState;
             const transition = (entity.definition.interactable.transitions || []).find(item =>
                 item.from === current && item.to === value.to_state);
             if (!transition) throw new BlockedAction('unavailable_object_transition');
-            if (transition.requiredItem && !inventoryHas(working.getSession('inventory'), transition.requiredItem))
+            if (transition.requiredItem && !inventoryHas(actorInventory(working, actor), transition.requiredItem))
                 throw new BlockedAction('required_item');
             if (context.canTransition) {
                 const scene = working.prepare();
@@ -193,8 +300,10 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 .map(exit => ({ locationId, exit })));
         if (!exits.length || !['open', 'locked'].includes(value.to_state))
             throw new Error('unknown_interactable_transition');
+        if (!exits.some(entry => entry.locationId === actorPlace))
+            throw new BlockedAction('interactable_out_of_reach');
         const requiredItem = exits.map(entry => entry.exit.requiredItem || entry.exit.lockKeyItem).find(Boolean);
-        if (requiredItem && !inventoryHas(working.getSession('inventory'), requiredItem))
+        if (requiredItem && !inventoryHas(actorInventory(working, actor), requiredItem))
             throw new BlockedAction('required_item');
         if (context.canTransition) {
             const scene = working.prepare();
@@ -210,6 +319,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     registerNative('item_transfer', value => typeof value?.item_id === 'string'
         && !!value.item_id.trim() && value.item_id.length <= 120
         && ids(value?.from_id, value?.to_id)
+        && (value.actor_id === undefined || safeId(value.actor_id))
+        && (value.container_id === undefined || safeId(value.container_id))
         && (value.quantity === undefined || Number.isInteger(value.quantity)
             && value.quantity > 0 && value.quantity <= 100), (value, working) => {
         const quantity = value.quantity || 1;
@@ -222,25 +333,100 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         if (!sourceIsActor && !sourceIsLocation) throw new Error('unknown_transfer_source');
         if (!destinationIsActor && !working.getLocation(value.to_id).definition)
             throw new Error('unknown_transfer_destination');
+        const actingActor = value.actor_id || 'player';
+        const actionPlace = actorAt(working, actingActor);
+        if (!actionPlace || actingActor !== 'player'
+            && working.getEntity(actingActor).definition?.type !== 'npc')
+            throw new BlockedAction('unknown_interaction_actor');
+        const restrictions = actingActor === 'player'
+            ? working.getSession('playerSceneConditions')
+            : working.getEntity(actingActor).state?.conditions;
+        if (Array.isArray(restrictions) && restrictions.some(condition =>
+            condition && typeof condition === 'object'
+            && condition.blocksItemInteraction === true))
+            throw new BlockedAction('actor_cannot_manipulate_items');
+        if ((sourceIsActor ? actorAt(working, value.from_id) : value.from_id) !== actionPlace
+            || (destinationIsActor ? actorAt(working, value.to_id) : value.to_id) !== actionPlace)
+            throw new BlockedAction('item_out_of_reach');
         const sourceInventory = value.from_id === 'player' ? working.getSession('inventory')
             : working.getEntity(value.from_id).state?.inventory;
-        const itemEntity = working.getEntity(value.item_id);
+        const placement = entity => entity.state?.location || (!entity.state
+            ? entity.definition?.locationId || entity.definition?.location
+                || entity.definition?.startLocation : '');
+        const namedLoose = working.getEntitiesByFilter(entity =>
+            entity.definition?.type === 'item'
+            && itemKey(entity.definition.name) === itemKey(value.item_id)
+            && placement(entity) === value.from_id);
+        const resolvedId = working.getEntity(value.item_id).definition ? value.item_id
+            : namedLoose.length === 1 ? namedLoose[0].definition.id : value.item_id;
+        const itemEntity = working.getEntity(resolvedId);
+        if (itemEntity.state?.expired) throw new BlockedAction('item_expired');
         const sourceItem = Array.isArray(sourceInventory)
             ? sourceInventory.find(item => itemMatches(item, value.item_id)) : null;
         const transferName = itemEntity.definition?.name || itemName(sourceItem) || value.item_id;
         const looseItem = itemEntity.definition?.type === 'item'
-            && itemEntity.state?.location === value.from_id;
+            && placement(itemEntity) === value.from_id;
         const destinationIsLocation = !!working.getLocation(value.to_id).definition;
-        if (destinationIsLocation && (quantity !== 1 || itemEntity.definition?.type !== 'item'))
+        const itemContainer = itemEntity.state?.containerId
+            || itemEntity.definition?.properties?.containerId;
+        const barrierId = itemEntity.state?.blockedBy
+            || itemEntity.definition?.properties?.blockedBy;
+        const passable = id => {
+            const obstacle = working.getEntity(id);
+            if (!obstacle.definition) throw new BlockedAction('unknown_item_obstacle');
+            const state = obstacle.state?.interactableState
+                || obstacle.definition.interactable?.initialState;
+            return ['open', 'removed', 'cleared', 'broken'].includes(state);
+        };
+        if (looseItem && itemContainer && !passable(itemContainer))
+            throw new BlockedAction('container_closed');
+        if (looseItem && barrierId && !passable(barrierId))
+            throw new BlockedAction('item_obstructed');
+        if (value.container_id) {
+            if (!destinationIsLocation || !sourceIsActor
+                || actorAt(working, value.from_id) !== value.to_id)
+                throw new BlockedAction('invalid_container_placement');
+            const container = working.getEntity(value.container_id);
+            if (!container.definition || (container.state?.location
+                || container.definition.locationId || container.definition.location
+                || container.definition.startLocation) !== value.to_id || !passable(value.container_id))
+                throw new BlockedAction('container_unavailable');
+        }
+        if (destinationIsLocation && itemEntity.definition?.type === 'item'
+            && Number(itemEntity.state?.quantity || 0) > 0
+            && itemEntity.state?.location === value.to_id
+            && (itemEntity.state?.containerId || '') !== (value.container_id || ''))
+            throw new BlockedAction('mixed_container_stock');
+        if (destinationIsLocation && (itemEntity.definition?.type !== 'item'
+            || !itemEntity.definition?.sceneOrigin && quantity !== 1))
             throw new BlockedAction('unrepresentable_loose_item_transfer');
-        if (!looseItem && itemEntity.definition?.type === 'item'
-            && itemEntity.state?.location) throw new BlockedAction('item_already_placed');
-        const sourceBefore = looseItem ? 1 : inventoryUnits(sourceInventory, value.item_id);
+        const actorLocation = id => id === 'player' ? working.getSession('playerLocation')
+            : working.getEntity(id).state?.location;
+        if (sourceIsLocation && destinationIsLocation
+            || sourceIsActor && destinationIsActor
+            && actorLocation(value.from_id) !== actorLocation(value.to_id)
+            || sourceIsActor && sourceIsLocation === false && !destinationIsActor
+                && actorLocation(value.from_id) !== value.to_id
+            || sourceIsLocation && destinationIsActor
+                && actorLocation(value.to_id) !== value.from_id)
+            throw new BlockedAction('item_out_of_reach');
+        if (looseItem && (itemEntity.definition?.properties?.reachable === false
+            || itemEntity.state?.reachable === false))
+            throw new BlockedAction('item_out_of_reach');
+        if (!looseItem && !itemEntity.definition?.sceneOrigin
+            && itemEntity.definition?.type === 'item'
+            && itemEntity.state?.location && itemEntity.state.location !== value.to_id)
+            throw new BlockedAction('item_already_placed');
+        const sourceBefore = looseItem ? Number(itemEntity.state?.quantity
+            ?? itemEntity.definition?.quantity ?? 1)
+            : inventoryUnits(sourceInventory, value.item_id);
         const destinationInventory = destinationIsLocation ? null : value.to_id === 'player'
             ? working.getSession('inventory') : working.getEntity(value.to_id).state?.inventory;
-        const destinationBefore = destinationIsLocation ? 0
+        const destinationBefore = destinationIsLocation
+            ? Number(itemEntity.state?.location === value.to_id
+                ? itemEntity.state?.quantity ?? 1 : 0)
             : inventoryUnits(destinationInventory, transferName);
-        if (looseItem && quantity !== 1) throw new BlockedAction('loose_item_quantity');
+        if (looseItem && sourceBefore < quantity) throw new BlockedAction('item_not_held_or_present');
         if (!looseItem && inventoryUnits(sourceInventory, value.item_id) < quantity)
             throw new BlockedAction('item_not_held_or_present');
         if (value.from_id === 'player') working.writeSession('inventory', field => {
@@ -252,29 +438,40 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             removeInventoryUnits(entity.state.inventory, value.item_id, quantity);
         });
         if (destinationIsLocation) {
-            if (itemEntity.definition) working.writeEntity(value.item_id, entity => {
-                entity.state ||= {}; entity.state.location = value.to_id;
+            if (itemEntity.definition) working.writeEntity(resolvedId, entity => {
+                entity.state ||= {};
+                entity.state.location = value.to_id;
+                entity.state.quantity = Number(entity.state.quantity || 0) + quantity;
+                if (value.container_id) entity.state.containerId = value.container_id;
+                else delete entity.state.containerId;
             });
             else throw new Error('unregistered_loose_item');
         } else if (value.to_id === 'player') working.writeSession('inventory', field => {
             field.value ||= [];
-            for (let count = 0; count < quantity; count++)
-                field.value.push(transferName);
+            if (itemEntity.definition?.sceneOrigin)
+                field.value.push({ id: resolvedId, name: transferName, quantity });
+            else for (let count = 0; count < quantity; count++) field.value.push(transferName);
         });
         else if (working.getEntity(value.to_id).definition) working.writeEntity(value.to_id, entity => {
             entity.state ||= {}; entity.state.inventory ||= [];
-            for (let count = 0; count < quantity; count++)
+            if (itemEntity.definition?.sceneOrigin)
+                entity.state.inventory.push({ id: resolvedId, name: transferName, quantity });
+            else for (let count = 0; count < quantity; count++)
                 entity.state.inventory.push(transferName);
         });
         else throw new Error('unknown_transfer_destination');
-        if (looseItem && value.to_id !== value.from_id) working.writeEntity(value.item_id, entity => {
-            entity.state.location = destinationIsLocation ? value.to_id : '';
+        if (looseItem && value.to_id !== value.from_id) working.writeEntity(resolvedId, entity => {
+            entity.state ||= {};
+            entity.state.quantity = sourceBefore - quantity;
+            entity.state.location = entity.state.quantity ? value.from_id : '';
+            if (!entity.state.quantity) delete entity.state.containerId;
         });
-        const sourceAfter = looseItem ? (working.getEntity(value.item_id).state?.location === value.from_id ? 1 : 0)
+        const sourceAfter = looseItem ? Number(working.getEntity(resolvedId).state?.quantity || 0)
             : inventoryUnits(value.from_id === 'player' ? working.getSession('inventory')
                 : working.getEntity(value.from_id).state?.inventory, value.item_id);
         const destinationAfter = destinationIsLocation
-            ? (working.getEntity(value.item_id).state?.location === value.to_id ? 1 : 0)
+            ? Number(working.getEntity(resolvedId).state?.location === value.to_id
+                ? working.getEntity(resolvedId).state?.quantity || 0 : 0)
             : inventoryUnits(value.to_id === 'player' ? working.getSession('inventory')
                 : working.getEntity(value.to_id).state?.inventory, transferName);
         if (sourceAfter !== sourceBefore - quantity
@@ -282,13 +479,186 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             throw new Error('inventory_conservation_violation');
     });
     registerNative('item_introduce', value => ids(value?.id, value?.location_id)
-        && typeof value?.name === 'string' && !!value.name, (value, working, context) => {
-        if (working.getEntity(value.id).definition || !working.getLocation(value.location_id).definition)
+        && typeof value?.name === 'string' && !!value.name.trim()
+        && (value.actor_id === undefined || safeId(value.actor_id))
+        && (value.rule_id === undefined || safeId(value.rule_id))
+        && (value.source_item_id === undefined || typeof value.source_item_id === 'string')
+        && (value.duration_minutes === undefined || Number.isInteger(value.duration_minutes)
+            && value.duration_minutes > 0 && value.duration_minutes <= 10080)
+        && (value.quantity === undefined || Number.isInteger(value.quantity)
+            && value.quantity >= 1 && value.quantity <= 100), (value, working, context) => {
+        const cause = value.cause || 'discovery';
+        const actor = value.actor_id || 'player';
+        const proof = (context.actionEvents || []).filter(event => event.status === 'completed'
+            && event.type === (cause === 'discovery' ? 'discovery' : 'inventory')
+            && event.actor_id === actor
+            && event.target_id === value.id && itemKey(event.item) === itemKey(value.name));
+        if (proof.length !== 1 || actorAt(working, actor) !== value.location_id
+            || actor !== 'player' && working.getEntity(actor).definition?.type !== 'npc')
+            throw new BlockedAction('unconfirmed_scene_item');
+        const rule = (working.getWorld('itemCreationRules') || []).find(entry =>
+            entry.id === value.rule_id && entry.cause === cause
+            && itemKey(entry.item?.name) === itemKey(value.name));
+        const discoverable = cause === 'discovery' && !value.rule_id
+            && (working.getLocation(value.location_id).definition?.discoverableItems || [])
+                .some(entry => itemKey(entry) === itemKey(value.name)
+                    && (typeof entry === 'string' || entry.special !== true));
+        const discoveryPolicy = working.getLocation(value.location_id).definition?.discoveryPolicy;
+        const categoryAllowed = cause === 'discovery' && !value.rule_id
+            && typeof value.category === 'string'
+            && (discoveryPolicy?.ordinaryCategories || []).includes(value.category)
+            && (value.quantity || 1) <= Number(discoveryPolicy.maxQuantity || 1);
+        const catalogItem = (working.getWorld('gameRules')?.itemCatalog || [])
+            .find(item => itemKey(item.name) === itemKey(value.name));
+        const guardedName = working.locationIds().some(id =>
+            (working.getLocation(id).definition?.exits || []).some(exit =>
+                [exit?.requiredItem, exit?.lockKeyItem].some(key => itemKey(key) === itemKey(value.name))))
+            || working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+                && itemKey(entity.definition.name) === itemKey(value.name)
+                && (entity.definition.unique || entity.definition.questItem
+                    || entity.definition.properties?.access || entity.definition.properties?.unique)).length;
+        if (categoryAllowed && (guardedName || catalogItem && (catalogItem.unique || catalogItem.questItem
+            || catalogItem.properties?.access || catalogItem.properties?.unique)))
+            throw new BlockedAction('special_item_requires_rule');
+        if (!rule && !discoverable && !categoryAllowed)
+            throw new BlockedAction('item_creation_not_authorized');
+        if (!rule && (value.duration_minutes || value.source_item_id))
+            throw new BlockedAction('unruled_creation_property');
+        if (rule) {
+            if (rule.locations && (!Array.isArray(rule.locations)
+                || !rule.locations.includes(value.location_id)))
+                throw new BlockedAction('creation_location_denied');
+            const abilities = actor === 'player'
+                ? [...(working.getSession('playerIdentity')?.skills || []),
+                    ...(working.getSession('playerIdentity')?.perks || []),
+                    ...(working.getSession('playerIdentity')?.privileges || [])]
+                : [...(working.getEntity(actor).definition?.skills || []),
+                    ...(working.getEntity(actor).definition?.abilities || [])];
+            if (rule.ability_id && !abilities.some(ability =>
+                (typeof ability === 'string' ? ability : ability?.id) === rule.ability_id))
+                throw new BlockedAction('missing_creation_ability');
+            if (rule.check_id) {
+                const check = (working.getSession('checkHistory') || []).find(entry =>
+                    entry.id === rule.check_id && entry.success === true
+                    && entry.turn === working.getSession('turnCount'));
+                if (!check || working.getSession('itemCreationChecks')?.[rule.check_id])
+                    throw new BlockedAction('creation_check_not_passed');
+                working.writeSession('itemCreationChecks', field => {
+                    field.value ||= {}; field.value[rule.check_id] = value.id;
+                });
+            }
+            if (rule.duration_minutes !== undefined
+                && value.duration_minutes !== rule.duration_minutes)
+                throw new BlockedAction('creation_duration_mismatch');
+            if (rule.duration_minutes === undefined && value.duration_minutes !== undefined)
+                throw new BlockedAction('creation_duration_not_authorized');
+            if ((value.quantity || 1) !== (rule.item.quantity || 1))
+                throw new BlockedAction('creation_quantity_mismatch');
+            if (rule.time_minutes && (context.actionOperations || [])
+                .filter(operation => operation.type === 'time_advance')
+                .reduce((total, operation) => total + Number(operation.payload?.minutes || 0), 0)
+                < rule.time_minutes) throw new BlockedAction('creation_time_not_paid');
+            if (rule.source_item_id !== undefined
+                && value.source_item_id !== rule.source_item_id)
+                throw new BlockedAction('creation_source_mismatch');
+            for (const tool of rule.tools || [])
+                if (!inventoryHas(actorInventory(working, actor), tool))
+                    throw new BlockedAction('missing_creation_tool');
+            const required = new Map();
+            for (const material of [...(rule.materials || []),
+                ...(rule.source_item_id ? [{ item_id: rule.source_item_id, quantity: 1 }] : [])]) {
+                const count = Number(material.quantity || 1);
+                if (!Number.isInteger(count) || count < 1 || count > 100
+                    || !String(material.item_id || '').trim())
+                    throw new BlockedAction('missing_creation_material');
+                const key = itemKey(material.item_id);
+                required.set(key, (required.get(key) || 0) + count);
+                if (inventoryUnits(actorInventory(working, actor), material.item_id) < required.get(key))
+                    throw new BlockedAction('missing_creation_material');
+            }
+            if (rule.resource) {
+                const amount = Number(rule.resource.amount);
+                const stock = actor === 'player' ? working.getSession('playerStats')
+                    : working.getEntity(actor).state?.resources;
+                if (!safeId(rule.resource.id) || !Number.isFinite(amount) || amount <= 0
+                    || !Number.isFinite(Number(stock?.[rule.resource.id]))
+                    || Number(stock[rule.resource.id]) < amount)
+                    throw new BlockedAction('insufficient_creation_resource');
+            }
+        }
+        if (working.getEntity(value.id).definition || !working.getLocation(value.location_id).definition
+            || working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+                && (!entity.definition.sessionOrigin
+                    || entity.definition.sessionOrigin === context.sessionId)
+                && itemKey(entity.definition.name) === itemKey(value.name)
+                && (cause === 'discovery' && entity.definition.sceneOrigin === value.location_id
+                    || entity.state?.location === value.location_id
+                    || [entity.definition.locationId, entity.definition.location,
+                        entity.definition.startLocation].includes(value.location_id))).length)
             throw new Error('duplicate_or_unplaced_item');
+        if (rule?.item?.properties?.unique && working.getEntitiesByFilter(entity =>
+            entity.definition?.type === 'item' && itemKey(entity.definition.name) === itemKey(value.name)
+            && !entity.state?.expired).length)
+            throw new BlockedAction('unique_item_exists');
+        if (rule) {
+            const costs = [...(rule.materials || []),
+                ...(rule.source_item_id ? [{ item_id: rule.source_item_id, quantity: 1 }] : [])];
+            if (costs.length) {
+                const remove = inventory => {
+                    for (const material of costs)
+                        removeInventoryUnits(inventory, material.item_id, Number(material.quantity || 1));
+                };
+                if (actor === 'player') working.writeSession('inventory', field => {
+                    field.value ||= []; remove(field.value);
+                });
+                else working.writeEntity(actor, entity => { remove(entity.state.inventory); });
+            }
+            if (rule.resource) {
+                const { id, amount } = rule.resource;
+                if (actor === 'player') working.writeSession('playerStats', field => {
+                    field.value ||= {}; field.value[id] -= amount;
+                });
+                else working.writeEntity(actor, entity => {
+                    entity.state.resources[id] -= amount;
+                });
+            }
+        }
+        const now = Number(working.getSession('worldClock')?.absoluteMinutes);
+        if (value.duration_minutes && !Number.isFinite(now))
+            throw new BlockedAction('creation_clock_unavailable');
         working.writeEntity(value.id, entity => {
             entity.definition = { id: value.id, name: value.name, type: 'item',
-                description: value.description || '', sessionOrigin: context.sessionId };
-            entity.state = { location: value.location_id };
+                description: value.description || '', sessionOrigin: context.sessionId,
+                sceneOrigin: value.location_id,
+                ...((rule?.item?.category || value.category)
+                    ? { category: rule?.item?.category || value.category } : {}),
+                ...(rule?.item?.properties ? { properties: copy(rule.item.properties) } : {}) };
+            entity.state = { location: value.location_id, quantity: value.quantity || 1,
+                originCause: cause, originEventId: proof[0].id || context.actionId,
+                creatorId: actor,
+                ...(value.duration_minutes ? { expiresAtMinute: now + value.duration_minutes } : {}) };
+        });
+    });
+    registerNative('item_consume', value => typeof value?.item_id === 'string'
+        && !!value.item_id.trim() && value.item_id.length <= 120
+        && safeId(value?.actor_id)
+        && (value.quantity === undefined || Number.isInteger(value.quantity)
+            && value.quantity >= 1 && value.quantity <= 100), (value, working) => {
+        const quantity = value.quantity || 1;
+        const actor = working.getEntity(value.actor_id);
+        if (value.actor_id !== 'player' && actor.definition?.type !== 'npc')
+            throw new Error('unknown_item_owner');
+        const inventory = value.actor_id === 'player' ? working.getSession('inventory')
+            : actor.state?.inventory;
+        if (working.getEntity(value.item_id).state?.expired)
+            throw new BlockedAction('item_expired');
+        if (inventoryUnits(inventory, value.item_id) < quantity)
+            throw new BlockedAction('item_not_held_or_present');
+        if (value.actor_id === 'player') working.writeSession('inventory', field => {
+            removeInventoryUnits(field.value, value.item_id, quantity);
+        });
+        else working.writeEntity(value.actor_id, entity => {
+            removeInventoryUnits(entity.state.inventory, value.item_id, quantity);
         });
     });
     registerNative('entity_introduce', value => ids(value?.id, value?.location_id)
@@ -399,6 +769,70 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             throw new Error('untracked_event_hook_mutation');
         return emitted;
     });
+    registerNative('knowledge_share', value => ids(value?.actor_id,
+        value?.recipient_id, value?.observation_id), (value, working, context) => {
+        if (value.actor_id === value.recipient_id
+            || working.getWorld('communication')?.inPerson === false)
+            throw new BlockedAction('communication_unavailable');
+        const sender = working.getEntity(value.actor_id);
+        const recipient = working.getEntity(value.recipient_id);
+        if (sender.definition?.type !== 'npc' || recipient.definition?.type !== 'npc'
+            || !sender.state?.location || sender.state.location !== recipient.state?.location
+            || ['dead', 'gone'].includes(sender.state.status)
+            || ['dead', 'gone'].includes(recipient.state.status)
+            || sender.state.canSpeak === false || sender.state.communicationBlocked === true
+            || recipient.state.canHear === false
+            || recipient.state.communicationBlocked === true)
+            throw new BlockedAction('communication_unavailable');
+        const source = (sender.state.observations || []).find(item =>
+            item?.id === value.observation_id && item.allowedToShare !== false
+            && typeof item.text === 'string' && !!item.text.trim());
+        if (!source || !['witnessed', 'told', 'suspected', 'believed', 'public']
+            .includes(source.sourceType))
+            throw new BlockedAction('unknown_or_private_information');
+        const actionId = String(context.actionId || '');
+        const prior = actionId && (recipient.state.observations || []).find(item =>
+            item.deliveryActionId === actionId
+                || item.id === `obs_report_${actionId}_${value.recipient_id}`.slice(0, 100));
+        if (prior) throw new BlockedAction('already_delivered');
+        const repeatCount = (recipient.state.observations || []).filter(item =>
+            item.sourceNpcId === value.actor_id
+                && item.sourceObservationId === source.id).length;
+        if (repeatCount >= 8) throw new BlockedAction('report_history_limit');
+        // A relay creates a fresh source observation at every hop. Bound the
+        // history for one origin as well, or A → B → C → A can grow forever.
+        const originObservationId = source.originObservationId || source.id;
+        const originNpcId = source.originNpcId || (source.sourceType === 'witnessed'
+            ? value.actor_id : '');
+        const originCount = (recipient.state.observations || []).filter(item =>
+            item.sourceType === 'told'
+                && item.originObservationId === originObservationId
+                && item.originNpcId === originNpcId).length;
+        if (originCount >= 8) throw new BlockedAction('report_origin_history_limit');
+        const turn = Math.max(0, Number(working.getSession('turnCount')) || 0);
+        const absoluteMinute = Math.max(0,
+            Number(working.getSession('worldClock')?.absoluteMinutes) || 0);
+        const id = `obs_report_${context.actionId || turn}_${value.recipient_id}`.slice(0, 100);
+        const report = { id, eventId: String(source.eventId || '').slice(0, 100),
+            text: source.text.slice(0, 500), sourceType: 'told', source: 'told',
+            sourceNpcId: value.actor_id, sourceObservationId: source.id,
+            originObservationId, originNpcId,
+            reportedSourceType: source.sourceType,
+            evidenceMode: 'hearsay',
+            confidence: Math.max(0, Math.min(1, Number(source.confidence ?? 0.7) * 0.82)),
+            visibility: 'private', allowedToShare: true, turn,
+            learnedAt: { turn, absoluteMinute },
+            sourceLocationId: source.sourceLocationId || '',
+            deliveryLocationId: sender.state.location,
+            deliveryActionId: actionId,
+            deliveryEventId: `${context.actionId || turn}_event`,
+            channel: source.channel || '', kind: source.kind || '',
+            tags: Array.isArray(source.tags) ? source.tags.slice(0, 8) : [] };
+        working.writeEntity(value.recipient_id, entity => {
+            entity.state.observations ||= [];
+            entity.state.observations.push(report);
+        });
+    });
     registerNative('time_advance', value => Number.isInteger(value?.minutes)
         && value.minutes > 0 && value.minutes <= 10080, (value, working, context) => {
         const included = Math.min(value.minutes, context.turnTimeBudget?.remaining || 0);
@@ -406,6 +840,7 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         working.writeTime('bonusTimeMinutes', field => {
             field.value = (Number(field.value) || 0) + value.minutes - included;
         });
+        expireCreatedItems(working, value.minutes - included);
     });
     registerNative('outfit_set', value => safeId(value?.actor_id)
         && typeof value?.outfit === 'string' && !!value.outfit.trim(), (value, working) => {
@@ -447,6 +882,9 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
     const working = context.workingState || workingApi.createWorkingState(world, session);
+    expireCreatedItems(working);
+    if (working.getSession('sceneItemSeeds'))
+        seedAuthoredSceneItems(working, working.getSession('playerLocation'), session.id);
     // Authored consequences are optional World definition data. Keep generated
     // proof events local until the same Working State transaction commits.
     const authoredRules = world?.eventRules;
@@ -517,7 +955,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
             outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [] };
     }
     const eventTypes = { actor_move: ['movement'], interactable_transition: ['environment'],
-        item_transfer: ['inventory'], item_introduce: ['inventory'],
+        item_transfer: ['inventory'], item_consume: ['inventory'],
+        item_introduce: ['discovery', 'inventory'],
         entity_introduce: ['environment'], location_introduce: ['environment'],
         condition_change: ['condition'], relation_set: ['relationship'],
         event_emit: null, time_advance: ['time'], time_skip_minutes: ['time'],
@@ -537,13 +976,22 @@ function executeLinkedActions(plan, world, session, context = {}) {
             || (operation.type === 'condition_change' ? operation.payload?.target_id : '');
         if (actor && event.actor_id !== actor
             && !(operation.payload?.companion_ids || []).includes(event.actor_id)) return false;
+        if (operation.type === 'knowledge_share'
+            && (event.target_id !== operation.payload?.recipient_id
+                || event.action !== 'report')) return false;
         if (['interactable_transition', 'relation_set'].includes(operation.type)
             && event.target_id !== operation.payload?.target_id) return false;
         if (operation.type === 'outfit_set' && event.outfit !== operation.payload?.outfit) return false;
         if (operation.type === 'condition_change'
             && (event.condition !== operation.payload?.condition
                 || event.action !== operation.payload?.action)) return false;
-        if (operation.type === 'item_transfer' && !String(event.item || '').trim()) return false;
+        if (['item_transfer', 'item_consume'].includes(operation.type)
+            && ![itemKey(operation.payload?.item_id), itemKey(working.getEntity(
+                operation.payload?.item_id).definition?.name)].includes(itemKey(event.item))) return false;
+        if (operation.type === 'item_consume' && event.action !== 'consume') return false;
+        if (operation.type === 'item_introduce'
+            && (event.target_id !== operation.payload?.id
+                || itemKey(event.item) !== itemKey(operation.payload?.name))) return false;
         if (['time_advance', 'time_skip_minutes'].includes(operation.type)
             && event.minutes_elapsed !== undefined
             && event.minutes_elapsed !== (operation.payload?.minutes || operation.payload)) return false;
@@ -641,6 +1089,12 @@ function executeLinkedActions(plan, world, session, context = {}) {
             if (action.status === 'attempted') {
                 if (Object.keys(action.action_effects || {}).length)
                     throw new Error('failed_action_has_effects');
+                if (plan.events.some(event => event.action_id === action.action_id
+                    && event.status === 'completed'
+                    && (['movement', 'inventory', 'outfit', 'condition', 'relationship',
+                        'time', 'status', 'escort', 'environment'].includes(event.type)
+                        || event.type === 'interaction' && event.actor_id === 'player')))
+                    throw new Error('failed_action_has_completed_event');
                 outcomes.set(action.action_id, 'failed');
                 continue;
             }
@@ -669,9 +1123,16 @@ function executeLinkedActions(plan, world, session, context = {}) {
             }
             const moveTransitions = [], predictedLocations = new Map();
             for (const operation of operations) if (operation.type === 'actor_move'
-                && operation.payload?.mode !== 'journey')
-                for (const actor of [operation.payload.actor_id,
-                    ...(operation.payload.companion_ids || [])]) {
+                && operation.payload?.mode !== 'journey') {
+                const companions = new Set(operation.payload.companion_ids || []);
+                const origin = predictedLocations.get(operation.payload.actor_id)
+                    || actorAt(working, operation.payload.actor_id);
+                if (operation.payload.actor_id === 'player')
+                    for (const follower of working.getEntitiesByFilter(entity =>
+                        entity.state?.followingPlayer === true
+                        && (predictedLocations.get(entity.definition.id)
+                            || entity.state.location) === origin)) companions.add(follower.definition.id);
+                for (const actor of [operation.payload.actor_id, ...companions]) {
                     const from = predictedLocations.has(actor) ? predictedLocations.get(actor)
                         : actor === 'player' ? working.getSession('playerLocation')
                             : working.getEntity(actor).state?.location
@@ -682,9 +1143,32 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     moveTransitions.push({ actor, from, to: operation.payload.to_location_id });
                     predictedLocations.set(actor, operation.payload.to_location_id);
                 }
+            }
             actionMoves = moveTransitions;
             const proposedEvents = plan.events.filter(event => event.action_id === action.action_id);
+            if (action.status !== 'blocked'
+                && (context.requireEffectWitnesses === true || !!action.response_id)
+                && moveTransitions.some(move => !proposedEvents.some(event =>
+                    event.type === 'movement' && event.status === 'completed'
+                    && event.actor_id === move.actor
+                    && event.from_location_id === move.from
+                    && event.to_location_id === move.to))) {
+                const error = new Error('unwitnessed_companion_or_actor_move');
+                error.movementDiagnostic = {
+                    proposedMoves: moveTransitions.slice(0, 12),
+                    proposedEvents: proposedEvents.filter(event => event.type === 'movement')
+                        .slice(0, 12).map(event => ({ id: event.id, actor_id: event.actor_id,
+                            from_location_id: event.from_location_id,
+                            to_location_id: event.to_location_id, status: event.status })),
+                    missingWitnesses: moveTransitions.filter(move => !proposedEvents.some(event =>
+                        event.type === 'movement' && event.status === 'completed'
+                        && event.actor_id === move.actor && event.from_location_id === move.from
+                        && event.to_location_id === move.to)).slice(0, 12)
+                };
+                throw error;
+            }
             const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
+                actionOperations: operations,
                 travelSpent,
                 actionEvents: plan.events.filter(event => event.action_id === action.action_id),
                 consumedRelationEvents: new Set(),
@@ -773,7 +1257,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     if (!knownActor) throw new Error('unknown_event_actor');
                     const requiredEffects = {
                         movement: ['actor_move'],
-                        inventory: ['item_transfer', 'inventory_add', 'inventory_remove'],
+                        inventory: ['item_transfer', 'item_consume', 'item_introduce',
+                            'inventory_add', 'inventory_remove'],
                         outfit: ['outfit_set'],
                         condition: ['condition_change', 'player_condition_updates'],
                         relationship: ['relation_set', 'npc_relationship_updates'],
@@ -875,6 +1360,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
             if (error instanceof BlockedAction) outcomes.set(action.action_id, 'blocked');
             else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
                 code: error.code || error.message, effect: error.effect || '',
+                ...(error.movementDiagnostic || {}),
                 ...(Number.isInteger(error.event_index) ? { event_index: error.event_index } : {}),
                 ...(error.requiredEffects ? { requiredEffects: error.requiredEffects } : {}),
                 protocol: capability.protocol, executionMode: capability.executionMode,

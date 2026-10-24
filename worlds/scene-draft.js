@@ -7,6 +7,7 @@ const copy = v => JSON.parse(JSON.stringify(v));
 const kinds = ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'];
 const statuses = ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'];
 const confirmedOutcomes = ['succeeded', 'failed', 'blocked'];
+const stateFactNames = ['actor_at', 'has_item', 'interactable_state', 'condition', 'relation'];
 const actionIdPattern = /^[a-z][a-z0-9_]{0,79}$/;
 const hasReadableText = value => !!String(value || '').trim()
     && !/^[\s"'“”„‘’«»]+$/u.test(String(value));
@@ -243,7 +244,8 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             outcome: { type: 'string', enum: confirmedOutcomes }
         }));
         action.state_conditions = list(shape({
-            fact: text('Registered read-only fact.', 80),
+            fact: { ...text('Registered read-only fact name, never a sentence or an action result.', 80),
+                enum: stateFactNames },
             subject_id: text('Exact entity or location ID.', 120),
             target_id: text('Exact second actor or faction ID for a relation fact.', 120),
             operator: { type: 'string', enum: ['equals', 'not_equals', 'exists'] },
@@ -445,13 +447,14 @@ function validateActionLinks(draft, context, fail) {
         });
         for (const [conditionIndex, condition] of (Array.isArray(action?.state_conditions)
             ? action.state_conditions : []).entries()) {
-            if (!object(condition) || typeof condition.fact !== 'string' || !condition.fact
+            if (!object(condition) || !stateFactNames.includes(condition.fact)
                 || typeof condition.subject_id !== 'string' || !condition.subject_id
                 || !['equals', 'not_equals', 'exists'].includes(condition.operator)
                 || (condition.fact === 'relation' && (typeof condition.target_id !== 'string'
                     || !condition.target_id))
                 || (condition.operator !== 'exists' && typeof condition.value !== 'string'))
-                fail(`actions.${index}.state_conditions.${conditionIndex}`, 'invalid_state_condition');
+                fail(`actions.${index}.state_conditions.${conditionIndex}`,
+                    stateFactNames.includes(condition?.fact) ? 'invalid_state_condition' : 'unknown_state_fact');
         }
     });
     const colors = new Map();

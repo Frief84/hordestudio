@@ -19,6 +19,11 @@ const draft = { protocol: 'scene_draft_v3',
 const reasons = value => compile(value, context).errors?.map(error => error.reason) || [];
 const compiled = compile(draft, context);
 assert(compiled.ok, JSON.stringify(compiled.errors));
+assert.deepEqual(require('../worlds/linked-world-actions').createFactRegistry().names(),
+    ['actor_at', 'has_item', 'interactable_state', 'condition', 'relation']);
+assert(reasons({ ...draft, actions: [{ ...draft.actions[0], state_conditions: [{
+    fact: 'The guide agrees to go to the archive', subject_id: 'guide_1',
+    operator: 'equals', value: 'true' }] }, draft.actions[1]] }).includes('unknown_state_fact'));
 assert.equal(compiled.linkedPlan.actions[1].depends_on[0].action_id, 'take_key');
 assert(reasons({ ...draft, actions: [{ ...draft.actions[0], action_id: 'bad-ID' }, draft.actions[1]] })
     .includes('invalid_action_id'));
@@ -172,6 +177,8 @@ assert.deepEqual(contract.properties.actions.items.properties.depends_on.items.p
 const linkedContract = schema({ events: { type: 'array', items: { type: 'object',
     properties: { type: { type: 'string' } } } }, inventory_add: { type: 'array' },
 checks: { type: 'array' } }, 'scene_draft_v3', { input: context.input, linkedRequired: true });
+assert.deepEqual(linkedContract.properties.actions.items.properties.state_conditions.items
+    .properties.fact.enum, ['actor_at', 'has_item', 'interactable_state', 'condition', 'relation']);
 assert.deepEqual(linkedContract.properties.effects.properties, {},
     'linked turns must not duplicate the legacy effect schema at top level');
 assert(linkedContract.properties.actions.items.properties.action_effects.properties.inventory_add);

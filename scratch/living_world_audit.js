@@ -15,13 +15,15 @@ const vm = require('node:vm');
 // The extractor follows the call graph itself: name the functions this suite
 // is actually about, and anything they reach comes along. See app_source.js.
 const { app, functionSource, buildContext } = require('./app_source.js');
+const npcGoalActions = require('../worlds/npc-goal-actions.js');
 
 const context = {
     console: { log() {}, warn() {}, error() {} },
     __ruleModules: {},
     normalizeWorldGameRules() { return { modules: context.__ruleModules }; },
     isPlainObject: value => !!value && typeof value === 'object' && !Array.isArray(value),
-    safeJsonClone: value => JSON.parse(JSON.stringify(value))
+    safeJsonClone: value => JSON.parse(JSON.stringify(value)),
+    HordeNpcGoalActions: npcGoalActions
 };
 
 // What this suite is about. Everything else these reach is resolved for us.
@@ -196,34 +198,52 @@ test('an event influence change is bounded and applies to its faction', () => {
 
 // ------------------------------------------------------------ npc agendas
 
+// Authored beats are descriptions. A physical agenda advances only when its
+// corresponding linked action commits. Items give each beat a verifiable effect.
+function confirmedAgendaWorld(labels, pool = []) {
+    const world = makeWorld();
+    world.entities[0].goal = 'finish the errand';
+    world.entities[0].goalAutonomy = 'high';
+    world.entities[0].goalSteps = labels;
+    world.entities[0].goalActionSteps = labels.map((label, index) => ({
+        label,
+        effect: { type: 'item_transfer', payload: {
+            actor_id: 'npc_1', item_id: `evidence_${index}`,
+            from_id: 'loc_c', to_id: 'npc_1'
+        } }
+    }));
+    world.entities[0].goalPool = pool;
+    labels.forEach((_, index) => world.entities.push({
+        id: `evidence_${index}`, name: labels[index].replace(/^collected /, ''), type: 'item',
+        startLocation: 'loc_c'
+    }));
+    return world;
+}
+
 test('an NPC agenda advances off-screen and completes at 100', () => {
     setModules();
-    const world = makeWorld();
-    world.entities[0].goal = 'forge the key';
-    world.entities[0].goalAutonomy = 'high';
+    const world = confirmedAgendaWorld(['collected the first part', 'collected the second part']);
     const sess = makeSession(world);
     sess.entityStates.npc_1.location = 'loc_c';   // away from the player
     context.normalizeLivingWorldState(world, sess);
-    assert.equal(sess.entityStates.npc_1.goal, 'forge the key', 'authored agenda was not adopted');
+    assert.equal(sess.entityStates.npc_1.goal, 'finish the errand', 'authored agenda was not adopted');
     let progressed = 0;
-    for (let turn = 1; turn <= 200 && sess.entityStates.npc_1.goalStatus !== 'completed'; turn++) {
+    for (let turn = 1; turn <= 10 && sess.entityStates.npc_1.goalStatus !== 'completed'; turn++) {
         progressed += tickTurn(world, sess, turn).goals;
     }
     assert(progressed > 0, 'agenda never advanced');
     assert.equal(sess.entityStates.npc_1.goalStatus, 'completed');
     assert.equal(sess.entityStates.npc_1.goalProgress, 100);
+    assert.equal(sess.turnEvents.filter(event => event.actor_id === 'npc_1' && event.committed).length, 2);
 });
 
 test('an advancing agenda reports the concrete beat it reached, not a progress bar', () => {
     setModules();
-    const world = makeWorld();
-    world.entities[0].goal = 'open the sealed vault';
-    world.entities[0].goalAutonomy = 'high';
-    world.entities[0].goalSteps = [
-        'asked the mason about the old seal',
-        'copied the seal onto wax',
-        'bought a crowbar and told no one'
-    ];
+    const world = confirmedAgendaWorld([
+        'collected the mason’s note about the old seal',
+        'collected a wax copy of the seal',
+        'collected the crowbar receipt'
+    ]);
     const sess = makeSession(world);
     sess.entityStates.npc_1.location = 'loc_c';
     context.normalizeLivingWorldState(world, sess);
@@ -237,9 +257,9 @@ test('an advancing agenda reports the concrete beat it reached, not a progress b
     assert(goalNews.length >= 2, 'an agenda with beats produced almost no news');
     assert(!goalNews.some(t => t.includes('made significant off-screen progress')),
         'an agenda with authored beats still emitted the vague progress line');
-    assert(goalNews.some(t => t.includes('asked the mason about the old seal')),
+    assert(goalNews.some(t => t.includes('collected the mason’s note')),
         'the first beat never surfaced as a concrete development');
-    assert(goalNews.some(t => t.includes('bought a crowbar')),
+    assert(goalNews.some(t => t.includes('collected the crowbar receipt')),
         'the final beat never surfaced');
     assert(goalNews.every(t => t.includes('Ada')), 'beats did not name the NPC');
     // Beats are locatable, which is what later makes discovery possible.
@@ -249,10 +269,7 @@ test('an advancing agenda reports the concrete beat it reached, not a progress b
 
 test('each beat is reported once, in order', () => {
     setModules();
-    const world = makeWorld();
-    world.entities[0].goal = 'finish the map';
-    world.entities[0].goalAutonomy = 'high';
-    world.entities[0].goalSteps = ['surveyed the ridge', 'inked the north road', 'sealed the map tube'];
+    const world = confirmedAgendaWorld(['collected the ridge sketch', 'collected the north road map', 'collected the sealed map tube']);
     const sess = makeSession(world);
     sess.entityStates.npc_1.location = 'loc_c';
     context.normalizeLivingWorldState(world, sess);
@@ -268,7 +285,7 @@ test('each beat is reported once, in order', () => {
     });
 });
 
-test('an agenda with no authored beats still reports milestones', () => {
+test('a free agenda without executable actions never fabricates milestones', () => {
     setModules();
     const world = makeWorld();
     world.entities[0].goal = 'brood in silence';
@@ -279,8 +296,28 @@ test('an agenda with no authored beats still reports milestones', () => {
     for (let turn = 1; turn <= 200 && sess.entityStates.npc_1.goalStatus !== 'completed'; turn++) {
         tickTurn(world, sess, turn);
     }
-    assert(sess.worldNews.some(n => n.text.includes('made significant off-screen progress')),
-        'a beatless agenda lost its fallback milestone reporting');
+    assert.equal(sess.entityStates.npc_1.goalProgress, 0);
+    assert.equal(sess.entityStates.npc_1.goalStatus, 'active');
+    assert.equal(sess.entityStates.npc_1.goalWaitStatus, 'awaiting_decision');
+    assert(!sess.worldNews.some(n => n.type === 'npc_goal'),
+        'an unconfirmed agenda fabricated a milestone');
+});
+
+test('authored prose beats alone cannot certify an agenda or publish private facts', () => {
+    setModules();
+    const world = makeWorld();
+    world.entities[0].goal = 'open the sealed vault';
+    world.entities[0].goalAutonomy = 'high';
+    world.entities[0].goalSteps = ['opened the sealed vault'];
+    const sess = makeSession(world);
+    sess.entityStates.npc_1.location = 'loc_c';
+    context.normalizeLivingWorldState(world, sess);
+    for (let turn = 1; turn <= 60; turn++) tickTurn(world, sess, turn);
+    assert.equal(sess.entityStates.npc_1.goalProgress, 0);
+    assert.equal(sess.entityStates.npc_1.goalStatus, 'active');
+    assert.equal(sess.entityStates.npc_1.goalWaitStatus, 'awaiting_decision');
+    assert(!sess.worldNews.some(item => item.type === 'npc_goal'));
+    assert(!sess.turnEvents?.some(event => event.actor_id === 'npc_1'));
 });
 
 test('the shipped campaign gives its goal-bearing NPCs authored beats', () => {
@@ -892,10 +929,8 @@ test('the DM prompt exposes state without leaking it as public knowledge', () =>
 
 // Build a world where npc_1 acts alone far away and npc_2 can act as a courier.
 function makeDiscoveryWorld() {
-    const world = makeWorld();
+    const world = confirmedAgendaWorld(['collected a recovered fragment']);
     world.entities[0].goal = 'dig where nobody watches';
-    world.entities[0].goalAutonomy = 'high';
-    world.entities[0].goalSteps = ['broke the old seal open', 'carried something heavy uphill'];
     return world;
 }
 
@@ -1106,62 +1141,52 @@ test('drift skips the player\'s own room and the relationships module gate', () 
         'drift ran with the relationships module disabled');
 });
 
-test('a resolved agenda regenerates from the pool after a rest, exactly once each', () => {
+test('a confirmed agenda yields to its pool goal without repeating either action', () => {
     setModules();
-    const world = makeWorld();
+    const world = confirmedAgendaWorld(['collected the first item'], [{
+        goal: 'second errand', steps: ['collected the second item'],
+        actionSteps: [{ label: 'collected the second item', effect: {
+            type: 'item_transfer', payload: { actor_id: 'npc_1',
+                item_id: 'evidence_1', from_id: 'loc_c', to_id: 'npc_1' }
+        } }]
+    }]);
     world.entities[0].goal = 'first errand';
-    world.entities[0].goalAutonomy = 'high';
-    world.entities[0].goalSteps = ['did the first thing'];
-    world.entities[0].goalPool = [
-        { goal: 'second errand', steps: ['began the second thing', 'finished the second thing'] }
-    ];
+    world.entities.push({ id: 'evidence_1', name: 'the second item',
+        type: 'item', startLocation: 'loc_c' });
     const sess = makeSession(world);
     sess.entityStates.npc_1.location = 'loc_c';
     context.normalizeLivingWorldState(world, sess);
-
-    let turn = 1;
-    for (; turn <= 200 && sess.entityStates.npc_1.goalStatus !== 'completed'; turn++) tickTurn(world, sess, turn);
+    assert.equal(tickTurn(world, sess, 1).goals, 1);
     assert.equal(sess.entityStates.npc_1.goal, 'first errand');
     const resolvedTurn = sess.entityStates.npc_1.goalResolvedTurn;
-    assert(resolvedTurn >= 1, 'completion did not record when it happened');
-
-    // The rest: no new goal inside the cooldown window.
-    for (; turn < resolvedTurn + 8; turn++) tickTurn(world, sess, turn);
-    assert.equal(sess.entityStates.npc_1.goal, 'first errand', 'regeneration skipped the rest period');
-
-    for (; turn <= resolvedTurn + 220 && sess.entityStates.npc_1.goal === 'first errand'; turn++) {
-        tickTurn(world, sess, turn);
-    }
+    assert.equal(resolvedTurn, 1, 'completion did not record when it happened');
+    assert.equal(sess.entityStates.npc_1.goalCompletionProof?.eventId,
+        sess.turnEvents.at(-1).id, 'completion lacks a confirmed event');
+    assert.equal(tickTurn(world, sess, 2).goals, 1);
     const es = sess.entityStates.npc_1;
     assert.equal(es.goal, 'second errand', 'the pool goal was never adopted');
-    assert.equal(es.goalStatus, 'active');
-    assert.equal(es.goalProgress, 0);
-    assert.deepEqual(es.goalSteps, ['began the second thing', 'finished the second thing']);
-    assert.equal(es.goalStepReported, -1, 'beat reporting was not reset for the new agenda');
-    assert(es.goalHistory.includes('first errand'), 'the finished goal was not remembered');
-    assert(sess.worldNews.some(n => n.text.includes('set their mind to something new: second errand')),
-        'adopting a new agenda left no trace');
-
-    // Run the second agenda to completion; the pool is now exhausted.
-    for (; turn <= 600 && es.goalStatus !== 'completed'; turn++) tickTurn(world, sess, turn);
     assert.equal(es.goalStatus, 'completed', 'the regenerated agenda never completed');
-    for (let extra = turn; extra <= turn + 60; extra++) tickTurn(world, sess, extra);
+    assert.equal(es.goalResolvedTurn, 2);
+    assert.equal(es.goalStates['first errand'].goalStatus, 'completed');
+    assert.equal(sess.turnEvents.filter(event => event.actor_id === 'npc_1' && event.committed).length, 2);
+    for (let turn = 3; turn <= 60; turn++) tickTurn(world, sess, turn);
     assert.equal(es.goal, 'second errand', 'an exhausted pool kept regenerating');
+    assert.equal(sess.turnEvents.filter(event => event.actor_id === 'npc_1' && event.committed).length, 2);
 });
 
 test('an NPC with no pool stays resolved instead of thrashing', () => {
     setModules();
-    const world = makeWorld();
+    const world = confirmedAgendaWorld(['collected the only item']);
     world.entities[0].goal = 'one and done';
-    world.entities[0].goalAutonomy = 'high';
     const sess = makeSession(world);
     sess.entityStates.npc_1.location = 'loc_c';
     context.normalizeLivingWorldState(world, sess);
-    let turn = 1;
-    for (; turn <= 200 && sess.entityStates.npc_1.goalStatus !== 'completed'; turn++) tickTurn(world, sess, turn);
-    for (let extra = turn; extra <= turn + 40; extra++) tickTurn(world, sess, extra);
+    tickTurn(world, sess, 1);
+    assert.equal(sess.entityStates.npc_1.goalCompletionProof?.eventId, sess.turnEvents.at(-1).id);
+    for (let turn = 2; turn <= 40; turn++) tickTurn(world, sess, turn);
     assert.equal(sess.entityStates.npc_1.goal, 'one and done');
     assert.equal(sess.entityStates.npc_1.goalStatus, 'completed');
+    assert.equal(sess.turnEvents.filter(event => event.actor_id === 'npc_1' && event.committed).length, 1);
 });
 
 test('the shipped campaign gives every goal-bearing NPC a follow-up agenda', () => {

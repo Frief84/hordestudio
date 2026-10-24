@@ -1,0 +1,54 @@
+[
+  {
+    "id": "F12",
+    "model": "gemma4:31b-it-q4_K_M",
+    "input": "You restrain Linda with the handcuffs.",
+    "error": "Generation stopped. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [
+        "Steel handcuffs"
+      ],
+      "playerLocation": "foyer",
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        },
+        "cuffs": {
+          "location": "player"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [
+        "Steel handcuffs"
+      ],
+      "playerLocation": "foyer",
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        },
+        "cuffs": {
+          "location": "player"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 300108,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "pageErrors": []
+  }
+]

@@ -45,31 +45,38 @@ const root = path.resolve(__dirname, '..');
                     { id: 'path', name: 'Path', exits: [{ targetLocationId: 'stone' }] }],
                 entities: [{ id: 'lorne', type: 'npc', name: 'Lorne', startLocation: 'stone',
                     persona: 'A thoughtful storycatcher with a dry sense of humour.' },
-                    { id: 'aslan', type: 'npc', name: 'Aslan', startLocation: 'stone' }],
+                    { id: 'aslan', type: 'npc', name: 'Aslan', startLocation: 'stone' },
+                    { id: 'bronze_key', type: 'item', name: 'Bronze key', locationId: 'stone' }],
                 kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true },
                 hudConfig: { startTimeHours: 8, timeStep: 5 }, gameRules: { modules: { livingWorld: false } } };
             state.worlds = [world]; state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };
             state.activeWorldId = world.id;
             const sess = prepareCurrentWorldSession(); sess.setupComplete = true;
             sess.entityStates.lorne = { ...sess.entityStates.lorne, location: 'stone' };
+            sess.entityStates.bronze_key = { location: 'stone' };
             sess.placeDiscoveries ||= {};
             sess.placeDiscoveries.lorne = ['path']; // the authored reaction uses a known adjacent place
+            sess.placeDiscoveries.aslan = ['path', 'stone'];
             switchView('worldPlay'); renderWorldPlayState();
             const realFetch = window.fetch;
             const outcomes = [];
             const say = (text, kind = 'speech') => ({ protocol: 'scene_draft_v3', actions: [{
                 kind, status: 'resolved', effects: [], response: [{ text }] }] });
             const run = async (input, proposals, finishes = [], failSave = false, streamMode = 'single') => {
+                const startedAt = performance.now();
                 const before = { history: sess.history.length, turn: sess.turnCount,
                     version: sess.worldStateVersion || 0, outfit: sess.outfit,
+                    playerLocation: sess.playerLocation, aslanLocation: sess.entityStates.aslan.location,
                     time: getWorldTimeData(world, sess).currentTotalMinutes,
                     receipts: sess.worldTurnReceipts?.length || 0 };
                 let calls = 0;
                 const budgets = [];
+                const prompts = [];
                 window.fetch = async (url, options = {}) => {
                     if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                     const body = JSON.parse(options.body);
                     budgets.push(body.max_tokens);
+                    prompts.push(JSON.stringify(body.messages || []).slice(0, 24000));
                     const schema = body.tools?.find(tool => tool.function?.name === 'commit_world_turn')?.function?.parameters
                         || body.response_format?.json_schema?.schema;
                     if (schema?.properties?.actions?.items?.properties?.action_id)
@@ -98,10 +105,15 @@ const root = path.resolve(__dirname, '..');
                 const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions?.find(item => item.id === sess.id);
                 const after = { history: sess.history.length, turn: sess.turnCount,
                     version: sess.worldStateVersion || 0, outfit: sess.outfit,
+                    playerLocation: sess.playerLocation, aslanLocation: sess.entityStates.aslan.location,
                     time: getWorldTimeData(world, sess).currentTotalMinutes,
                     receipts: sess.worldTurnReceipts?.length || 0 };
-                return { calls, budgets, before, after, saved: saved && { history: saved.history.length,
+                return { calls, durationMs: Math.round(performance.now() - startedAt),
+                    budgets, prompts, before, after, saved: saved && { history: saved.history.length,
                     turn: saved.turnCount, outfit: saved.outfit, time: saved.worldClock?.absoluteMinutes,
+                    playerLocation: saved.playerLocation, aslanLocation: saved.entityStates.aslan.location,
+                    diagnostics: saved.worldCallDiagnostics?.length || 0,
+                    diagnosticStatus: saved.worldCallDiagnostics?.at(-1)?.status,
                     receipts: saved.worldTurnReceipts?.length || 0 },
                     input: document.getElementById('world-user-input').value,
                     error: document.getElementById('world-turn-error-text')?.textContent,
@@ -213,19 +225,80 @@ He gives a soft, amused croak.
             const spokenWarning = say('You say: "The bridge is out." Aslan listens.');
             spokenWarning.actions[0].response[0].speech = [{ speaker: 'player', listeners: ['aslan'] }];
             outcomes.push(await run('"The bridge is out."', [spokenWarning]));
+            const invitation = await run('Lorne, come here.',
+                [say('Lorne hears you from the path but chooses not to come.', 'speech')]);
             const speakers = say('Aslan says the path is clear.');
             speakers.actions[0].response[0].speech = [{ speaker: 'aslan', listeners: ['player'] }];
             speakers.actions[0].response.push({ text: 'You say you will follow.',
                 speech: [{ speaker: 'player', listeners: ['aslan'] }] });
             speakers.actions[0].response.push({ text: 'The leaves settle.' });
             outcomes.push(await run('I ask Aslan about the path.', [speakers]));
+            const finalFixture = { world: structuredClone(world), session: structuredClone(sess) };
+            const recoverable = say('Aslan answers from the stone, "The path is clear."');
+            recoverable.reactions = [{ text: 'Lorne reaches the path.', effects: [], events: [{
+                type: 'movement', actor_id: 'lorne', status: 'completed',
+                from_location_id: 'path', to_location_id: 'stone' }] }];
+            const recovered = await run('Is the path clear?', [recoverable]);
+            const recoverAttempt = say('Aslan braces against the stone; the attempt does not move him.', 'physical');
+            recoverAttempt.actions[0].status = 'attempted';
+            recoverAttempt.actions[0].effects = { actor_move: [{ actor_id: 'aslan',
+                to_location_id: 'path' }] };
+            const recoveredAttempt = await run('I try to push Aslan toward the path.', [recoverAttempt]);
+            const falseArrival = say('You and Aslan reach the path together.', 'travel');
+            falseArrival.actions[0].response[0].events = ['player', 'aslan'].map(actor_id => ({
+                type: 'movement', actor_id, status: 'completed',
+                from_location_id: 'stone', to_location_id: 'path' }));
+            const movementFailure = await run('I take Aslan to the path.', [falseArrival]);
+            const jointMove = say('Aslan agrees, and you both reach the path.', 'travel');
+            jointMove.actions[0].effects = { actor_move: [{ actor_id: 'player',
+                to_location_id: 'path', companion_ids: ['aslan'] }] };
+            jointMove.actions[0].response[0].events = ['player', 'aslan'].map(actor_id => ({
+                type: 'movement', actor_id, status: 'completed',
+                from_location_id: 'stone', to_location_id: 'path' }));
+            const positiveJoint = await run('I take Aslan to the path.', [jointMove]);
+            const falseReturn = say('You and Aslan return to the stone together.', 'travel');
+            falseReturn.actions[0].response[0].events = ['player', 'aslan'].map(actor_id => ({
+                type: 'movement', actor_id, status: 'completed',
+                from_location_id: 'path', to_location_id: 'stone' }));
+            const validReturn = structuredClone(falseReturn);
+            validReturn.actions[0].effects = { actor_move: [{ actor_id: 'player',
+                to_location_id: 'stone', companion_ids: ['aslan'] }] };
+            const movementRepaired = await run('I take Aslan back to the stone.',
+                [falseReturn, validReturn]);
+            const pickup = say('The bronze key rests in your hand.', 'physical');
+            pickup.actions[0].effects = { item_transfer: [{ item_id: 'bronze_key',
+                from_id: 'stone', to_id: 'player' }] };
+            pickup.actions[0].response[0].events = [{ type: 'inventory', actor_id: 'player',
+                status: 'completed', action: 'pickup', item: 'Bronze key' }];
+            const itemPickup = await run('I take the bronze key.', [pickup]);
+            const npcFollows = await run('Aslan, please wait here.',
+                [say('Aslan nods and waits beside the stone.', 'speech')]);
+            const npcRefuses = await run('Aslan, please give me your coat.',
+                [say('Aslan shakes his head. "I would rather keep it."', 'speech')]);
+            const npcOutfit = say('Aslan accepts the blue scarf and drapes it over his shoulders.', 'physical');
+            npcOutfit.actions[0].effects = { outfit_set: [{ actor_id: 'aslan', outfit: 'blue scarf' }] };
+            npcOutfit.actions[0].response[0].events = [{ type: 'outfit', actor_id: 'aslan',
+                status: 'completed', outfit: 'blue scarf' }];
+            const npcState = await run('I give Aslan a blue scarf to wear.', [npcOutfit]);
+            const partial = { protocol: 'scene_draft_v3', actions: [
+                { request: 'I put on a green coat.', kind: 'physical', status: 'resolved',
+                    effects: { outfit_set: [{ actor_id: 'player', outfit: 'green coat' }] },
+                    response: [{ text: 'The green coat settles on your shoulders.', events: [{
+                        type: 'outfit', actor_id: 'player', status: 'completed', outfit: 'green coat' }] }] },
+                { request: 'I try to push Aslan toward the path.', kind: 'physical', status: 'attempted',
+                    effects: [], response: [{ text: 'Aslan braces against the stone and does not move.' }] }
+            ] };
+            const partialTurn = await run('I put on a green coat. I try to push Aslan toward the path.', [partial]);
             window.fetch = realFetch;
-            return { outcomes, npcLocation: sess.entityStates.lorne.location,
+            return { outcomes, invitation, recovered, recoveredAttempt,
+                movementFailure, positiveJoint, movementRepaired,
+                itemPickup, npcFollows, npcRefuses, npcState, partialTurn,
+                failedDiagnostics: sess.worldCallDiagnostics, npcLocation: sess.entityStates.lorne.location,
                 scheduled: sess.scheduledEvents, history: sess.history.map(message => message.text),
                 aslanObservations: sess.entityStates.aslan.observations,
                 lorneObservations: sess.entityStates.lorne.observations,
                 failedFixture,
-                finalFixture: { world: structuredClone(world), session: structuredClone(sess) } };
+                finalFixture };
         });
         assert.deepEqual(errors, [], JSON.stringify(errors));
         for (const [index, turn] of result.outcomes.entries()) {
@@ -248,6 +321,46 @@ He gives a soft, amused croak.
             assert.deepEqual(turn.savedSceneMemory, turn.sceneMemory);
         }
         assert.equal(result.outcomes[0].calls, 1);
+        assert.equal(result.outcomes[0].receipt.audit.turnResolution.status, 'clean');
+        assert.equal(result.outcomes[5].receipt.audit.turnResolution.status, 'repaired');
+        assert(result.outcomes[5].receipt.audit.turnResolution.originalFailure);
+        assert.equal(result.recovered.receipt.audit.turnResolution.status, 'recovered');
+        assert.equal(result.recovered.saved.receipts, result.recovered.after.receipts);
+        assert.equal(result.recovered.receipt.audit.turnResolution.discarded.reactions, 1);
+        assert(!result.recovered.reply.includes('Lorne reaches the path'));
+        assert.equal(result.recoveredAttempt.receipt.audit.turnResolution.status, 'recovered');
+        assert.deepEqual(result.recoveredAttempt.receipt.receipt.confirmed_effects, []);
+        assert.deepEqual(result.recoveredAttempt.receipt.audit.turnResolution.discarded.strippedAttemptEffects, [0]);
+        assert.equal(result.recoveredAttempt.after.aslanLocation, result.recoveredAttempt.before.aslanLocation);
+        assert.deepEqual(result.movementFailure.after, result.movementFailure.before);
+        assert.equal(result.movementFailure.saved.diagnosticStatus, 'failed');
+        assert(result.movementFailure.prompts[1].includes('MOVEMENT EFFECT CORRECTION'));
+        assert(result.movementFailure.prompts[1].includes('companion_ids'));
+        assert.equal(result.positiveJoint.receipt.audit.turnResolution.status, 'clean');
+        assert.equal(result.positiveJoint.saved.history, result.positiveJoint.after.history);
+        assert.equal(result.positiveJoint.saved.playerLocation, 'path');
+        assert.equal(result.positiveJoint.saved.aslanLocation, 'path');
+        assert(result.positiveJoint.receipt.receipt.confirmed_effects.some(item => item.type === 'actor_move'));
+        assert.deepEqual(result.positiveJoint.receipt.receipt.events.filter(item => item.type === 'movement')
+            .map(item => item.actor_id).sort(), ['aslan', 'player']);
+        assert.equal(result.movementRepaired.receipt.audit.turnResolution.status, 'repaired');
+        assert.equal(result.movementRepaired.saved.playerLocation, 'stone');
+        assert.equal(result.movementRepaired.saved.aslanLocation, 'stone');
+        assert(result.movementRepaired.prompts[1].includes('MOVEMENT EFFECT CORRECTION'));
+        assert.equal(result.itemPickup.receipt.audit.turnResolution.status, 'clean');
+        assert(result.itemPickup.receipt.receipt.confirmed_effects.some(item => item.type === 'item_transfer'));
+        assert.equal(result.npcFollows.receipt.audit.turnResolution.status, 'clean');
+        assert.equal(result.npcRefuses.receipt.audit.turnResolution.status, 'clean');
+        assert.equal(result.npcState.receipt.audit.turnResolution.status, 'clean');
+        assert(result.npcState.receipt.receipt.confirmed_effects.some(item => item.type === 'outfit_set'
+            && item.payload.actor_id === 'aslan'));
+        assert.equal(result.partialTurn.receipt.audit.turnResolution.status, 'clean');
+        assert.deepEqual(result.partialTurn.receipt.audit.actions.map(item => item.outcome),
+            ['succeeded', 'failed']);
+        assert.equal(result.partialTurn.after.aslanLocation, result.partialTurn.before.aslanLocation);
+        assert.equal(result.partialTurn.saved.outfit, 'green coat');
+        assert(result.failedDiagnostics.some(item => item.status === 'failed'
+            && item.originalFailure && item.calls.length));
         const outfitTurn = result.outcomes[4];
         assert.equal(outfitTurn.receipt.audit.actions[0].outcome, 'succeeded');
         assert(outfitTurn.receipt.receipt.events.some(event => event.type === 'outfit'
@@ -282,6 +395,9 @@ He gives a soft, amused croak.
         assert.deepEqual(result.outcomes[6].budgets, [4096, 8192, 16384]);
         assert(!result.history.some(text => /INCOMPLETE/.test(text)));
         assert.equal(result.npcLocation, 'path');
+        assert.equal(result.invitation.calls, 1);
+        assert.equal(result.invitation.receipt.receipt.confirmed_effects.length, 0,
+            'an invitation cannot move an NPC without a matching effect and event');
         assert.equal(result.scheduled.length, 1);
         assert.equal(result.scheduled[0].title, 'Agreed meeting');
         assert.equal(result.scheduled[0].dueMinute, 1950);
@@ -366,18 +482,28 @@ He gives a soft, amused croak.
                     combinedCalls: result.outcomes.at(-1).calls,
                     world: result.finalFixture.world, session: result.finalFixture.session }
             ] }));
-        assert.equal(bindingCalls, 27, 'every repaired draft is bound and checked again');
+        assert.equal(bindingCalls, 43,
+            'new repair proposals are bound; an identical rejected proposal is not retried');
         await page.reload();
-        await page.waitForFunction(() => state.worldInstances?.bound_test?.sessions?.some(session => session.outfit === 'blue coat'));
+        await page.waitForFunction(() => state.worldInstances?.bound_test?.sessions?.some(session => session.outfit === 'green coat'));
         const reloaded = await page.evaluate(() => {
-            const session = state.worldInstances.bound_test.sessions.find(item => item.outfit === 'blue coat');
+            const session = state.worldInstances.bound_test.sessions.find(item => item.outfit === 'green coat');
             return { receipt: session.worldTurnReceipts?.at(-1)?.receipt,
                 sceneMemory: session.history.at(-1)?.sceneMemory,
                 aslanObservations: session.entityStates.aslan.observations };
         });
-        assert.deepEqual(reloaded.receipt, finalReceipt);
-        assert.deepEqual(reloaded.sceneMemory, result.outcomes.at(-1).sceneMemory);
+        assert.deepEqual(reloaded.receipt, result.partialTurn.receipt.receipt);
+        assert.deepEqual(reloaded.sceneMemory, result.partialTurn.sceneMemory);
         assert(reloaded.aslanObservations.some(item => item.text === 'You say you will follow.'));
+        console.log('P2.8 browser metrics:', JSON.stringify(Object.fromEntries([
+            ['clean', result.outcomes[0]], ['repaired', result.outcomes[5]],
+            ['recovered', result.recovered], ['recovered_attempt', result.recoveredAttempt],
+            ['failed', result.movementFailure],
+            ['joint_move', result.positiveJoint], ['joint_move_repaired', result.movementRepaired],
+            ['pickup', result.itemPickup], ['npc_follows', result.npcFollows],
+            ['npc_refuses', result.npcRefuses], ['npc_state', result.npcState],
+            ['partial', result.partialTurn]
+        ].map(([name, turn]) => [name, { calls: turn.calls, durationMs: turn.durationMs }]))));
         console.log('PASS browser: bound receipts, effect trace, speaker evidence, scoped NPC memory, rollback and reload');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });
