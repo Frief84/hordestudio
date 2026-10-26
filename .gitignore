@@ -16,5 +16,8 @@ scratch/verify_*.py
 scratch/v18-marketing-results/
 scratch/v18-release-results/
 
+# Local documentation snapshot
+/docs-pre-consolidation-20261026-172149/
+
 # Optional platform-specific local Node runtime for VH background simulation
 runtime/

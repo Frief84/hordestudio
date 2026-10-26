@@ -1,0 +1,152 @@
+[
+  {
+    "name": "world_general_turn_matrix_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS 190 distinct bound World turns across 10 genres and 19 action categories"
+  },
+  {
+    "name": "world_server_binding_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS server-owned IDs, long/short dialogue, gestures, Aslan/Lorne, autonomous NPC movement, effects, deadlines, truncation, repair preservation and rollback"
+  },
+  {
+    "name": "world_linked_execution_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS linked action chain, NPC movement and state, rollback, save/reload"
+  },
+  {
+    "name": "world_linked_hardening_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS linked effect contract, diagnostics, repairs, invariants, snapshots and rollback"
+  },
+  {
+    "name": "world_action_path_parity_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P0b.2a-c path parity: movement, modules, references, confirmed agent outcomes, rollback and reload"
+  },
+  {
+    "name": "world_turn_transaction_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "✓ World turn receipt and cross-timeline transaction guards are present"
+  },
+  {
+    "name": "world_working_state_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS transactional working state, proxy barrier, indirect effects and budget"
+  },
+  {
+    "name": "world_p41_universal_checks_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.1 linked success, partial, failure, blocked, disabled, ordinary, effect gate, rollback, NPC, stable reroll"
+  },
+  {
+    "name": "world_p42_resource_cost_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.2 outcome costs, provenance, shared Working State, rollback, replay, NPC and legacy compatibility"
+  },
+  {
+    "name": "world_model_client_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "World model diagnostics failed: diagnostics unavailable\n✓ World model client bounds stalled HTTP 200 bodies and reports each outcome once"
+  },
+  {
+    "name": "world_npc_goal_actions_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS NPC linked goal actions: key, locked door, travel, competing owner, save/reload"
+  },
+  {
+    "name": "world_npc_goal_decision_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS NPC goal decision: closed door waits for a grounded step; open door resumes deterministic move"
+  },
+  {
+    "name": "world_npc_goal_priority_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS goal priority: rules, interruption, resume, blocked alternative, stable ties, item consume; 40 NPC x 10 goals x 50 ticks in 51.9ms"
+  },
+  {
+    "name": "world_npc_goal_progress_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS NPC goal progress: save/reload, blocked retry, changed resource, completion receipts, private relevant memories"
+  },
+  {
+    "name": "world_perception_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "Perception only: 5.88 ms / 100 events, 48 rooms, 48 NPCs\nworld_perception_audit: passed"
+  },
+  {
+    "name": "world_knowledge_share_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "knowledge-share cost only: 26.2 ms for 16 deliveries, 19 NPCs\nPASS knowledge share: delivery, relay provenance, privacy, range, witness, reaction, event-rule consequence, reload"
+  },
+  {
+    "name": "world_server_binding_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "P2.8 browser metrics: {\"clean\":{\"calls\":1,\"durationMs\":209},\"repaired\":{\"calls\":3,\"durationMs\":375},\"recovered\":{\"calls\":2,\"durationMs\":655},\"recovered_attempt\":{\"calls\":2,\"durationMs\":605},\"failed\":{\"calls\":2,\"durationMs\":347},\"joint_move\":{\"calls\":1,\"durationMs\":420},\"joint_move_repaired\":{\"calls\":2,\"durationMs\":624},\"pickup\":{\"calls\":1,\"durationMs\":418},\"npc_follows\":{\"calls\":1,\"durationMs\":389},\"npc_refuses\":{\"calls\":1,\"durationMs\":439},\"npc_state\":{\"calls\":1,\"durationMs\":457},\"partial\":{\"calls\":1,\"durationMs\":511}}\nPASS browser: bound receipts, effect trace, speaker evidence, scoped NPC memory, rollback and reload"
+  },
+  {
+    "name": "world_p42_resource_cost_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.2 browser turns: success and failure costs, one call each, receipts and reload"
+  },
+  {
+    "name": "world_p41_linked_turn_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.1 full deterministic linked turn, receipt, persistence and result card"
+  },
+  {
+    "name": "world_npc_goal_tick_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS NPC goal tick: verified multi-step actions, blocker, resume, pause, visible NPC, idempotence"
+  },
+  {
+    "name": "world_perception_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS perception browser: private offscreen observation reaches existing NPC memory selector"
+  },
+  {
+    "name": "world_knowledge_share_persistence_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS knowledge-share persistence: failed commit atomic, retry once, action idempotence, reload\nPASS knowledge-share legacy: V2/V3 definitions and sessions migrate and reload without invented knowledge"
+  },
+  {
+    "name": "worlds2_atomic_turn_persistence_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS: a pending World turn remains uncommitted during embedding diagnostics and after reload"
+  },
+  {
+    "name": "worlds2_startup_recovery_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS: damaged World shard leaves data untouched and a full backup restores a working installation"
+  },
+  {
+    "name": "worlds2_hosted_turn_deadline_browser_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS: idle stalls stop; streamed progress stops at the five-minute turn limit"
+  }
+]

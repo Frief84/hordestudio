@@ -1,0 +1,11 @@
+P41: starting ministral-3:14b
+P41: page loaded
+P41: app ready
+P41: model request
+P41: binding draft
+P41: model request
+P41: binding draft
+P41: model request
+P41: binding draft
+P41: summary {"turnDurationMs":13941,"calls":[{"durationMs":6052,"status":200,"maxTokens":8192,"promptCharacters":32124,"contextCharacters":31270,"schemaCharacters":32796,"reasoningEffort":null,"responseCharacters":44682,"contentCharacters":902,"reasoningCharacters":0,"usage":null,"providerTiming":null},{"durationMs":3934,"status":200,"maxTokens":8192,"promptCharacters":6585,"contextCharacters":6203,"schemaCharacters":32796,"reasoningEffort":null,"responseCharacters":1113,"contentCharacters":0,"reasoningCharacters":0,"usage":null,"providerTiming":null},{"durationMs":3236,"status":200,"maxTokens":8192,"promptCharacters":8418,"contextCharacters":7895,"schemaCharacters":32796,"reasoningEffort":null,"responseCharacters":1151,"contentCharacters":0,"reasoningCharacters":0,"usage":null,"providerTiming":null}],"error":"World turn was not saved: Linked World turn was not committed: unverified_action_success. Your action is still in the input box.","liveStats":{"focus":9,"energy":5},"savedStats":{"focus":9,"energy":5},"savedHistoryLength":0}
+P41: {"error":"World turn was not saved: Linked World turn was not committed: unverified_action_success. Your action is still in the input box.","calls":3,"savedTurn":false}

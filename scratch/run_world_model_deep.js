@@ -16,7 +16,8 @@ async function run(model, slug, testCase) {
   const label = `${slug}-${testCase}`;
   const target = path.join(directory, `${label}.json`);
   if (fs.existsSync(target)) return;
-  const remaining = 30 - spent();
+  // One Ministral T03 request was started, then interrupted during the pause.
+  const remaining = 30 - spent() - 1;
   if (remaining <= 0) return;
   const allowed = Math.min(3, remaining);
   const log = fs.createWriteStream(path.join(directory, `${label}.log`));
@@ -45,7 +46,7 @@ async function run(model, slug, testCase) {
 }
 (async () => {
   for (const [model, slug, cases] of [
-    ['qwen2.5:14b-instruct-q4_K_M', 'qwen2.5', ['T03', 'P41', 'P42', 'A3']],
-    ['ministral-3:14b', 'ministral-3', ['T03', 'P42']]
+    ['ministral-3:14b', 'ministral-3', ['T03', 'P42', 'P41']],
+    ['qwen2.5:14b-instruct-q4_K_M', 'qwen2.5', ['T03', 'P41', 'P42', 'A3', 'A2']]
   ]) for (const testCase of cases) await run(model, slug, testCase);
 })().catch(error => { console.error(error); process.exitCode = 1; });

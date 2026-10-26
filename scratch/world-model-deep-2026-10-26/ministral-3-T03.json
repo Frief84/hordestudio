@@ -1,0 +1,368 @@
+[
+  {
+    "id": "T03",
+    "model": "ministral-3:14b",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 112702,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0",
+          "outcome": "succeeded"
+        },
+        {
+          "action_id": "turn_fe0d1ea376f121db947ddf2d_world_0",
+          "outcome": "succeeded"
+        }
+      ],
+      "accepted": 0,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:key",
+        "history",
+        "session:livingWorldActivity",
+        "session:_worldEpoch",
+        "time",
+        "session:worldClock",
+        "session:worldModelAttempts",
+        "session:worldModelTotals"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "clean",
+        "turnId": "turn_fe0d1ea376f121db947ddf2d",
+        "diagnosticId": "turn_fe0d1ea376f121db947ddf2d_1_diag",
+        "model": "ministral-3:14b",
+        "originalFailure": null,
+        "failures": [],
+        "repairResults": [],
+        "discarded": null,
+        "confirmedEffects": [],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "ministral-3:14b",
+            "status": 200,
+            "durationMs": 111908,
+            "usage": null
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_fe0d1ea376f121db947ddf2d",
+        "worldActionIds": [
+          "turn_fe0d1ea376f121db947ddf2d_world_0"
+        ],
+        "gestureActionIds": [],
+        "repairs": [],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 30,
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "The bronze key is cold against your fingers when you lift it from the table. Linda hasn’t moved, though her eyes flick toward it—just long enough to register the absence before returning to the door’s general direction. She doesn’t speak.\n\nThe metal holds no inscriptions, no weight of secrets. Just ",
+        "action_resolution": {
+          "kind": "speech",
+          "status": "resolved",
+          "outcome": "The bronze key is cold against your fingers when you lift it from the table. Linda hasn’t moved, though her eyes flick toward it—just long enough to register the absence before returning to the door’s general direction. She doesn’t speak."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_world_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_fe0d1ea376f121db947ddf2d_action_0_p0",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "turn_fe0d1ea376f121db947ddf2d_action_0_p1",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "turn_fe0d1ea376f121db947ddf2d_world_0_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_fe0d1ea376f121db947ddf2d",
+        "passages": [
+          {
+            "id": "turn_fe0d1ea376f121db947ddf2d_action_0_p0",
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0",
+            "text": "The bronze key is cold against your fingers when you lift it from the table. Linda hasn’t moved, though her eyes flick toward it—just long enough to register the absence before returning to the door’s general direction. She doesn’t speak."
+          },
+          {
+            "id": "turn_fe0d1ea376f121db947ddf2d_action_0_p1",
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0",
+            "text": "The metal holds no inscriptions, no weight of secrets. Just an unremarkable piece of craftwork, its edges smooth and its bow slightly bent as if picked up or set down many times."
+          },
+          {
+            "id": "turn_fe0d1ea376f121db947ddf2d_world_0_p0",
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_world_0",
+            "text": "(No NPC reaction to the pickup itself.)"
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 485
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "turn_fe0d1ea376f121db947ddf2d_world_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "accepted": 0,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:key",
+          "history",
+          "session:livingWorldActivity",
+          "session:_worldEpoch",
+          "time",
+          "session:worldClock",
+          "session:worldModelAttempts",
+          "session:worldModelTotals"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "clean",
+          "turnId": "turn_fe0d1ea376f121db947ddf2d",
+          "diagnosticId": "turn_fe0d1ea376f121db947ddf2d_1_diag",
+          "model": "ministral-3:14b",
+          "originalFailure": null,
+          "failures": [],
+          "repairResults": [],
+          "discarded": null,
+          "confirmedEffects": [],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "ministral-3:14b",
+              "status": 200,
+              "durationMs": 111908,
+              "usage": null
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_fe0d1ea376f121db947ddf2d",
+          "worldActionIds": [
+            "turn_fe0d1ea376f121db947ddf2d_world_0"
+          ],
+          "gestureActionIds": [],
+          "repairs": [],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 30,
+              "action_id": "turn_fe0d1ea376f121db947ddf2d_action_0"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 0,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3065,
+        "mainPromptCharacters": 63440,
+        "repairPromptCharacters": 0,
+        "firstTokenMs": 111905,
+        "firstContentMs": 111905,
+        "localValidationMs": 3,
+        "generationMs": 111908,
+        "outputCharacters": 980,
+        "estimatedInputTokens": 19825,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3065,
+          "locationDescription": 42,
+          "npcPerspectives": 1030,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 30,
+          "schema": 32630,
+          "sceneGuidance": 9148
+        }
+      },
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "ministral-3:14b",
+          "status": 200,
+          "durationMs": 111908,
+          "usage": null
+        }
+      ]
+    },
+    "narrative": "The bronze key is cold against your fingers when you lift it from the table. Linda hasn’t moved, though her eyes flick toward it—just long enough to register the absence before returning to the door’s general direction. She doesn’t speak.\n\nThe metal holds no inscriptions, no weight of secrets. Just an unremarkable piece of craftwork, its edges smooth and its bow slightly bent as if picked up or set down many times.\n\n(No NPC reaction to the pickup itself.)",
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_take_the_key_from_the_table",
+              "eventId": "",
+              "text": "I take the key from the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_take_the_key_from_the_table",
+              "eventId": "",
+              "text": "I take the key from the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 111860,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 30778,
+        "contextCharacters": 29996,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 45602,
+        "contentCharacters": 980,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

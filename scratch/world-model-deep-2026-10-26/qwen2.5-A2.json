@@ -1,0 +1,391 @@
+[
+  {
+    "id": "A2",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I tell Linda to wait here, then I try to hold her hands.",
+    "turnDurationMs": 104598,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0",
+          "outcome": "succeeded"
+        },
+        {
+          "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1",
+          "outcome": "failed"
+        }
+      ],
+      "accepted": 0,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:key",
+        "history",
+        "session:livingWorldActivity",
+        "session:_worldEpoch",
+        "time",
+        "session:worldClock",
+        "session:worldModelAttempts",
+        "session:worldModelTotals"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "repaired",
+        "turnId": "turn_e9d71a3b51e37321a8cb82e1",
+        "diagnosticId": "turn_e9d71a3b51e37321a8cb82e1_1_diag",
+        "model": "qwen2.5:14b-instruct-q4_K_M",
+        "originalFailure": {
+          "source": "binding_normalization",
+          "reasons": [
+            {
+              "reason": "partition_overlapping_requests",
+              "detail": "unique ordered excerpts"
+            }
+          ]
+        },
+        "failures": [],
+        "repairResults": [],
+        "discarded": null,
+        "confirmedEffects": [],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 103895,
+            "usage": null
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_e9d71a3b51e37321a8cb82e1",
+        "worldActionIds": [],
+        "gestureActionIds": [],
+        "repairs": [
+          {
+            "type": "partition_overlapping_requests",
+            "detail": "unique ordered excerpts"
+          }
+        ],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 34,
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0"
+          },
+          {
+            "start": 34,
+            "end": 56,
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "Linda raises an eyebrow, looking at you expectantly.\n\nLinda steps back slightly, folding her arms. 'What are you doing?' she asks, looking wary.",
+        "action_resolution": {
+          "kind": "speech",
+          "status": "resolved",
+          "outcome": "Linda raises an eyebrow, looking at you expectantly."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1",
+            "outcome": "failed"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_e9d71a3b51e37321a8cb82e1_action_0_p0",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "turn_e9d71a3b51e37321a8cb82e1_action_1_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_e9d71a3b51e37321a8cb82e1",
+        "passages": [
+          {
+            "id": "turn_e9d71a3b51e37321a8cb82e1_action_0_p0",
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0",
+            "text": "Linda raises an eyebrow, looking at you expectantly."
+          },
+          {
+            "id": "turn_e9d71a3b51e37321a8cb82e1_action_1_p0",
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1",
+            "text": "Linda steps back slightly, folding her arms. 'What are you doing?' she asks, looking wary."
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 485
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1",
+            "outcome": "failed"
+          }
+        ],
+        "accepted": 0,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:key",
+          "history",
+          "session:livingWorldActivity",
+          "session:_worldEpoch",
+          "time",
+          "session:worldClock",
+          "session:worldModelAttempts",
+          "session:worldModelTotals"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "repaired",
+          "turnId": "turn_e9d71a3b51e37321a8cb82e1",
+          "diagnosticId": "turn_e9d71a3b51e37321a8cb82e1_1_diag",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "originalFailure": {
+            "source": "binding_normalization",
+            "reasons": [
+              {
+                "reason": "partition_overlapping_requests",
+                "detail": "unique ordered excerpts"
+              }
+            ]
+          },
+          "failures": [],
+          "repairResults": [],
+          "discarded": null,
+          "confirmedEffects": [],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 103895,
+              "usage": null
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_e9d71a3b51e37321a8cb82e1",
+          "worldActionIds": [],
+          "gestureActionIds": [],
+          "repairs": [
+            {
+              "type": "partition_overlapping_requests",
+              "detail": "unique ordered excerpts"
+            }
+          ],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 34,
+              "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_0"
+            },
+            {
+              "start": 34,
+              "end": 56,
+              "action_id": "turn_e9d71a3b51e37321a8cb82e1_action_1"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 0,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3065,
+        "mainPromptCharacters": 63541,
+        "repairPromptCharacters": 0,
+        "firstTokenMs": 103892,
+        "firstContentMs": 103892,
+        "localValidationMs": 3,
+        "generationMs": 103895,
+        "outputCharacters": 660,
+        "estimatedInputTokens": 19857,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3065,
+          "locationDescription": 42,
+          "npcPerspectives": 1030,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 56,
+          "schema": 32709,
+          "sceneGuidance": 9148
+        }
+      },
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 103895,
+          "usage": null
+        }
+      ]
+    },
+    "narrative": "Linda raises an eyebrow, looking at you expectantly.\n\nLinda steps back slightly, folding her arms. 'What are you doing?' she asks, looking wary.",
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_tell_linda_to_wait_here_then_i_try_to_hold_h",
+              "eventId": "",
+              "text": "I tell Linda to wait here, then I try to hold her hands.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_tell_linda_to_wait_here_then_i_try_to_hold_h",
+              "eventId": "",
+              "text": "I tell Linda to wait here, then I try to hold her hands.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 103787,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 30800,
+        "contextCharacters": 29992,
+        "schemaCharacters": 32709,
+        "reasoningEffort": null,
+        "responseCharacters": 39612,
+        "contentCharacters": 660,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

@@ -171,6 +171,70 @@ function alignRequests(input, actions) {
             ? input.length : sourceWords[offset].start };
     });
 }
+// Only explicit first-person acts can override a model's disposition. Keep
+// quoted speech, negation, questions and instructions to another actor out of
+// this guard; uncertain requests remain subject to the normal proof checks.
+function directPlayerAct(request) {
+    const source = String(request || '').trim().replace(/^(?:then|and then|dann|und dann)\s+/iu, '');
+    if (!/^(?:I|Ich)\s+/iu.test(source) || /\?\s*$/u.test(source)) return null;
+    const body = source.replace(/^(?:I|Ich)\s+/iu, '');
+    if (/\b(?:not|nicht|never|kein|keine|keinen|keinem|keiner)\b/iu.test(body)
+        || /^(?:don't|won't)\b/iu.test(body)
+        || /["“”„]/u.test(body) || /^(?:say|tell|ask|quote|sage|frage|erzähle|bitte)\b/iu.test(body))
+        return null;
+    const pickup = /^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife)\b/iu.test(body);
+    const travel = /^(?:walk|go|move|travel|enter|gehe|laufe|betrete|reise)\b/iu.test(body);
+    return { body, pickup, travel };
+}
+function playerIntentErrors(input, actions, spans, context) {
+    const references = Array.isArray(context.references) ? context.references : [];
+    const norm = value => String(value || '').normalize('NFKC').toLocaleLowerCase();
+    const mentions = (source, type) => references.filter(ref => ref.type === type
+        && [ref.name, ref.id, ...String(ref.name || '').split(/\s+/u).slice(-1)]
+            .some(name => name && new RegExp(`(?:^|[^\\p{L}\\p{N}])${String(name)
+                .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?=$|[^\\p{L}\\p{N}])`, 'iu')
+                .test(source)));
+    const errors = [];
+    actions.forEach((action, index) => {
+        const request = input.slice(spans[index].start, spans[index].end).trim();
+        const act = directPlayerAct(request);
+        if (!act) return;
+        const pickupObject = act.pickup ? act.body.replace(/^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife)\s+/iu, '')
+            .replace(/^(?:the|a|an|den|die|das|einen|eine|dem)\s+/iu, '') : '';
+        const itemMatches = pickupObject ? mentions(pickupObject.split(/\s+(?:from|off|on|at|about|of|aus|von|vom|über|und|and|then|dann)\b/iu)[0], 'item') : [];
+        if (itemMatches.length === 1 && !['physical', 'travel'].includes(action.kind))
+            errors.push({ reason: 'player_action_kind_mismatch', detail: `actions.${index}.kind`,
+                expected: 'physical', request });
+        if (itemMatches.length === 1 && ['resolved', 'answered'].includes(action.status)
+            && !(normalizedEffects(action.effects).item_transfer || []).some(effect =>
+                effect.item_id === itemMatches[0].id && effect.to_id === 'player')
+            && !(action.response || []).some(paragraph => (paragraph.events || []).some(event =>
+                event.type === 'inventory' && event.actor_id === 'player'
+                && event.status === 'completed')))
+            errors.push({ reason: 'missing_player_pickup_proof', detail: `actions.${index}.effects.item_transfer`,
+                item_id: itemMatches[0].id, request });
+        const destinationPhrase = act.travel
+            ? act.body.match(/\b(?:to|into|through|in|nach|zu|zum|zur|durch|in\s+den|in\s+die)\s+(.+)$/iu)?.[1] || '' : '';
+        const destinations = destinationPhrase ? mentions(destinationPhrase, 'location') : [];
+        if (destinations.length === 1 && !['travel', 'physical'].includes(action.kind))
+            errors.push({ reason: 'player_action_kind_mismatch', detail: `actions.${index}.kind`,
+                expected: 'travel', request });
+        if (destinations.length === 1 && ['resolved', 'answered'].includes(action.status)
+            && !(normalizedEffects(action.effects).actor_move || []).some(effect =>
+                effect.actor_id === 'player' && effect.to_location_id === destinations[0].id))
+            errors.push({ reason: 'missing_player_movement_proof', detail: `actions.${index}.effects.actor_move`,
+                to_location_id: destinations[0].id, request });
+        for (const rule of context.universalCheckRules || []) {
+            const phrase = norm(rule?.match?.requestIncludes);
+            if (!phrase || !norm(request).includes(phrase) || !rule.match?.kind) continue;
+            const firstVerb = norm(act.body).split(/\s+/u)[0];
+            if (!phrase.startsWith(firstVerb) || action.kind === rule.match.kind) continue;
+            errors.push({ reason: 'universal_check_kind_mismatch', detail: `actions.${index}.kind`,
+                rule_id: rule.id, expected: rule.match.kind, request });
+        }
+    });
+    return errors;
+}
 function bind(proposal, context, canonical) {
     proposal = clone(proposal);
     const repairs = [];
@@ -438,6 +502,13 @@ function bind(proposal, context, canonical) {
             && action.response.every(paragraph => !paragraph.commitments?.length
                 && !paragraph.resolutions?.length))
         && proposal.actions.reduce((count, action) => count + action.response.length, 0) <= 16;
+    // Inspect each original clause before the conversational normalizer can
+    // collapse several model-labelled speech actions into one.
+    const originalSpans = proposal.actions.length > 1
+        ? alignRequests(context.input, proposal.actions) : null;
+    if (originalSpans) errors.push(...playerIntentErrors(context.input,
+        proposal.actions, originalSpans, context));
+    if (errors.length) return { ok: false, errors };
     if (conversational) {
         const originalCount = proposal.actions.length;
         proposal.actions = [{ kind: proposal.actions.some(action => action.kind === 'speech') ? 'speech'
@@ -458,6 +529,9 @@ function bind(proposal, context, canonical) {
                     proposal.actions.map(action => JSON.stringify(action.response))).size} distinct responses`
                 : 'actions' });
     }
+    if (errors.length) return { ok: false, errors };
+    if (requestSpans.length === proposal.actions.length)
+        errors.push(...playerIntentErrors(context.input, proposal.actions, requestSpans, context));
     if (errors.length) return { ok: false, errors };
     if (proposal.actions.length > 1 && requestSpans.some((span, index) =>
         String(proposal.actions[index].request).trim() !== context.input.slice(span.start, span.end).trim()))
