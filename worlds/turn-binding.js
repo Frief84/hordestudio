@@ -146,13 +146,223 @@ function alignRequests(input, actions) {
         }
     };
     visit(0, []);
-    return solutions.length === 1 ? solutions[0] : null;
+    if (solutions.length) return solutions.length === 1 ? solutions[0] : null;
+    // The model may omit grammatical glue when naming independent clauses.
+    // Compare every substantive word in order, including negation, actors,
+    // destinations and object names. The host still binds the original text.
+    const optional = new Set(['i', 'ich', 'we', 'wir', 'you', 'du', 'a', 'an', 'the',
+        'der', 'die', 'das', 'den', 'dem', 'ein', 'eine', 'einen', 'einem', 'and',
+        'und', 'then', 'dann']);
+    const words = source => [...String(source || '').matchAll(/[\p{L}\p{N}]+/gu)]
+        .map(match => ({ word: match[0].normalize('NFKC').toLocaleLowerCase(),
+            start: match.index, end: match.index + match[0].length }))
+        .filter(entry => !optional.has(entry.word));
+    const sourceWords = words(input);
+    const requestWords = actions.map(action => words(action.request));
+    if (requestWords.some(group => !group.length)
+        || requestWords.reduce((count, group) => count + group.length, 0) !== sourceWords.length
+        || requestWords.flat().some((entry, index) => entry.word !== sourceWords[index].word))
+        return null;
+    let offset = 0;
+    return requestWords.map((group, index) => {
+        const start = index === 0 ? 0 : sourceWords[offset].start;
+        offset += group.length;
+        return { start, end: index === requestWords.length - 1
+            ? input.length : sourceWords[offset].start };
+    });
 }
 function bind(proposal, context, canonical) {
     proposal = clone(proposal);
     const repairs = [];
     if (!context || !/^[a-z][a-z0-9_]{1,47}$/.test(context.turnId || '')
         || typeof context.input !== 'string') throw new TypeError('invalid_turn_binding_context');
+    // The host owns links and knows the IDs behind current World names. Repair
+    // only unambiguous structure and projections of an explicit typed effect;
+    // the schema and reducer still decide whether an action can commit.
+    const references = Array.isArray(context.references) ? context.references.filter(item =>
+        object(item) && typeof item.id === 'string' && typeof item.name === 'string') : [];
+    const key = value => String(value).normalize('NFKC').trim().toLocaleLowerCase();
+    const knownIds = new Set(['player', ...references.map(item => item.id)]);
+    const resolve = (value, path) => {
+        if (typeof value !== 'string' || knownIds.has(value)) return value;
+        const matches = [...new Set(references.filter(item => key(item.name) === key(value))
+            .map(item => item.id))];
+        if (matches.length !== 1) return value;
+        repairs.push({ type: 'known_reference_id', detail: path, from: value, to: matches[0] });
+        return matches[0];
+    };
+    const normalizeParagraph = (paragraph, path) => {
+        if (!object(paragraph)) return;
+        for (const field of ['action_id', 'passage_id', 'response_id'])
+            if (Object.hasOwn(paragraph, field)) {
+                delete paragraph[field];
+                repairs.push({ type: 'discard_engine_link', detail: `${path}.${field}` });
+            }
+        for (const [index, event] of (Array.isArray(paragraph.events) ? paragraph.events : []).entries()) {
+            if (!object(event)) continue;
+            for (const field of ['action_id', 'passage_id', 'response_id'])
+                if (Object.hasOwn(event, field)) {
+                    delete event[field];
+                    repairs.push({ type: 'discard_engine_link', detail: `${path}.events.${index}.${field}` });
+                }
+            for (const field of ['actor_id', 'target_id'])
+                if (Object.hasOwn(event, field)) event[field] = resolve(event[field],
+                    `${path}.events.${index}.${field}`);
+        }
+        for (const [index, speech] of (Array.isArray(paragraph.speech) ? paragraph.speech : []).entries()) {
+            if (!object(speech)) continue;
+            for (const field of ['action_id', 'passage_id', 'response_id'])
+                if (Object.hasOwn(speech, field)) {
+                    delete speech[field];
+                    repairs.push({ type: 'discard_engine_link', detail: `${path}.speech.${index}.${field}` });
+                }
+            if (Object.hasOwn(speech, 'speaker')) speech.speaker = resolve(speech.speaker,
+                `${path}.speech.${index}.speaker`);
+            if (Array.isArray(speech.listeners)) speech.listeners = speech.listeners.map((listener, i) =>
+                resolve(listener, `${path}.speech.${index}.listeners.${i}`));
+        }
+    };
+    const referenceFields = new Set(['actor_id', 'target_id', 'from_id', 'to_id',
+        'item_id', 'recipient_id', 'subject_id', 'source_id', 'location_id',
+        'from_location_id', 'to_location_id']);
+    const normalizeEffectRefs = (value, path) => {
+        if (Array.isArray(value)) {
+            value.forEach((item, index) => normalizeEffectRefs(item, `${path}.${index}`));
+        } else if (object(value)) for (const [field, item] of Object.entries(value)) {
+            if (referenceFields.has(field)) value[field] = resolve(item, `${path}.${field}`);
+            else if (field === 'companion_ids' && Array.isArray(item))
+                value[field] = item.map((id, index) => resolve(id, `${path}.${field}.${index}`));
+            else normalizeEffectRefs(item, `${path}.${field}`);
+        }
+    };
+    for (const [index, action] of (Array.isArray(proposal?.actions) ? proposal.actions : []).entries()) {
+        if (!object(action)) continue;
+        for (const field of ['action_id', 'passage_id', 'response_id'])
+            if (Object.hasOwn(action, field)) {
+                delete action[field];
+                repairs.push({ type: 'discard_engine_link', detail: `actions.${index}.${field}` });
+            }
+        if (typeof action.response === 'string' && action.response.trim()) {
+            action.response = [{ text: action.response }];
+            repairs.push({ type: 'wrap_response_text', detail: `actions.${index}.response` });
+        } else if (object(action.response) && typeof action.response.text === 'string') {
+            action.response = [action.response];
+            repairs.push({ type: 'wrap_response_paragraph', detail: `actions.${index}.response` });
+        }
+        if (Array.isArray(action.response)) action.response = action.response.map((paragraph, i) => {
+            if (typeof paragraph === 'string' && paragraph.trim()) {
+                repairs.push({ type: 'wrap_response_text', detail: `actions.${index}.response.${i}` });
+                return { text: paragraph };
+            }
+            return paragraph;
+        });
+        (Array.isArray(action.response) ? action.response : []).forEach((paragraph, i) =>
+            normalizeParagraph(paragraph, `actions.${index}.response.${i}`));
+        normalizeEffectRefs(action.effects, `actions.${index}.effects`);
+        normalizeEffectRefs(action.state_conditions, `actions.${index}.state_conditions`);
+        if (Array.isArray(action.state_conditions) && Array.isArray(action.effects?.item_transfer)) {
+            // A transfer's new owner is an outcome, never a fact required
+            // before that same transfer. The reducer still proves source
+            // ownership and reachability; remove only this exact postcondition.
+            action.state_conditions = action.state_conditions.filter((condition, conditionIndex) => {
+                if (condition?.fact !== 'has_item' || condition.operator !== 'equals') return true;
+                const value = String(condition.value || '');
+                const matchingId = action.effects.item_transfer.find(transfer =>
+                    transfer?.to_id === condition.subject_id && transfer?.item_id
+                    && (transfer.item_id === value || references.filter(item =>
+                        key(item.name) === key(value)).length === 1
+                        && references.some(item => item.id === transfer.item_id
+                            && key(item.name) === key(value))));
+                if (!matchingId) return true;
+                repairs.push({ type: 'discard_effect_postcondition',
+                    detail: `actions.${index}.state_conditions.${conditionIndex}` });
+                return false;
+            });
+            if (!action.state_conditions.length) delete action.state_conditions;
+        }
+        if (action.kind === 'physical' && action.status === 'resolved'
+            && Array.isArray(action.response) && Array.isArray(action.effects?.item_transfer)
+            && !action.response.some(paragraph => Array.isArray(paragraph?.events)
+                && paragraph.events.some(event => event?.type === 'inventory'))) {
+            for (const [transferIndex, transfer] of action.effects.item_transfer.entries()) {
+                if (!object(transfer) || transfer.to_id !== 'player' && transfer.from_id !== 'player') continue;
+                const item = references.find(reference => reference.type === 'item'
+                    && reference.id === transfer.item_id);
+                if (!item || references.filter(reference => key(reference.name) === key(item.name)).length !== 1)
+                    continue;
+                const mentioning = action.response.filter(paragraph => object(paragraph)
+                    && typeof paragraph.text === 'string' && key(paragraph.text).includes(key(item.name)));
+                if (mentioning.length !== 1) continue;
+                const paragraph = mentioning[0];
+                if (paragraph.events !== undefined && !Array.isArray(paragraph.events)) continue;
+                paragraph.events ||= [];
+                paragraph.events.push({ type: 'inventory', actor_id: 'player', status: 'completed',
+                    action: transfer.to_id === 'player' ? 'add' : 'remove', item: item.name });
+                repairs.push({ type: 'project_inventory_event',
+                    detail: `actions.${index}.effects.item_transfer.${transferIndex}` });
+            }
+        }
+    }
+    (Array.isArray(proposal?.reactions) ? proposal.reactions : []).forEach((reaction, i) => {
+        normalizeParagraph(reaction, `reactions.${i}`);
+        normalizeEffectRefs(reaction?.effects, `reactions.${i}.effects`);
+    });
+    if (Array.isArray(proposal?.actions) && proposal.actions.length > 1) {
+        const [first, ...tail] = proposal.actions;
+        const emptyAction = action => object(action)
+            && Object.keys(action).every(field => ['kind', 'status', 'request', 'depends_on',
+                'state_conditions', 'effects', 'response'].includes(field))
+            && !String(action.request || '').trim()
+            && (!Object.hasOwn(action, 'depends_on')
+                || Array.isArray(action.depends_on) && !action.depends_on.length)
+            && (!Object.hasOwn(action, 'state_conditions')
+                || Array.isArray(action.state_conditions) && !action.state_conditions.length)
+            && (!action.effects || Array.isArray(action.effects) && !action.effects.length
+                || object(action.effects) && !Object.keys(action.effects).length)
+            && Array.isArray(action.response) && action.response.length === 1
+            && object(action.response[0])
+            && Object.keys(action.response[0]).every(field => field === 'text')
+            && /^[\s\p{P}\p{S}]{1,3}$/u.test(action.response[0].text);
+        if (object(first) && Array.isArray(first.response)
+            && first.response.some(paragraph => /[\p{L}\p{N}]/u.test(String(paragraph?.text || '')))
+            && (!String(first.request || '').trim()
+            || String(first.request).trim() === context.input.trim())
+            && tail.every(emptyAction)) {
+            proposal.actions = [first];
+            repairs.push({ type: 'discard_empty_action_placeholders',
+                detail: `${tail.length} punctuation-only actions` });
+        }
+    }
+    if (context.singleRequest === true && Array.isArray(proposal?.actions)
+        && proposal.actions.length > 1) {
+        const [first, ...tail] = proposal.actions;
+        const continuation = action => object(action)
+            && Object.keys(action).every(field => ['kind', 'status', 'request', 'depends_on',
+                'state_conditions', 'effects', 'response'].includes(field))
+            && !String(action.request || '').trim()
+            && ['resolved', 'answered'].includes(action.status)
+            && (!action.effects || Array.isArray(action.effects) && !action.effects.length
+                || object(action.effects) && !Object.keys(action.effects).length)
+            && (!Object.hasOwn(action, 'depends_on')
+                || Array.isArray(action.depends_on) && !action.depends_on.length)
+            && (!Object.hasOwn(action, 'state_conditions')
+                || Array.isArray(action.state_conditions) && !action.state_conditions.length)
+            && Array.isArray(action.response)
+            && action.response.length && action.response.every(paragraph => object(paragraph)
+                && typeof paragraph.text === 'string' && paragraph.text.trim()
+                && !paragraph.events?.length && !paragraph.commitments?.length
+                && !paragraph.resolutions?.length);
+        if (object(first) && ['resolved', 'answered', 'attempted'].includes(first.status)
+            && (!String(first.request || '').trim()
+                || String(first.request).trim() === context.input.trim())
+            && Array.isArray(first.response) && tail.every(continuation)
+            && first.response.length + tail.reduce((count, action) => count + action.response.length, 0) <= 16) {
+            first.response.push(...tail.flatMap(action => action.response));
+            proposal.actions = [first];
+            repairs.push({ type: 'merge_single_request_continuation',
+                detail: `${tail.length} effect-free response actions` });
+        }
+    }
     // A new clock obligation needs some time cue in the player request or its
     // linked response. Drop only optional entries when both lack one; existing
     // commitments may still be cancelled without repeating their due time.
@@ -193,9 +403,8 @@ function bind(proposal, context, canonical) {
     const errors = validate(proposal, schema(canonical, context));
     if (errors.length) return { ok: false, errors };
     // A conversation can be phrased as several questions, jokes and gestures.
-    // Those are one player turn, not independently executable operations. The
-    // host owns its complete request text, so a model's arbitrary paragraph
-    // boundaries cannot make a valid effect-free conversation fail coverage.
+    // Merge those responses only when their anchors cover the complete input;
+    // an unanchored paragraph cannot prove that another instruction was kept.
     const requestAnchors = proposal.actions.map(action => String(action.request || '').trim());
     let exactCursor = 0;
     const contiguousRequests = proposal.actions.every(action => {
@@ -205,23 +414,21 @@ function bind(proposal, context, canonical) {
         exactCursor += excerpt.length;
         return true;
     }) && !context.input.slice(exactCursor).trim();
-    const inputWords = (context.input.match(/[\p{L}\p{N}]+/gu) || [])
-        .map(word => word.normalize('NFKC').toLocaleLowerCase());
-    let anchorCursor = 0;
-    const anchoredInOrder = requestAnchors.every(anchor => {
-        if (!anchor) return false;
-        const words = (anchor.match(/[\p{L}\p{N}]+/gu) || [])
-            .map(word => word.normalize('NFKC').toLocaleLowerCase());
-        if (!words.length) return false;
-        return words.every(word => {
-            const index = inputWords.indexOf(word, anchorCursor);
-            if (index < 0) return false;
-            anchorCursor = index + 1;
-            return true;
-        });
-    });
+    // A subsequence of anchors can silently skip a mechanical clause between
+    // two conversational responses. Require complete ordered coverage before
+    // merging them into one effect-free action.
+    const optionalWords = new Set(['i', 'ich', 'we', 'wir', 'you', 'du', 'a', 'an', 'the',
+        'der', 'die', 'das', 'den', 'dem', 'ein', 'eine', 'einen', 'einem', 'and',
+        'und', 'then', 'dann']);
+    const contentWords = value => (String(value).match(/[\p{L}\p{N}]+/gu) || [])
+        .map(word => word.normalize('NFKC').toLocaleLowerCase())
+        .filter(word => !optionalWords.has(word));
+    const anchoredInOrder = requestAnchors.every(Boolean)
+        && contentWords(context.input).join('\0') === requestAnchors
+            .flatMap(contentWords).join('\0')
+        && !!alignRequests(context.input, proposal.actions);
     const conversational = proposal.actions.length > 1 && !contiguousRequests
-        && (requestAnchors.every(anchor => !anchor) || anchoredInOrder)
+        && anchoredInOrder
         && proposal.actions.every(action => ['speech', 'question', 'observation', 'gesture', 'other'].includes(action.kind)
             && ['resolved', 'answered'].includes(action.status)
             && (!action.effects || Array.isArray(action.effects) && !action.effects.length
@@ -345,10 +552,32 @@ function bind(proposal, context, canonical) {
 }
 // The caller supplies only effects with an Engine verification trace. Schema
 // validity or a successful reducer call alone never grants repair protection.
-function repairLosses(verified, next, canonical, previous = null, input = '') {
+function repairLosses(verified, next, canonical, previous = null, input = '', references = []) {
     if (!Array.isArray(verified) || !object(next) || !Array.isArray(next.actions)) return [];
     const effects = canonical.properties.actions.items.properties.action_effects.properties;
     const result = [];
+    const key = value => String(value).normalize('NFKC').trim().toLocaleLowerCase();
+    const knownIds = new Set(['player', ...references.map(item => item.id)]);
+    const refFields = new Set(['actor_id', 'target_id', 'from_id', 'to_id', 'item_id',
+        'recipient_id', 'subject_id', 'source_id', 'location_id',
+        'from_location_id', 'to_location_id']);
+    const canonicalizeRefs = value => {
+        if (Array.isArray(value)) value.forEach(canonicalizeRefs);
+        else if (object(value)) for (const [field, item] of Object.entries(value)) {
+            if (refFields.has(field) && typeof item === 'string' && !knownIds.has(item)) {
+                const ids = [...new Set(references.filter(reference =>
+                    key(reference.name) === key(item)).map(reference => reference.id))];
+                if (ids.length === 1) value[field] = ids[0];
+            } else if (field === 'companion_ids' && Array.isArray(item))
+                value[field] = item.map(id => {
+                    if (knownIds.has(id)) return id;
+                    const ids = [...new Set(references.filter(reference =>
+                        key(reference.name) === key(id)).map(reference => reference.id))];
+                    return ids.length === 1 ? ids[0] : id;
+                });
+            else canonicalizeRefs(item);
+        }
+    };
     const spans = input && next.actions.length > 1 ? alignRequests(input, next.actions) : null;
     for (const proof of verified) {
         if (!object(proof) || !['player', 'reaction'].includes(proof.source)
@@ -364,6 +593,7 @@ function repairLosses(verified, next, canonical, previous = null, input = '') {
         const sameSource = object(action) && (proof.source === 'reaction'
             || !request || request.trim() === String(proof.request || '').trim());
         const remaining = normalizedEffects(action?.effects);
+        canonicalizeRefs(remaining);
         for (const operation of proof.effects) {
             const spec = effects[operation.type];
             const wholeArray = Array.isArray(operation.payload) && spec?.type === 'array';

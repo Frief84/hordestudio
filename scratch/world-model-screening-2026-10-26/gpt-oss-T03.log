@@ -1,0 +1,6 @@
+T03: starting gpt-oss:20b
+T03: page loaded
+T03: app ready
+T03: model request
+T03: summary {"turnDurationMs":150143,"calls":[{"durationMs":150044,"error":"TimeoutError: The operation was aborted due to timeout"}],"error":"World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.","liveStats":{},"savedStats":{},"savedHistoryLength":0}
+T03: {"error":"World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.","calls":1,"savedTurn":false}

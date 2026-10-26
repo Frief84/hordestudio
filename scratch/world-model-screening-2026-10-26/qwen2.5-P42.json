@@ -1,0 +1,63 @@
+[
+  {
+    "id": "P42",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I focus on the inscription on the table.",
+    "turnDurationMs": 4811,
+    "error": "World turn was not saved: The model claimed a completed World change without a matching validated effect, even after automatic repair. No turn was saved; your input remains available.. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 4610,
+        "status": 200,
+        "maxTokens": 2048,
+        "promptCharacters": 32120,
+        "contextCharacters": 31266,
+        "schemaCharacters": 32796,
+        "reasoningEffort": null,
+        "responseCharacters": 28592,
+        "contentCharacters": 533,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

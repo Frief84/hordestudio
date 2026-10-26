@@ -3667,7 +3667,7 @@ input[type=number].form-input::-webkit-inner-spin-button {
 .app-update-notice {
   position: fixed;
   right: 24px;
-  bottom: 24px;
+  top: 24px;
   z-index: 8990;
   display: grid;
   grid-template-columns: 34px minmax(160px, 1fr) auto auto;
@@ -3710,7 +3710,7 @@ input[type=number].form-input::-webkit-inner-spin-button {
 .app-update-dismiss:hover { color: var(--text); border-color: var(--text-3); }
 
 @media (max-width: 620px) {
-  .app-update-notice { left: 16px; right: 16px; bottom: 16px; grid-template-columns: 34px 1fr auto; }
+  .app-update-notice { left: 16px; right: 16px; top: 16px; grid-template-columns: 34px 1fr auto; }
   .app-update-link { grid-column: 2; justify-content: center; }
   .app-update-dismiss { grid-column: 3; grid-row: 1 / span 2; }
 }
@@ -9635,3 +9635,10 @@ label[data-help] > span:first-child::after,
 .kokoro-designer .chip.active { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 18%, var(--surface2)); }
 .kokoro-designer .formula-box { white-space:pre-wrap; overflow-wrap:anywhere; }
 .world-speech-controls { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; margin-top:8px; }
+
+/* P4.1 confirmed, player-visible check summaries */
+.world-check-card { margin: 8px 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface2); font-size: .82rem; max-width: 100%; overflow-wrap: anywhere; }
+.world-check-card summary { cursor: pointer; list-style-position: inside; }
+.world-check-card ul { margin: 6px 0 0; padding-left: 22px; }
+.world-check-card li { margin: 2px 0; }
+@media (max-width: 600px) { .world-check-card { font-size: .78rem; } }

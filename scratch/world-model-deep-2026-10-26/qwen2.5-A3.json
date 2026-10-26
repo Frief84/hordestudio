@@ -1,0 +1,85 @@
+[
+  {
+    "id": "A3",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I walk through the open door to the Round Room.",
+    "turnDurationMs": 19113,
+    "error": "World turn was not saved: Linked World turn was not committed: unverified_action_success. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 5655,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 30791,
+        "contextCharacters": 29992,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 43343,
+        "contentCharacters": 804,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 9347,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 7345,
+        "contextCharacters": 6919,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 2207,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 3654,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 9187,
+        "contextCharacters": 8624,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 1402,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

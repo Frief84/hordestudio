@@ -1,0 +1,53 @@
+[
+  {
+    "id": "P42",
+    "model": "jaahas/qwen3.5-uncensored:27b",
+    "input": "I focus on the inscription on the table.",
+    "turnDurationMs": 150152,
+    "error": "World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 150054,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "pageErrors": []
+  }
+]

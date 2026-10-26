@@ -1,0 +1,7 @@
+P42: starting qwen2.5:14b-instruct-q4_K_M
+P42: page loaded
+P42: app ready
+P42: model request
+P42: binding draft
+P42: summary {"turnDurationMs":3710,"calls":[{"durationMs":3513,"status":200,"maxTokens":8192,"promptCharacters":32120,"contextCharacters":31266,"schemaCharacters":32796,"reasoningEffort":null,"responseCharacters":20157,"contentCharacters":333,"reasoningCharacters":0,"usage":null,"providerTiming":null}],"error":"","accepted":0,"rejected":[],"checkResults":[],"liveStats":{"focus":9,"energy":5},"savedStats":{"focus":9,"energy":5},"savedHistoryLength":2}
+P42: {"error":"","calls":1,"accepted":0,"rejected":[],"savedTurn":true}

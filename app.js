@@ -607,7 +607,6 @@ let worldTurnInProgress = false; // re-entry guard for executeWorldTurn
 let worldPendingTurnUI = null; // Presentation only; never saved as world state.
 const WORLD_PLAYER_INPUT_FIDELITY = '[PLAYER WORDING AND INTENT]\nOn player-action turns, the final user message is the player\'s complete action. Continue immediately with its consequence, an NPC response, or a new event; never open by restating, paraphrasing, or re-voicing the player\'s words or attempted action. Do not rewrite their dialogue as a new speech. An NPC may naturally quote a relevant phrase when responding, with its speaker clearly attributed. Preserve the player\'s intent: do not invent motives, threats, promises, permissions, refusals or actions for them. Minor typo interpretation must preserve meaning, negation, actor, target and scope. If unclear wording would change an action or its consequences, ask a brief in-character clarification and leave that part unresolved.';
 const WORLD_PLAYER_INPUT_NOTATION = '[OPTIONAL PLAYER NOTATION]\nText the player puts in quotation marks ("..." or “...”) is spoken aloud by the player. Text the player puts between asterisks (*...*) describes an action the player attempts. The player may mix both in one message. Plain unmarked text remains fully valid: classify its meaning from context. A spoken request for an NPC to act does not mean the player performed that physical action. Keep the player’s exact words and intent.';
-const WORLD_HOSTED_TURN_DEADLINE_MS = 150000;
 let worldMutationInProgress = false; // short, persisted non-generation commands
 let worldTurnPersistenceFence = null;
 let lastPresetContextWarningKey = '';
@@ -2189,6 +2188,7 @@ function validateWorldData(value, label = 'World', { clone = true } = {}) {
                 }
             });
         }
+        globalThis.HordeUniversalChecks?.validateRules(value.gameRules.universalChecks);
         if (value.gameRules.zeroHpMode !== undefined && !['fail_forward', 'lethal'].includes(value.gameRules.zeroHpMode)) {
             throw new Error(`${label} game rules zero HP mode is invalid`);
         }
@@ -16510,6 +16510,11 @@ function setupWorldStudioLogic() {
         world.hudConfig.enableSchedules = e.target.checked;
         loadWorldGameRuleControls(world);
     };
+    document.getElementById('w-universal-checks-enabled').onchange = (e) => {
+        const world = state.editingWorld;
+        if (!world) return;
+        normalizeWorldGameRules(world).universalChecks.enabled = e.target.checked;
+    };
     document.getElementById('w-rules-profile').onchange = (e) => {
         const world = state.editingWorld;
         if (!world) return;
@@ -23330,6 +23335,8 @@ function loadWorldGameRuleControls(world) {
     const rules = normalizeWorldGameRules(world);
     const profile = document.getElementById('w-rules-profile');
     if (profile) profile.value = rules.profileId;
+    const universalToggle = document.getElementById('w-universal-checks-enabled');
+    if (universalToggle) universalToggle.checked = rules.universalChecks.enabled;
     const profileDescription = document.getElementById('w-rules-profile-description');
     if (profileDescription) profileDescription.textContent = worldRuleProfileDescription(rules.profileId);
     document.querySelectorAll('#w-rules-modules-grid [data-rule-module]').forEach(input => {
@@ -25163,13 +25170,16 @@ function renderWorldDirectorPanel(world, sess) {
             replyByVersion.set(Number(message.worldAudit.version), message);
         }
     });
-    receipts.forEach(({ turn, audit }) => {
+    receipts.forEach(({ turn, audit, receipt }) => {
         const rejections = Array.isArray(audit?.rejected) ? audit.rejected : [];
         const rejectedCount = rejections.length || Math.max(0, Number(audit?.rejected) || 0);
         const details = document.createElement('details');
         details.className = 'world-director-receipt';
-        const summary = text('summary', `Turn ${turn}${audit?.turnResolution?.status ? ` · ${audit.turnResolution.status}` : ''} · ${audit?.accepted || 0} committed · ${rejectedCount} rejected`);
+        const summary = text('summary', `Turn ${turn ?? receipt?.turn_id ?? '?'}${audit?.turnResolution?.status ? ` · ${audit.turnResolution.status}` : ''} · ${audit?.accepted || 0} committed · ${rejectedCount} rejected`);
         details.appendChild(summary);
+        (receipt?.check_results || []).forEach(check => details.appendChild(text('p',
+            `Check ${check.rule_id} · ${check.result_id} (${check.kind}) · ${check.total ?? '—'} vs ${check.difficulty} · random ${check.random ?? 'none'} · actor ${check.actor_id} · target ${check.target_id || 'none'} · values ${JSON.stringify(check.values)} · modifiers ${JSON.stringify(check.modifiers)} · effects ${(check.effect_types || []).join(', ') || 'none'} · events ${(check.event_ids || []).join(', ') || 'none'} · receipt ${check.receipt_id || receipt.turn_id || '?'}`,
+            'world-director-fact')));
         const resolution = audit?.turnResolution;
         if (resolution) {
             details.appendChild(text('p',
@@ -26521,6 +26531,10 @@ function normalizeWorldGameRules(world) {
         pausedMechanicalModules: isPlainObject(raw.pausedMechanicalModules)
             ? Object.fromEntries(WORLD_OPTIONAL_RPG_MODULE_KEYS.map(key => [key, !!raw.pausedMechanicalModules[key]])) : null,
         dice: diceRaw,
+        universalChecks: isPlainObject(raw.universalChecks)
+            ? { enabled: raw.universalChecks.enabled === true,
+                rules: Array.isArray(raw.universalChecks.rules) ? raw.universalChecks.rules : [] }
+            : { enabled: false, rules: [] },
         capabilities: isPlainObject(raw.capabilities) ? raw.capabilities : {},
         consequences: {
             enabled: raw.consequences?.enabled !== false,
@@ -29222,7 +29236,12 @@ function renderWorldPlayState() {
     const label = document.getElementById('world-context-label');
     if (label) {
         label.textContent = `~${estTokens.toLocaleString()} tokens`;
-        label.title = `Approximate saved story/world text. Configured model context: ${maxTokens.toLocaleString()} tokens. The next request selects only history that fits after instructions and output reserves; this is not billed usage.`;
+        const modelId = world.model || state.globalSettings.defaultModel;
+        const physicalLimit = typeof openRouterModels !== 'undefined'
+            ? Number(openRouterModels.find(model => model.id === modelId)?.context_length) || Infinity
+            : Infinity;
+        const effectiveLimit = Math.min(maxTokens, physicalLimit);
+        label.title = `Approximate saved story/world text. Configured context: ${maxTokens.toLocaleString()} tokens; effective turn limit: ${effectiveLimit.toLocaleString()} tokens. The outgoing request also includes instructions, current scene, tool contract, and output reserve. This is not billed usage.`;
     }
 }
 
@@ -29344,11 +29363,20 @@ function worldNarrativeSegments(world, text, speechAttributions = []) {
     const segments = [];
     const usedSpeech = new Set();
     paragraphs.forEach(paragraph => {
+        const hasStructuredSpeech = speechAttributions.length > 0;
+        const passageMatches = speechAttributions.flatMap((record, index) =>
+            !usedSpeech.has(index) && String(record?.statement || '').trim() === paragraph.trim()
+                ? [{ record, index }] : []);
+        const passageSpeakerIds = [...new Set(passageMatches.map(match => match.record.speaker))];
+        const passageSpeaker = passageSpeakerIds.length === 1
+            ? (world.entities || []).find(entity => entity.id === passageSpeakerIds[0]) || null : null;
+        passageMatches.forEach(match => usedSpeech.add(match.index));
         const screenplay = /^\s*(?:\*\*)?([^:*\n]{2,60})(?:\*\*)?:\s+([\s\S]+)$/.exec(paragraph);
         if (screenplay) {
             const label = screenplay[1].trim().toLowerCase();
             const matchingAliases = worldSpeakerAliases(world).filter(alias => alias.value.toLowerCase() === label);
-            const speaker = matchingAliases.length === 1 ? matchingAliases[0].entity : null;
+            const speaker = hasStructuredSpeech ? passageSpeaker
+                : matchingAliases.length === 1 ? matchingAliases[0].entity : null;
             if (speaker) {
                 carriedSpeaker = speaker;
                 carryAge = 0;
@@ -29383,13 +29411,13 @@ function worldNarrativeSegments(world, text, speechAttributions = []) {
             const speechIndex = speechAttributions.findIndex((record, index) => !usedSpeech.has(index)
                 && String(record?.statement || '').trim() === spokenText);
             if (speechIndex >= 0) usedSpeech.add(speechIndex);
-            let speaker = speechIndex >= 0
+            let speaker = passageSpeaker || (speechIndex >= 0
                 ? (world.entities || []).find(entity => entity.id === speechAttributions[speechIndex].speaker) || null
-                : worldDialogueSpeaker(world, paragraph, start, end, carriedSpeaker);
+                : hasStructuredSpeech ? null : worldDialogueSpeaker(world, paragraph, start, end, carriedSpeaker));
             // A continuation such as "He pauses. \"Tell me...\"" keeps the
             // established speaker even when their name has fallen outside the
             // nearby-name window. A newly named person cancels this shortcut.
-            if (!speaker && carriedSpeaker && /^\s*(?:he|she|they)\b/i.test(lead)
+            if (!hasStructuredSpeech && !speaker && carriedSpeaker && /^\s*(?:he|she|they)\b/i.test(lead)
                 && !worldNpcMentions(world,lead,{ignoreDialogue:true})
                     .some(mention => mention.entity.id !== carriedSpeaker.id)) speaker = carriedSpeaker;
             // A quote without a reliable speaker stays in the narrator's
@@ -29581,7 +29609,8 @@ function worldMessageRenderSignature(msg, isLastEntry) {
     return JSON.stringify([
         msg.id, msg.role, msg.text, versions.length, current, versions[current],
         msg.location, msg.command, msg.ledgerEntry, msg.stateSource, msg.stateFallbackArmed,
-        msg.worldAudit, msg.narrativeAuditWarnings, msg.callAudit, msg.turnDurationMs, msg.narratedMove,
+        msg.worldAudit, msg.checkResults, msg.narrativeAuditWarnings, msg.callAudit, msg.turnDurationMs, msg.narratedMove,
+        msg.speechAttributions,
         msg.missingPlace, msg.narratedPresence, msg.narratedOutfit, msg.ledgerStatus,
         isLastEntry
     ]);
@@ -29710,7 +29739,7 @@ function reconcileWorldMessages(world, sess, presentationMode) {
         const id = String(msg.id || `legacy-${index}`);
         const signature = worldMessageRenderSignature(msg, index === sess.history.length - 1);
         let node = existingById.get(id);
-        if (!node || node._worldRenderSignature !== signature) {
+        if (!node || changedTimeline || node._worldRenderSignature !== signature) {
             node = appendWorldMessageUI(msg, index);
             node.dataset.worldMessageId = id;
             node._worldRenderSignature = signature;
@@ -29773,7 +29802,8 @@ function appendWorldMessageUI(msg, index = null) {
         : (presentation?.enabled ? presentation.mode : 'classic');
     const messageHtml = msg.role === 'dm' && world?.activePresetId === FREAKY_FRANKENSTEIN_5_4_ID
         ? renderFreakyPresetMessage(displayText)
-        : msg.role === 'dm' && presentationMode !== 'classic'
+        : msg.role === 'dm' && (presentationMode !== 'classic'
+            || Array.isArray(msg.speechAttributions) && msg.speechAttributions.length > 0)
         ? renderWorldNarrativeHtml(world, displayText, msg.speechAttributions || [])
         : msg.role === 'user' && presentationMode !== 'classic'
             ? renderWorldPlayerMessageHtml(activeSession, displayText)
@@ -29836,6 +29866,19 @@ function appendWorldMessageUI(msg, index = null) {
     const metaHtml = metaParts.length
         ? `<div class="world-msg-meta">${metaParts.join(' &nbsp;·&nbsp; ')}</div>`
         : '';
+    const checksHtml = msg.role === 'dm' && Array.isArray(msg.checkResults)
+        ? msg.checkResults.filter(check => check.actor_id === 'player').map(check => {
+            const details = [
+                ...check.values.map(value => `${value.key} ${value.actual}`),
+                ...check.modifiers.map(mod => `${mod.id} ${mod.value >= 0 ? '+' : ''}${mod.value}`),
+                check.random === null ? '' : `Random ${check.random}`,
+                `Total ${check.total ?? '—'} vs ${check.difficulty}`,
+                check.receipt_id ? `Receipt ${check.receipt_id}` : ''
+            ].filter(Boolean).map(value => `<li>${escapeHTML(String(value))}</li>`).join('');
+            const label = { success: 'Success', partial: 'Partial success', failure: 'Failure', blocked: 'Blocked' }[check.kind]
+                || check.result_id;
+            return `<details class="world-check-card"><summary><strong>${escapeHTML(check.name)}</strong> · ${escapeHTML(String(check.difficulty))} · ${escapeHTML(label)}</summary><ul>${details}</ul></details>`;
+        }).join('') : '';
     const changesHtml = msg.role === 'dm' && Array.isArray(msg.turnChanges) && msg.turnChanges.length
         ? `<details class="world-turn-changes"><summary>What changed this turn</summary><ul>${msg.turnChanges
             .map(change => `<li>${escapeHTML(change)}</li>`).join('')}</ul></details>` : '';
@@ -29850,6 +29893,7 @@ function appendWorldMessageUI(msg, index = null) {
     div.innerHTML = `
         <div class="msg-bubble">
             <div class="msg-text">${messageHtml}</div>
+            ${checksHtml}
             ${changesHtml}
             ${metaHtml}
             <textarea class="msg-edit-area hidden" style="width:100%; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:8px; margin-top:8px; font-family:inherit; font-size:inherit;"></textarea>
@@ -30180,7 +30224,7 @@ const WORLD_TAKE_METADATA_FIELDS = [
     'location', 'witnesses', 'worldAudit', 'narrativeAuditWarnings',
     'missingPlace', 'stateSource', 'stateFallbackArmed', 'ledgerStatus',
     'narratedMove', 'narratedPresence', 'narratedOutfit', 'visibleRelationshipChanges', 'turnChanges', 'sceneMemory',
-    'speechAttributions'
+    'speechAttributions', 'checkResults'
 ];
 
 function captureWorldTakeMetadata(source) {
@@ -31185,6 +31229,8 @@ function candidateEvidenceMovementPhrase(candidate) {
     return extractUserMovementTarget(candidate?.evidence || '');
 }
 
+const WORLD_TURN_MAX_DURATION_MS = 5 * 60 * 1000;
+
 async function executeWorldTurn(commandOrReroll = null) {
     // Re-entry guard: a world turn mutates sess.history, the clock, and NPC
     // spawns — running two concurrently corrupts state. Block until the
@@ -31217,6 +31263,13 @@ async function executeWorldTurn(commandOrReroll = null) {
         if (wasReadingOlder) renderWorldPlayState();
     }
     const worldTurnStartedAt = Date.now();
+    const controller = new AbortController();
+    let turnDeadlineReached = false;
+    const turnDeadlineId = setTimeout(() => {
+        turnDeadlineReached = true;
+        controller.abort();
+    }, WORLD_TURN_MAX_DURATION_MS);
+    worldGenController = controller;
     worldTurnInProgress = true;
     const worldSendBtn = document.getElementById('world-send-btn');
     if (worldSendBtn) {
@@ -31264,9 +31317,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         if (worldPendingTurnUI === pendingTurnUI) worldPendingTurnUI = null;
     };
     let timeoutId = null;
-    let hostedDeadlineId = null;
     let generationTimedOut = false;
-    let hostedDeadlineReached = false;
     let activeIdleTimeoutMs = 0;
     let restoredRerollSnapshot = false;
     let failureRestoreSnapshot = null;
@@ -31301,7 +31352,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         return saved;
     };
     let labsWorldFrame = null;
-    const recordWorldCall = (kind, model, status, startedAt, usage, outcome = '') => {
+    const recordWorldCall = (kind, model, status, startedAt, usage, outcome = '', providerTiming = null) => {
         const tokenCount = value => {
             if (value === null || value === undefined || value === '') return null;
             const number = Number(value);
@@ -31322,17 +31373,29 @@ async function executeWorldTurn(commandOrReroll = null) {
             usage: reportedUsage && Object.values(reportedUsage).some(value => value !== null)
                 ? reportedUsage : null
         };
+        const providerCount = value => Number.isFinite(Number(value)) && Number(value) >= 0
+            && value !== null ? Math.round(Number(value)) : null;
+        const providerDuration = value => Number.isFinite(Number(value)) && Number(value) >= 0
+            && value !== null ? Math.round(Number(value) / 1e6) : null;
+        if (providerTiming) detail.providerTiming = {
+            promptTokens: providerCount(providerTiming.prompt_eval_count),
+            outputTokens: providerCount(providerTiming.eval_count),
+            loadMs: providerDuration(providerTiming.load_duration),
+            promptEvalMs: providerDuration(providerTiming.prompt_eval_duration),
+            outputEvalMs: providerDuration(providerTiming.eval_duration)
+        };
         turnCallDetails.push(detail);
         if (turnCallAudit?.metrics) turnCallAudit.metrics.generationMs += detail.durationMs;
         recordWorldModelAttempt(world, sess, { ...detail, provider: turnProvider, usage, outcome }, false);
     };
     const fetchWorldTurnJSON = async (kind, body, init) => {
+        if (controller.signal.aborted) throw controller.signal.reason;
         const startedAt = performance.now();
         if (kind === 'receiptRepair' && turnCallAudit?.metrics)
             turnCallAudit.metrics.repairPromptCharacters += JSON.stringify({ messages: body.messages, tools: body.tools, response_format: body.response_format }).length;
         // A streaming inactivity deadline must not abort a later request.
         // Each JSON call has its own body deadline; the shared controller
-        // still enforces user Stop and the overall hosted turn budget.
+        // still enforces user Stop and the overall World turn limit.
         if (timeoutId) clearTimeout(timeoutId);
         timeoutId = null;
         if (turnProvider === 'horde') {
@@ -31348,7 +31411,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             // client enforces this independently of the turn's idle timer.
             timeoutMs: isLocalProvider() ? localGenerationIdleTimeoutMs() : 45000,
             onSettled: detail => recordWorldCall(kind, body.model, detail.status,
-                startedAt, detail.usage, detail.outcome)
+                startedAt, detail.usage, detail.outcome, detail.providerTiming)
         });
         if (turnCallAudit?.metrics) turnCallAudit.metrics.outputCharacters += (result.data?.choices || []).reduce((sum, choice) => {
             const message = choice.message || choice.delta || {};
@@ -31358,6 +31421,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         return result;
     };
     const fetchWorldTurnStream = async (kind, body, init) => {
+        if (controller.signal.aborted) throw controller.signal.reason;
         const startedAt = performance.now();
         if (turnProvider === 'horde') {
             const response = await requestHordeCompletion(body, init?.signal);
@@ -31419,7 +31483,8 @@ async function executeWorldTurn(commandOrReroll = null) {
             narrativeRescue: 0,
             chronicleClassifier: 0,
             metrics: { loreCharacters: 0, mainPromptCharacters: 0, repairPromptCharacters: 0,
-                firstTokenMs: null, localValidationMs: 0, generationMs: 0, outputCharacters: 0,
+                firstTokenMs: null, firstContentMs: null, localValidationMs: 0,
+                generationMs: 0, outputCharacters: 0,
                 estimatedInputTokens: 0, tokenEstimateMethod: 'characters / 3.2', earlyAbortReason: null }
         };
         // A failed reroll must restore the currently selected take's live
@@ -31877,6 +31942,10 @@ async function executeWorldTurn(commandOrReroll = null) {
     const persona = getTimelinePersona(sess);
     let personaContext = persona ? `\n\n[PLAYER PERSONA — AUTHORITATIVE PLAYER IDENTITY]\n${personaPromptText(persona)}` : "";
     const playerIdentity = isPlainObject(sess.playerIdentity) ? sess.playerIdentity : {};
+    const configuredPlayerName = String(playerIdentity.personaName || persona?.name || '').trim();
+    const playerName = /^(?:player character|pc)$/i.test(configuredPlayerName)
+        ? '' : configuredPlayerName;
+    personaContext += `\nPlayer identity: ${playerName || 'unnamed; address the player in second person'}. Never use Player Character or PC as a diegetic name. Preserve the configured player perspective.`;
     const worldCapabilities = normalizeWorldCapabilities(world);
     const playerHome = getLocationRef(world, playerIdentity.homeLocationId);
     const playerHousehold = (world.groups || []).find(group => group.id === playerIdentity.householdId);
@@ -32328,20 +32397,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             messages.push({ role: 'system', content: `[REROLL] Generate a different narrative response while preserving the player's action and canonical state. Anti-Cache Seed: ${Math.random()}` });
         }
 
-        const controller = new AbortController();
-        worldGenController = controller; // expose for the user Stop button
+        if (controller.signal.aborted) throw controller.signal.reason;
         const configuredLocalIdleTimeout = worldTurnUsesLocalProvider ? localGenerationIdleTimeoutMs() : 45000;
-        // Hosted providers may drip SSE keepalives indefinitely. Keep the
-        // existing idle timeout for silent requests, but also bound the whole
-        // hosted turn across fallback and receipt-repair calls. Local models
-        // retain their configurable (including disabled) idle-only policy.
-        if (!worldTurnUsesLocalProvider) {
-            hostedDeadlineId = setTimeout(() => {
-                hostedDeadlineReached = true;
-                generationTimedOut = true;
-                controller.abort();
-            }, WORLD_HOSTED_TURN_DEADLINE_MS);
-        }
+        // Both hosted and local turns use an idle timeout. Meaningful streamed
+        // progress resets only this timer, never the five-minute turn limit.
         const armGenerationIdleTimeout = (overrideMs = configuredLocalIdleTimeout) => {
             if (timeoutId) clearTimeout(timeoutId);
             activeIdleTimeoutMs = Math.max(0, Number(overrideMs) || 0);
@@ -32964,6 +33023,17 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         // The new public contract has no model-authored ending checksum.
         const legacyWorldTool = JSON.parse(JSON.stringify(worldStateTool));
         const serverBoundTurns = linkedWorldTurn && normalizeWorldKernelConfig(world).serverBindings;
+        const checkRuleGuide = serverBoundTurns && gameRules.universalChecks?.enabled === true
+            ? (gameRules.universalChecks.rules || [])
+                .filter(rule => !rule.match?.requestIncludes || String(latestActionText || userInput)
+                    .toLocaleLowerCase().includes(rule.match.requestIncludes.toLocaleLowerCase()))
+                .map(rule => ({ id: rule.id, name: rule.name, match: rule.match,
+                    ...(rule.when ? { when: rule.when } : {}),
+                    values: rule.values, difficulty: rule.difficulty,
+                    ...(rule.random ? { random: rule.random } : {}),
+                    results: rule.results.map(result => ({ id: result.id, kind: result.kind,
+                        minMargin: result.minMargin, allowed_effects: result.effects || [] })) }))
+            : [];
         const worldEffectCapability = sceneDrafts ? HordeEffectRegistry.capabilities({
             protocol: sceneProtocol,
             executionMode: sceneProtocol === 'scene_draft_v3' ? 'linked' : 'legacy',
@@ -33051,6 +33121,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (sceneDrafts) draftInstruction = draftInstruction.replace('\nCurrent day:',
             '\nLeave commitments empty unless the current player message or linked narrative passage expressly establishes a future deadline with a specific time. A wish, offer, ambition, attribution request, rhetorical question or open-ended plan is dialogue, not a scheduled event. Do not convert it into an absolute day or minute_of_day. For an actual agreed deadline, the due time must be strictly later than the current World time; never guess a future date. A pause, glance, expression or momentary reaction belongs in narrative, not a completed status, time, condition or relationship event. Claim a completed mechanical event only when its matching typed action_effects change is present and valid.\nCurrent day:');
         if (serverBoundTurns) draftInstruction = draftInstruction.replaceAll('action_effects', 'effects');
+        if (serverBoundTurns) draftInstruction = draftInstruction.replace(
+            'If a registered check is required, propose one pending_check action with its checks effect and stop before its outcome.',
+            'If an optional dice check is explicitly needed, propose one pending_check action with its checks effect and stop before its outcome. World-authored universal checks are evaluated automatically and require no checks effect.');
+        if (serverBoundTurns) draftInstruction += '\nClassify direct player manipulation of an object or person as physical, mapped room-to-room movement as travel, and words addressed to someone as speech or question. Trying to lead, carry, pull, push or take a person to another place is a physical attempt even when that person refuses; do not recast it as the player asking permission unless the player actually spoke a request. An NPC reply to a physical action does not change the player action kind. state_conditions are optional extra guards, not a way to restate ordinary stock, reachability or access checks already enforced by an effect. Omit a condition unless it is an independent known fact that must be true before this action.';
+        if (serverBoundTurns) draftInstruction += '\nPRESENCE: An NPC listed as absent from the current scene cannot speak, answer, react or be witnessed here merely because their location is adjacent or the player calls to them. A known actor is not necessarily a present actor. Without a validated arrival, describe the call and the lack of a confirmed reply; never write remote dialogue or an uncommitted appearance.';
+        if (checkRuleGuide.length) draftInstruction += '\nWORLD-AUTHORED CHECKS FOR THIS REQUEST: '
+            + JSON.stringify(checkRuleGuide)
+            + '\nThese are automatic universal checks, distinct from optional dice checks. Do not propose pending_check or a checks effect merely because one of these rules matches. Give the action its honest resolved, attempted or blocked status with matching evidence; the engine evaluates prerequisites, values, random rolls and the actual result. For an action matching a rule, propose only effects allowed by its actual result; an empty allowed_effects list means no selectable effect even if the general schema lists one. Do not propose resource_cost or calculate resource spending: the engine checks and applies costs after a confirmed result. Keep the original player action and a truthful event or attempted outcome. A general schema capability does not override a check result.';
         if (sceneDrafts) {
             const dynamicStart = draftInstruction.indexOf('\nCurrent day:');
             messages.unshift({ role: 'system', content: draftInstruction.slice(0, dynamicStart) + compactSceneRules });
@@ -33146,6 +33224,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (world.minP) addParam('min_p', world.minP);
         if (world.topK) addParam('top_k', world.topK);
 
+        if (serverBoundTurns && turnProvider === 'local' && !world.reasoning
+            && /^gemma4(?::|$)/i.test(modelId)) requestBody.reasoning_effort = 'none';
         if (world.reasoning) {
             if (supported.includes('reasoning_effort') || modelId.includes('o1') || modelId.includes('o3') || modelId.includes('deepseek')) {
                 requestBody.reasoning_effort = world.reasoningEffort || 'medium';
@@ -33280,6 +33360,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         let streamFinishFailure = null;
         let malformedStreamEvent = false;
         let streamUsage = null;
+        let streamProviderTiming = null;
         let sawStreamData = false;
         let sawCompletionChoice = false;
         let nonStreamBody = '';
@@ -33307,9 +33388,15 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     return;
                 }
                 if (json.usage && typeof json.usage === 'object') streamUsage = json.usage;
+                if (['load_duration', 'prompt_eval_duration', 'eval_duration',
+                    'prompt_eval_count', 'eval_count'].some(key => json[key] != null))
+                    streamProviderTiming = json;
                 const choice = json.choices?.[0] || {};
                 if (json.choices?.length) sawCompletionChoice = true;
                 const delta = choice.delta || choice.message || {};
+                if (delta.content || delta.reasoning || delta.thought
+                    || delta.tool_calls?.length || delta.function_call)
+                    armGenerationIdleTimeout();
                 if (choice.finish_reason) {
                     lastFinishReason = choice.finish_reason;
                     streamFinishFailure ||= HordeWorldSceneDraft.completionFailureReason(
@@ -33327,6 +33414,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 if (turnCallAudit?.metrics && turnCallAudit.metrics.firstTokenMs === null
                     && (content || delta.reasoning || delta.thought || delta.tool_calls))
                     turnCallAudit.metrics.firstTokenMs = Math.round(performance.now() - activeStream.startedAt);
+                if (turnCallAudit?.metrics && turnCallAudit.metrics.firstContentMs === null
+                    && (content || delta.tool_calls?.length || delta.function_call))
+                    turnCallAudit.metrics.firstContentMs = Math.round(performance.now() - activeStream.startedAt);
                 if (content) {
                     fullText = HordeWorldModelClient.mergeStreamText(fullText, content);
                     if (!sceneDrafts && worldStreamingPlayerEcho(fullText, latestActionText)) {
@@ -33372,10 +33462,6 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             while (true) {
                 const { done, value } = await HordeWorldModelClient.readChunk(reader, controller.signal);
                 if (done) break;
-
-                // Idle timeout, not wall-clock: reasoning models can legitimately
-                // think for a long time while still streaming useful data.
-                armGenerationIdleTimeout();
 
                 const chunkText = decoder.decode(value, { stream: true });
                 if (!sawStreamData) nonStreamBody += chunkText;
@@ -33439,7 +33525,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, streamUsage,
                 controller.signal.aborted ? 'aborted' : earlyPlayerEcho ? 'player_echo_early'
                     : earlyDraftFailure ? 'invalid_draft_early'
-                    : streamError || !streamCompleted ? 'stream_error' : 'ok');
+                    : streamError || !streamCompleted ? 'stream_error' : 'ok', streamProviderTiming);
         }
 
         if (streamError) throw streamError;
@@ -33511,17 +33597,28 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             const modelProposal = args;
             let serverBinding = null;
             if (serverBoundTurns) {
+                const bindingReferences = [
+                    ...sessionNpcs(world, sess).map(npc => ({ id: npc.id, name: npc.name, type: 'npc' })),
+                    ...(receiptView.entities || []).filter(entity => entity.type === 'item')
+                        .map(entity => ({ id: entity.id, name: entity.name, type: 'item' })),
+                    ...(receiptView.locations || []).map(location =>
+                        ({ id: location.id, name: location.name, type: 'location' }))
+                ].filter(item => typeof item.id === 'string'
+                    && typeof item.name === 'string').slice(0, 1000);
                 const losses = ['repair_scene_draft', 'recovery_scene_draft'].includes(source)
                     ? HordeWorldTurnBinding.repairLosses(protectedEffectTrace, args,
-                        canonicalSceneSchema, firstRejectedActionProposal, latestActionText || '') : [];
+                        canonicalSceneSchema, firstRejectedActionProposal,
+                        latestActionText || '', bindingReferences) : [];
                 const bound = losses.length ? { ok: false, errors: losses }
                     : await mcpBridgeRequest('/worlds/bind-turn', { method: 'POST',
                         signal: controller.signal, timeoutMs: 20000,
                         body: { draft: args, canonical: canonicalSceneSchema, context: {
                             worldId: world.id, sessionId: sess.id, version: sceneDraftBaseVersion,
                             nonce: turnBindingNonce, input: latestActionText || '',
+                            singleRequest: HordeWorldSceneDraft.simpleRequest(latestActionText || ''),
                             questIds: (sess.quests || []).map(quest => quest.id),
                             commitmentIds: (sess.scheduledEvents || []).map(event => event.id),
+                            references: bindingReferences,
                             allowCommitments: ruleModules.livingWorld,
                             now: getWorldTimeData(world, sess).currentTotalMinutes
                         } } });
@@ -33667,6 +33764,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             worldModules: ruleModules,
                             capability: worldEffectCapability, legacyEffectKeys,
                             applyLegacyEffect, requestPendingCheck,
+                            turnId: serverBinding?.turnId || compiled.receipt.turn_id,
                             worldActionIds: serverBinding?.worldActionIds || [],
                             requireEffectWitnesses: !!serverBinding,
                             includedTurnMinutes: serverBinding && serverBoundTimeAdvanced
@@ -33775,8 +33873,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             present_character_ids: buildWorldSceneFrame(prepared.world, prepared.session)
                                 .present_character_ids }, events: confirmedEvents,
                         action_results: [...linked.outcomes].map(([action_id, outcome]) =>
-                            ({ action_id, outcome })),
+                            ({ action_id, outcome,
+                                ...(outcome === 'blocked' && linked.blockedReasons?.get(action_id)
+                                    === 'insufficient_resource'
+                                    ? { reason: 'insufficient_resource' } : {}) })),
                         confirmed_effects: linked.confirmedEffects,
+                        check_results: linked.checkResults.map(check => ({ ...check,
+                            turn_id: serverBinding?.turnId || compiled.receipt.turn_id,
+                            receipt_id: serverBinding?.turnId || compiled.receipt.turn_id })),
                         speech_attributions: committedSpeech,
                         passage_speakers: committedPassages.map(passage => {
                             const speakers = [...new Set(committedSpeech.filter(speech =>
@@ -33840,6 +33944,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     working.writeEvent('turnEvents', field => {
                         field.value = [...(field.value || []), ...confirmedEvents
                             .filter(event => event.status === 'completed'
+                                && event.type !== 'resource_cost'
                                 && linked.outcomes.get(event.action_id) === 'succeeded')
                             .map(event => ({ ...event, committed: true,
                                 turn: Number(prepared.session.turnCount) || 1,
@@ -33864,11 +33969,19 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         const message = addWorldMessage('dm', linked.narrative, {
                             location: candidateSession.playerLocation, witnesses,
                             speechAttributions: committedSpeech.map(item => ({
-                                speaker: item.speaker, statement: item.statement })),
+                                speaker: item.speaker, statement: item.statement,
+                                passage_id: item.passage_id })),
                             sceneMemory: HordeWorldTurnContext.sceneMemory(receipt,
                                 receipt.turn_id || compiled.linkedPlan.actions[0]?.action_id,
                                 candidateSession.playerLocation, candidateSession.turnCount),
                             turnSnapshot, worldAudit: audit, stateSource: source,
+                            checkResults: receipt.check_results.filter(check => check.actor_id === 'player'
+                                && check.values.every(value => value.subject === 'actor'))
+                                .map(check => ({ rule_id: check.rule_id, name: check.name,
+                                    actor_id: check.actor_id, values: check.values,
+                                    modifiers: check.modifiers, difficulty: check.difficulty,
+                                    random: check.random, total: check.total, kind: check.kind,
+                                    result_id: check.result_id, receipt_id: check.receipt_id })),
                             callAudit: { ...turnCallAudit, protocol: draft.protocol,
                                 calls: turnCallDetails.slice(0, 20) },
                             isReroll, deferPersist: true, deferEmbedding: true
@@ -33876,6 +33989,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         const livingWorldEnabled = normalizeWorldGameRules(candidateWorld).modules.livingWorld;
                         confirmedEvents.forEach((event, index) => {
                             if (event.status !== 'completed'
+                                || event.type === 'resource_cost'
                                 || linked.outcomes.get(event.action_id) !== 'succeeded') return;
                             // A confirmed report is already delivered by its
                             // registered reducer to one named recipient.
@@ -33936,6 +34050,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             message.versionSnapshots.push(captureWorldTurnState(candidateWorld, candidateSession));
                         }
                     });
+                    if (controller.signal.aborted) throw controller.signal.reason;
                     try {
                         await persistPreparedWorldTurn(canonicalWorld, canonicalSess, working);
                     } catch (persistError) {
@@ -33958,6 +34073,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         modulesOk: true, inventoryFailures: [] };
                 } catch (error) {
                     working.rollback();
+                    if (error?.name === 'AbortError') throw error;
                     if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
                     receiptValidationFeedback = [{ type: 'linked_action', reason: error.message }];
                     rejectedReceiptProposal = modelProposal;
@@ -34457,6 +34573,18 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_FIDELITY;
                 if (repairingScene) repairBody.messages[0].content += '\n' + WORLD_PLAYER_INPUT_NOTATION;
                 if (repairingScene && sceneProtocol === 'scene_draft_v3') repairBody.messages[0].content += '\nFor one simple action, actions[0].request may be omitted. Only compound inputs require explicit request excerpts. Every action.response_id must name a narrative.id with the same action_id; every event.passage_id must name a passage with the event\'s action_id. Correct these exact references without guessing from prose.';
+                if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
+                    item.reason === 'check_effect_not_allowed')) {
+                    repairBody.messages[0].content += '\nCHECK EFFECT CORRECTION: Action '
+                        + JSON.stringify(failure.action_id) + ' requested effect '
+                        + JSON.stringify(failure.rejected_effect) + '. Confirmed check results and their only allowed effect types: '
+                        + JSON.stringify(failure.check_rules || [])
+                        + '. Remove the disallowed effect and any matching claim or event. Preserve the original player attempt and any valid independent action. Do not replace this effect with a semantically different success. The engine determines the check result and any resource cost. A completed physical action still needs its valid linked evidence; otherwise use an honest attempted or blocked outcome.';
+                }
+                if (repairingScene && checkRuleGuide.length && receiptValidationFeedback.some(item =>
+                    item.reason === 'pending_action_requires_check'))
+                    repairBody.messages[0].content += '\nAUTOMATIC CHECK CORRECTION: The world-authored universal rule matching this request is evaluated by the engine after an ordinary action. Do not use pending_check or a checks effect for that rule. Preserve the player attempt, choose only the outcome and evidence supported by the scene, and let the engine compute the check result and resource cost. Applicable rules: '
+                        + JSON.stringify(checkRuleGuide);
                 if (repairingScene && receiptValidationFeedback.some(item => item.reason === 'explicit_request_coverage_required')) {
                     repairBody.messages[0].content += '\nREQUEST COVERAGE CORRECTION: This input is compound. Every action MUST include request, even if there is only one action entry. Copy contiguous excerpts that together cover the complete input below in order, including negations. Account for each step in the linked narrative and its disposition; blocked or unresolved steps must not be claimed as completed. Complete input: '
                         + JSON.stringify(String(submittedInput || userInput));
@@ -34554,14 +34682,19 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 });
                 if (serverBoundTurns) repairBody.messages = [{ role: 'system', content:
                     `[WORLD SCENE CORRECTION]\nThe previous draft has not been saved or shown. Return one complete compact JSON object matching the supplied schema, protocol scene_draft_v3. Responses and events must be nested in their actions; never supply action_id, passage_id, response_id or a flat narrative table. For one action, request may be omitted; multiple actions cover the player input in order without omitted or repeated wording. For each question, answer it, refuse it, or explain specifically why it remains unanswered; answered is not proof by itself. Use kind gesture for a nonpersistent gesture and effects:[] for no lasting change. Preserve every Engine-verified result listed below. Other proposed effects are provisional: remove or correct any that lack an Action/Event/Effect chain. Do not move an effect between actions and reactions to evade validation. Correct only rejected proposals; do not invent deadlines, quests, obligations or mechanics for ordinary dialogue. Autonomous NPC/world actions belong in reactions and need their own matching completed events and valid prerequisites. If a proposed timed obligation is unsupported, remove its optional proposal and any assertion of that obligation from the associated prose. If an actual deadline is supported, use its correct future time; never shift it by guessing. The response must show an NPC/world consequence or reaction without writing an unrequested player decision.\nFailures: ${JSON.stringify(receiptValidationFeedback)}\nVerified effects: ${JSON.stringify(protectedEffectTrace).slice(0, 8000)}\nVerified events: ${JSON.stringify(protectedEventTrace).slice(0, 8000)}\nPrevious draft: ${JSON.stringify(rejectedReceiptProposal).slice(0, 16000)}\nAuthoritative scene: ${JSON.stringify(repairFrame)}\nKnown actors: ${JSON.stringify(repairKnownActors)}\nKnown locations: ${JSON.stringify(repairKnownLocations)}\nRegistered items in the current room: ${JSON.stringify(repairRoomItems)}\nCurrent world minute: ${currentTotalMinutes}.\n${sceneDraftFieldGuide}\n${WORLD_PLAYER_INPUT_FIDELITY}\n${WORLD_PLAYER_INPUT_NOTATION}` }];
+                if (serverBoundTurns) repairBody.messages[0].content += `\nAuthoritative player inventory: ${JSON.stringify(sess.inventory || [])}. NPC held items: ${JSON.stringify(repairKnownActors.map(actor => ({ id: actor.id, inventory: sess.entityStates?.[actor.id]?.inventory || [] })))}. Never claim an item is absent from its listed owner merely to evade an invalid effect.`;
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     ['request_coverage_mismatch', 'oversized_bound_turn'].includes(item.reason))) {
                     repairBody.messages[0].content += `\nREQUEST COVERAGE CORRECTION: The complete input is ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}; the rejected draft has ${rejectedReceiptProposal?.actions?.length || 0} player actions. Only player-requested independent steps belong in actions. Do not create several alternative outcomes, repeated copies of the input, or conditional branches for one simple request. Put an incidental NPC reply or gesture in the same action response, or a world reaction in reactions. For one simple request, use exactly one action and omit its request field. For compound input, cover every request exactly once in order. A pending_check status requires one registered checks effect; NPC hesitation alone is not a pending check.`;
                 }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'pending_action_requires_check')) {
+                    repairBody.messages[0].content += '\nMISSING CHECK CORRECTION: The previous status pending_check was rejected because that same action has no effects.checks entry. Do not repeat pending_check without a check. For an uncertain physical attempt, either provide effects:{"checks":[{"label":"specific attempted action","difficulty":11,"on_success":{},"on_failure":{}}]} with status pending_check and stop before its outcome, or use kind physical, status attempted, effects:[] and describe only an unsuccessful or still unresolved attempt. The key is actions[].effects.checks, never actions[].action_effects. A physical attempt is not speech. If the response already depicts the target evading the attempt, use physical/attempted with no completed restraint or condition claim. Remove redundant state_conditions such as actor_at when the authoritative scene already establishes them.';
+                }
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     ['unverified_action_success', 'uncommitted_completed_event',
                         'action_outcome_mismatch'].includes(item.reason))) {
-                    repairBody.messages[0].content += '\nMISSING EFFECT CORRECTION: A completed inventory pickup needs a real effects:{"item_transfer":[{"item_id":"<exact registered item ID>","from_id":"<current location or owner ID>","to_id":"player"}]} on that action and a matching completed inventory event in its response. Use the same principle for every lasting change: a supported typed effect plus its actor-scoped completed event. effects:[] explicitly means no lasting change; then remove any completed change claim and narrate an attempted, blocked or failed outcome. Verify the item, access and actor against the authoritative scene before proposing success. Never create stock from prose or invent NPC consent.';
+                    repairBody.messages[0].content += '\nACTION PROOF CORRECTION: A completed inventory pickup needs a real effects:{"item_transfer":[{"item_id":"<exact registered item ID>","from_id":"<current location or owner ID>","to_id":"player"}]} on that action and a matching completed inventory event in its response. Mapped travel and other lasting mechanical changes likewise need their registered effect and matching event. Keep direct physical manipulation classified as physical; an NPC reply does not turn the player action into speech. A local pose or activity can use a completed actor-scoped activity event without an item or location effect; a momentary physical interaction can use a completed interaction event. effects:[] cannot prove inventory, travel or another mechanical change. If a claimed result has no valid proof, describe only an attempted, blocked or failed outcome. Verify the item, access and actor against the authoritative scene before proposing success. Never create stock from prose or invent NPC consent.';
                 }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     ['unverified_action_success', 'uncommitted_completed_event',
@@ -34585,7 +34718,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     repairBody.messages[0].content += '\nCONDITION CORRECTION: A lasting condition change needs its registered condition_change effect and a matching completed event for the same actor. Removing a condition requires that the actor already has it. A temporary reaction belongs only in the response. Preserve any independently verified player action and avoid inventing a condition.';
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     ['uncommitted_npc_presence_claim', 'uncommitted_npc_departure_claim'].includes(item.reason)))
-                    repairBody.messages[0].content += '\nNPC PRESENCE CORRECTION: Check the NPC\'s authoritative current location and mapped route. Movement within one room is not a departure. A new arrival or departure across rooms needs an allowed actor_move and matching actor-scoped movement event; otherwise remove the claim without inventing a refusal or teleport.';
+                    repairBody.messages[0].content += '\nNPC PRESENCE CORRECTION: Check the NPC\'s authoritative current location and mapped route. A known NPC who is absent from the current scene cannot speak or answer from an adjacent room merely because the player called to them. Do not invent remote dialogue, a witnessed voice, refusal or arrival. A new arrival or departure across rooms needs an allowed actor_move and matching actor-scoped movement event; otherwise describe the call without a confirmed reply. Movement within one room is not a departure.';
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     item.reason === 'unverified_journey_start'))
                     repairBody.messages[0].content += '\nJOURNEY CORRECTION: A future NPC journey needs actor_move.mode="journey" with its exact destination and a matching completed activity event for the start. A started journey is not an arrival. If no journey began, remove the journey effect, event and any travel claim.';
@@ -35362,9 +35495,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 ? worldUnverifiedWaitNotice(world, sess, fallbackWaitApplied)
                 : narratedCheckRequired ? worldMissingCheckNotice()
                     : `${worldUnverifiedTurnNotice()}${verificationHint}${receiptRepairTimedOut
-                        ? hostedDeadlineReached
-                            ? ` The hosted turn reached its ${Math.round(WORLD_HOSTED_TURN_DEADLINE_MS / 1000)}s limit before verification finished.`
-                            : ' The provider timed out while verifying the reply.' : ''}`;
+                        ? ' The provider timed out while verifying the reply.' : ''}`;
             structuredChronicle = null;
             // This is an advisory, not a rejection: it never mutates the
             // timeline and remains visually distinct from amber/error UI.
@@ -35714,7 +35845,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             }
             const reason = humanizeApiError(err) || err.message || 'Unknown error';
             const linkFailure = /unlinked_action_passage|ambiguous_action_passage/.test(reason);
-            const message = err?.name === 'AbortError' ? 'Generation stopped. Your action is still in the input box.'
+            const message = err?.name === 'AbortError'
+                ? turnDeadlineReached
+                    ? 'World turn reached its five-minute limit. No World changes were saved. Your action is still in the input box.'
+                    : 'Generation stopped. Your action is still in the input box.'
                 : linkFailure
                     ? `The model linked its action to the wrong story passage (${reason}). No World changes were saved. Your action is still in the input box; retry it.`
                     : `World turn was not saved: ${reason}. Your action is still in the input box.`;
@@ -35838,7 +35972,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         }
         if (sess && turnCallDetails.length) {
             const reason = err.name === 'AbortError'
-                ? (generationTimedOut ? 'Timed-out turn' : 'Stopped turn') : 'Failed turn';
+                ? (turnDeadlineReached ? 'Five-minute turn limit' : generationTimedOut ? 'Timed-out turn' : 'Stopped turn')
+                : 'Failed turn';
             sess.worldCallDiagnostics = Array.isArray(sess.worldCallDiagnostics) ? sess.worldCallDiagnostics : [];
             sess.worldCallDiagnostics.push({
                 at: new Date().toISOString(), reason,
@@ -35851,17 +35986,17 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         }
         try { if (sess) await persistResolvedTurn(); } catch (saveErr) { console.error('Rollback persistence failed:', saveErr); }
 
-        // A user stop is informational. Distinguish local idle settings from
-        // hosted idle and hard deadlines so the recovery advice is actionable.
+        // A user stop is informational. Distinguish local and hosted idle
+        // settings so the recovery advice is actionable.
         if (err.name === 'AbortError') {
             console.log('World turn aborted');
-            if (generationTimedOut) {
+            if (turnDeadlineReached) {
+                showToast('World turn reached its five-minute limit. Retry your action.', 'error');
+            } else if (generationTimedOut) {
                 const seconds = Math.max(1, Math.round(activeIdleTimeoutMs / 1000));
                 const prefix = movementPreserved ? 'Movement saved. ' : doorPreserved ? 'Door opening saved. '
                     : waitPreserved ? 'Wait saved. ' : '';
-                const guidance = hostedDeadlineReached
-                    ? `Hosted Worlds turn exceeded ${Math.round(WORLD_HOSTED_TURN_DEADLINE_MS / 1000)}s and was stopped. Retry or choose a faster model; the provider may still be processing the request.`
-                    : worldTurnUsesLocalProvider
+                const guidance = worldTurnUsesLocalProvider
                         ? `Generation received no data for ${seconds}s and was stopped. Increase or disable the local timeout in Settings → AI & Models.`
                         : `Hosted model sent no data for ${seconds}s and was stopped. Check the provider status or retry.`;
                 showToast(prefix + guidance, 'error');
@@ -35909,8 +36044,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         }
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
+        clearTimeout(turnDeadlineId);
         clearPendingTurn();
-        if (hostedDeadlineId) clearTimeout(hostedDeadlineId);
         worldTurnPersistenceFence = null;
         worldTurnInProgress = false;
         worldGenController = null;
@@ -39697,7 +39832,9 @@ function fallbackTimelineLifePlan(world, sess, persona, origin) {
     // network for an itinerant or newly arrived player. Authored ties are
     // merged back by applyTimelineLifePlan; leave everything else unclaimed.
     const itinerant = !student && /\b(?:itinerant|wanderer|wandering|travell?er|nomad|drifter|mercenary|ranger|outsider|stranger)\b/i.test(source);
-        const home = resolveLocation(origin?.homeLocationId) || (itinerant ? null : chooseTimelineHome(world, source));
+    const authoredHome = (world.locations || []).find(location =>
+        location.id === origin?.homeLocationId);
+    const home = authoredHome || (itinerant ? null : chooseTimelineHome(world, source));
     const school = (world.locations || []).find(location => /school|academy|college|classroom/i.test(`${location.name} ${location.description || ''}`));
     const hospital = (world.locations || []).find(location => /hospital|clinic|medical|infirmary|healer/i.test(`${location.name} ${location.description || ''}`));
     const adultWorkplace = (world.locations || []).find(location => location.id !== sess.playerLocation

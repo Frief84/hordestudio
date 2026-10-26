@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261017-world-speech">
+    <link rel="stylesheet" href="style.css?v=20261025-p41">
     <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
 <link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
 </head>
@@ -846,7 +846,7 @@
                         <button class="world-studio-tab" data-tab="w-lore">World Lore</button>
                         <button class="world-studio-tab" data-tab="w-note">Author's Note</button>
                         <button class="world-studio-tab" data-tab="w-ai">AI Config</button>
-                        <button class="world-studio-tab" data-tab="w-hud">HUD, Stats &amp; Quests</button>
+                        <button class="world-studio-tab" data-tab="w-hud">Systems, Stats &amp; Quests</button>
                         <button class="world-studio-tab" data-tab="w-visual-map">World Architect</button>
                         <button class="world-studio-tab" data-tab="w-architect-agent" style="color:var(--accent); font-weight:700;">✦ Architect Agent</button>
                         <button class="world-studio-tab" data-tab="w-builder" style="color:var(--accent); font-weight:700;">✨ AI Builder</button>
@@ -1529,6 +1529,8 @@
                                 </div>
                                 <div class="form-hint" style="margin-top:10px;">Core movement, memory, world canon, and NPC identity always remain active. Every mechanical module above is optional and can be changed later without deleting its saved data.</div>
                             </div>
+
+                            <div class="form-section"><label class="sandbox-toggle-card"><input id="w-universal-checks-enabled" type="checkbox"><span><strong>Enable Rule Checks</strong><small>Enable configurable skill checks, difficulty rules and optional random outcomes for this world.</small></span></label></div>
 
                             <div class="form-section" data-rule-detail="checks">
                                 <div class="world-kernel-card-head">
@@ -5443,7 +5445,8 @@
     <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
     <script src="worlds/working-state.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/effect-registry.js?v=20261015-linked-actions-fix2"></script>
-    <script src="worlds/linked-world-actions.js?v=20261018-server-bound-turns"></script>
+    <script src="worlds/universal-checks.js?v=20261025-p41"></script>
+    <script src="worlds/linked-world-actions.js?v=20261025-p41"></script>
     <script src="worlds/perception.js?v=20261024-p27a"></script>
     <script src="worlds/npc-goal-actions.js?v=20261024-goal-actions"></script>
     <script src="worlds/scene-draft.js?v=20261018-server-bound-turns"></script>
@@ -5453,7 +5456,7 @@
     <script src="worlds/world-time.js?v=20261020-world-time"></script>
     <script src="worlds/background-sim.js?v=20261020-world-time"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261020-world-time"></script>
+    <script src="app.js?v=20261025-p41"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

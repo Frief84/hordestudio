@@ -60,9 +60,16 @@ const technicalEffects = new Map(Object.entries({
         observation_id: field('Exact ID of a shareable observation owned by the sender.') })),
     time_advance: list(shape({ minutes: { type: 'integer', minimum: 1, maximum: 10080 } })),
     outfit_set: list(shape({ actor_id: field('Exact actor ID.'),
-        outfit: field('Complete resulting outfit.', 500) }))
+        outfit: field('Complete resulting outfit.', 500) })),
+    resource_cost: list(shape({ actor_id: field('Exact acting player or NPC ID.'),
+        resource_id: field('Exact world-defined resource ID.'),
+        amount: { type: 'number', minimum: 0, maximum: 1000000 },
+        rule_id: field('Exact universal check rule ID.'),
+        result_id: field('Exact confirmed check result ID.'),
+        transaction_id: field('Stable cost transaction ID.', 600) }))
 }).map(([name, schema]) => [name, { name, schema, protocols: ['scene_draft_v3'],
-    executionModes: ['linked'], operation: name }]));
+    executionModes: ['linked'], operation: name,
+    internalOnly: name === 'resource_cost' }]));
 // NPC candidates are explicit, local and opt-in. The ordinary reducer still
 // validates ownership and commits the effect against the current working state.
 technicalEffects.get('item_consume').npcAction = {
@@ -179,9 +186,10 @@ function bindTechnicalOperation(name, validate, reduce) {
     descriptor.reduce = reduce;
 }
 function capabilities({ protocol = 'scene_draft_v3', executionMode = 'linked',
-    legacySchemas = {}, intentionallyEffectFree = false } = {}) {
+    legacySchemas = {}, intentionallyEffectFree = false, includeInternal = false } = {}) {
     const native = (intentionallyEffectFree ? [] : [...technicalEffects.values()]).filter(entry =>
-        entry.protocols.includes(protocol) && entry.executionModes.includes(executionMode));
+        entry.protocols.includes(protocol) && entry.executionModes.includes(executionMode)
+        && (includeInternal || !entry.internalOnly));
     const legacy = (intentionallyEffectFree ? [] : Object.entries(legacySchemas || {}))
         .filter(([name]) => !OMIT_LEGACY.has(name));
     const schemas = Object.fromEntries([...legacy.map(([name, schema]) => [name, clone(schema)]),

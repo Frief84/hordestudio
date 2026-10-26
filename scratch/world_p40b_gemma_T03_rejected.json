@@ -1,0 +1,85 @@
+{
+  "case": "T03",
+  "input": "I take the key from the table.",
+  "model": "gemma4:31b-it-q4_K_M",
+  "origin": "real local Ollama, 2026-10-24",
+  "providerCalls": 3,
+  "providerStatuses": [
+    200,
+    200,
+    200
+  ],
+  "observed": {
+    "error": "World turn was not saved: Linked World turn was not committed: action_outcome_mismatch. Your action is still in the input box.",
+    "historyLength": 0,
+    "savedHistoryLength": 0,
+    "playerLocation": "foyer",
+    "savedPlayerLocation": "foyer",
+    "inventory": [],
+    "savedInventory": []
+  },
+  "repairProposals": [
+    {
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "kind": "physical",
+          "status": "resolved",
+          "response": [
+            {
+              "text": "The bronze key is cold to the touch as you lift it from the table surface. Linda watches the movement with a neutral expression, her gaze shifting from the empty table to the key in your hand.",
+              "events": [
+                {
+                  "type": "interaction",
+                  "actor_id": "player",
+                  "status": "completed",
+                  "item": "key"
+                }
+              ]
+            }
+          ],
+          "effects": [],
+          "state_conditions": [
+            {
+              "fact": "interactable_state",
+              "subject_id": "key",
+              "operator": "equals",
+              "value": "available"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "kind": "physical",
+          "status": "resolved",
+          "response": [
+            {
+              "text": "The bronze key is cold to the touch as you lift it from the table surface. Linda watches the movement with a neutral expression, her gaze shifting from the empty table to the key in your hand.",
+              "events": [
+                {
+                  "type": "interaction",
+                  "actor_id": "player",
+                  "status": "completed",
+                  "item": "key"
+                }
+              ]
+            }
+          ],
+          "effects": [],
+          "state_conditions": [
+            {
+              "fact": "interactable_state",
+              "subject_id": "key",
+              "operator": "equals",
+              "value": "available"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

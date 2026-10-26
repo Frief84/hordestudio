@@ -76,8 +76,17 @@ const root = path.resolve(__dirname, '..');
                     kind: 'travel', status: 'resolved', response_id: 'p3',
                     depends_on: [{ action_id: 'open_gate', outcome: 'succeeded' }],
                     action_effects: { actor_move: [{ actor_id: 'player',
-                        to_location_id: 'archive' }] } }
-            ], events: [], effects: {}, speech: [], commitments: [] };
+                        to_location_id: 'archive', companion_ids: ['guide_1'] }] } }
+            ], events: [
+                { type: 'inventory', actor_id: 'player', status: 'completed', action: 'take',
+                    item: 'Bronze key', action_id: 'take_key', passage_id: 'p1' },
+                { type: 'movement', actor_id: 'player', status: 'completed',
+                    from_location_id: 'foyer', to_location_id: 'archive',
+                    action_id: 'enter_room', passage_id: 'p3' },
+                { type: 'movement', actor_id: 'guide_1', status: 'completed',
+                    from_location_id: 'foyer', to_location_id: 'archive',
+                    action_id: 'enter_room', passage_id: 'p3' }
+            ], effects: {}, speech: [], commitments: [] };
             const partialDraft = { protocol: 'scene_draft_v3', narrative: [
                 { id: 'p1', action_id: 'wear', text: 'You put on the blue coat.' },
                 { id: 'p2', action_id: 'vault', text: 'The vault is unreachable from here.' }
@@ -111,6 +120,7 @@ const root = path.resolve(__dirname, '..');
                 'I pick up the Bronze key, open the archive gate and enter the Archive.';
             await executeWorldTurn();
             const firstAudit = structuredClone(sess.lastTurnAudit);
+            const firstFailure = structuredClone(sess.worldCallDiagnostics?.at(-1) || null);
             nextDraft = partialDraft;
             document.getElementById('world-user-input').value =
                 'I put on my coat and enter the vault.';
@@ -132,7 +142,7 @@ const root = path.resolve(__dirname, '..');
                 inventory: sess.inventory, gate: sess.unlockedExits?.archive_gate,
                 savedLocation: saved?.playerLocation, savedGuide: saved?.entityStates?.guide_1?.location,
                 savedInventory: saved?.inventory, savedGate: saved?.unlockedExits?.archive_gate,
-                firstAudit, secondAudit, checkRequestAudit, audit: sess.lastTurnAudit,
+                firstAudit, firstFailure, secondAudit, checkRequestAudit, audit: sess.lastTurnAudit,
                 pendingBeforeRoll, savedPendingBeforeRoll,
                 pending: sess.pendingChecks?.length, savedPending: saved?.pendingChecks?.length,
                 checkHistory: sess.checkHistory?.length, savedCheckHistory: saved?.checkHistory?.length,
@@ -141,6 +151,7 @@ const root = path.resolve(__dirname, '..');
                 savedOutfit: saved?.outfit, history: sess.history.map(item => item.text) };
         });
         assert.deepEqual(errors, [], JSON.stringify(errors));
+        assert.equal(result.firstFailure, null, JSON.stringify(result.firstFailure));
         assert.equal(result.calls, 3, JSON.stringify(result));
         assert.equal(result.location, 'archive', JSON.stringify(result));
         assert.equal(result.guide, 'archive', JSON.stringify(result));

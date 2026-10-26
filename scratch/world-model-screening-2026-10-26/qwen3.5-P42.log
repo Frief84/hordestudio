@@ -1,0 +1,6 @@
+P42: starting jaahas/qwen3.5-uncensored:27b
+P42: page loaded
+P42: app ready
+P42: model request
+P42: summary {"turnDurationMs":150152,"calls":[{"durationMs":150054,"error":"TimeoutError: The operation was aborted due to timeout"}],"error":"World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.","liveStats":{"focus":9,"energy":5},"savedStats":{"focus":9,"energy":5},"savedHistoryLength":0}
+P42: {"error":"World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.","calls":1,"savedTurn":false}

@@ -1,0 +1,57 @@
+[
+  {
+    "id": "T03",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 98467,
+    "error": "World turn was not saved: Linked World turn was not committed: unverified_action_success. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 98057,
+        "status": 200,
+        "maxTokens": 2048,
+        "promptCharacters": 30778,
+        "contextCharacters": 29996,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 28460,
+        "contentCharacters": 522,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

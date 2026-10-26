@@ -1,0 +1,47 @@
+[
+  {
+    "id": "T03",
+    "model": "mistral-small3.2:24b",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 150153,
+    "error": "World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 150059,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "pageErrors": []
+  }
+]

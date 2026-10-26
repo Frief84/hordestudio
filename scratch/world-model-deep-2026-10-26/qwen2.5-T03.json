@@ -1,0 +1,655 @@
+[
+  {
+    "id": "T03",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 107079,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_bf6190542e563236225c32a6_action_0",
+          "outcome": "succeeded"
+        }
+      ],
+      "accepted": 3,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:key",
+        "history",
+        "session:livingWorldActivity",
+        "session:_worldEpoch",
+        "time",
+        "session:worldClock",
+        "session:worldModelAttempts",
+        "session:worldModelTotals",
+        "session:inventory"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "repaired",
+        "turnId": "turn_bf6190542e563236225c32a6",
+        "diagnosticId": "turn_bf6190542e563236225c32a6_1_diag",
+        "model": "qwen2.5:14b-instruct-q4_K_M",
+        "originalFailure": {
+          "source": "inline_receipt",
+          "reasons": [
+            {
+              "reason": "unverified_action_success",
+              "detail": "unverified_action_success",
+              "actionId": "turn_bf6190542e563236225c32a6_action_0"
+            }
+          ],
+          "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\"}]}]}]}"
+        },
+        "failures": [
+          {
+            "source": "inline_receipt",
+            "reasons": [
+              {
+                "reason": "unverified_action_success",
+                "detail": "unverified_action_success",
+                "actionId": "turn_bf6190542e563236225c32a6_action_0"
+              }
+            ],
+            "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\"}]}]}]}"
+          },
+          {
+            "source": "repair_scene_draft",
+            "reasons": [
+              {
+                "reason": "uncommitted_completed_event",
+                "detail": "Completed inventory event has no matching executed effect.",
+                "actionId": "turn_bf6190542e563236225c32a6_action_0"
+              }
+            ],
+            "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\",\"source_type\":\"witnessed\",\"source_npc_id\":\"\",\"witnessed_by\":[],\"cause\":\"player_action\"},{\"type\":\"interaction\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\",\"source_type\":\"witnessed\",\"source_npc_id\":\"\",\"witnessed_by\":[],\"cause\":\"player_action\"}],\"speech\":[]}]}]}"
+          }
+        ],
+        "repairResults": [
+          {
+            "attempt": 1,
+            "accepted": false,
+            "reasons": [
+              "uncommitted_completed_event"
+            ]
+          }
+        ],
+        "discarded": null,
+        "confirmedEffects": [
+          {
+            "type": "item_transfer",
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "result": "changed",
+            "payload": "{\"item_id\":\"key\",\"from_id\":\"foyer\",\"to_id\":\"player\"}"
+          }
+        ],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 98008,
+            "usage": null
+          },
+          {
+            "kind": "receiptRepair",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 4850,
+            "usage": {
+              "input": 1229,
+              "output": 228,
+              "total": 1457
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "receiptRepair",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 3727,
+            "usage": {
+              "input": 1639,
+              "output": 190,
+              "total": 1829
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_bf6190542e563236225c32a6",
+        "worldActionIds": [],
+        "gestureActionIds": [],
+        "repairs": [],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 30,
+            "action_id": "turn_bf6190542e563236225c32a6_action_0"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "You pick up the bronze key from the table.",
+        "action_resolution": {
+          "kind": "physical",
+          "status": "resolved",
+          "outcome": "You pick up the bronze key from the table."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [
+          {
+            "type": "inventory",
+            "actor_id": "player",
+            "status": "completed",
+            "action": "pickup",
+            "item": "key",
+            "source_type": "witnessed",
+            "source_npc_id": "",
+            "witnessed_by": [],
+            "cause": "player_action",
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "passage_id": "turn_bf6190542e563236225c32a6_action_0_p0",
+            "id": "evt_wsess_1793016022198_1_0",
+            "evidence": "You pick up the bronze key from the table."
+          },
+          {
+            "type": "interaction",
+            "actor_id": "player",
+            "status": "completed",
+            "action": "pickup",
+            "item": "key",
+            "source_type": "witnessed",
+            "source_npc_id": "",
+            "witnessed_by": [],
+            "cause": "player_action",
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "passage_id": "turn_bf6190542e563236225c32a6_action_0_p0",
+            "id": "evt_wsess_1793016022198_1_1",
+            "evidence": "You pick up the bronze key from the table."
+          },
+          {
+            "type": "inventory",
+            "actor_id": "player",
+            "status": "completed",
+            "item": "key",
+            "source_type": "witnessed",
+            "source_npc_id": "",
+            "witnessed_by": [],
+            "cause": "player_action",
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "passage_id": "turn_bf6190542e563236225c32a6_action_0_p0",
+            "id": "evt_wsess_1793016022198_1_2",
+            "evidence": "You pick up the bronze key from the table."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [
+          {
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "key",
+              "from_id": "foyer",
+              "to_id": "player"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0,
+              2
+            ]
+          }
+        ],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_bf6190542e563236225c32a6_action_0_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_bf6190542e563236225c32a6",
+        "passages": [
+          {
+            "id": "turn_bf6190542e563236225c32a6_action_0_p0",
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "text": "You pick up the bronze key from the table."
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 485
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_bf6190542e563236225c32a6_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "accepted": 3,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:key",
+          "history",
+          "session:livingWorldActivity",
+          "session:_worldEpoch",
+          "time",
+          "session:worldClock",
+          "session:worldModelAttempts",
+          "session:worldModelTotals",
+          "session:inventory"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "repaired",
+          "turnId": "turn_bf6190542e563236225c32a6",
+          "diagnosticId": "turn_bf6190542e563236225c32a6_1_diag",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "originalFailure": {
+            "source": "inline_receipt",
+            "reasons": [
+              {
+                "reason": "unverified_action_success",
+                "detail": "unverified_action_success",
+                "actionId": "turn_bf6190542e563236225c32a6_action_0"
+              }
+            ],
+            "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\"}]}]}]}"
+          },
+          "failures": [
+            {
+              "source": "inline_receipt",
+              "reasons": [
+                {
+                  "reason": "unverified_action_success",
+                  "detail": "unverified_action_success",
+                  "actionId": "turn_bf6190542e563236225c32a6_action_0"
+                }
+              ],
+              "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\"}]}]}]}"
+            },
+            {
+              "source": "repair_scene_draft",
+              "reasons": [
+                {
+                  "reason": "uncommitted_completed_event",
+                  "detail": "Completed inventory event has no matching executed effect.",
+                  "actionId": "turn_bf6190542e563236225c32a6_action_0"
+                }
+              ],
+              "proposal": "{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"physical\",\"status\":\"resolved\",\"response\":[{\"text\":\"You pick up the bronze key from the table.\",\"events\":[{\"type\":\"inventory\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\",\"source_type\":\"witnessed\",\"source_npc_id\":\"\",\"witnessed_by\":[],\"cause\":\"player_action\"},{\"type\":\"interaction\",\"actor_id\":\"player\",\"status\":\"completed\",\"action\":\"pickup\",\"item\":\"Bronze key\",\"source_type\":\"witnessed\",\"source_npc_id\":\"\",\"witnessed_by\":[],\"cause\":\"player_action\"}],\"speech\":[]}]}]}"
+            }
+          ],
+          "repairResults": [
+            {
+              "attempt": 1,
+              "accepted": false,
+              "reasons": [
+                "uncommitted_completed_event"
+              ]
+            }
+          ],
+          "discarded": null,
+          "confirmedEffects": [
+            {
+              "type": "item_transfer",
+              "action_id": "turn_bf6190542e563236225c32a6_action_0",
+              "result": "changed",
+              "payload": "{\"item_id\":\"key\",\"from_id\":\"foyer\",\"to_id\":\"player\"}"
+            }
+          ],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 98008,
+              "usage": null
+            },
+            {
+              "kind": "receiptRepair",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 4850,
+              "usage": {
+                "input": 1229,
+                "output": 228,
+                "total": 1457
+              },
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            },
+            {
+              "kind": "receiptRepair",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 3727,
+              "usage": {
+                "input": 1639,
+                "output": 190,
+                "total": 1829
+              },
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_bf6190542e563236225c32a6",
+          "worldActionIds": [],
+          "gestureActionIds": [],
+          "repairs": [],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 30,
+              "action_id": "turn_bf6190542e563236225c32a6_action_0"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 2,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3065,
+        "mainPromptCharacters": 63440,
+        "repairPromptCharacters": 79742,
+        "firstTokenMs": 98006,
+        "firstContentMs": 98006,
+        "localValidationMs": 3,
+        "generationMs": 106585,
+        "outputCharacters": 2254,
+        "estimatedInputTokens": 19825,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3065,
+          "locationDescription": 42,
+          "npcPerspectives": 1030,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 30,
+          "schema": 32630,
+          "sceneGuidance": 9148
+        }
+      },
+      "correctionReasons": [
+        {
+          "reason": "unverified_action_success",
+          "type": "linked_action",
+          "detail": ""
+        }
+      ],
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 98008,
+          "usage": null
+        },
+        {
+          "kind": "receiptRepair",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 4850,
+          "usage": {
+            "input": 1229,
+            "output": 228,
+            "total": 1457
+          },
+          "providerTiming": {
+            "promptTokens": null,
+            "outputTokens": null,
+            "loadMs": null,
+            "promptEvalMs": null,
+            "outputEvalMs": null
+          }
+        },
+        {
+          "kind": "receiptRepair",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 3727,
+          "usage": {
+            "input": 1639,
+            "output": 190,
+            "total": 1829
+          },
+          "providerTiming": {
+            "promptTokens": null,
+            "outputTokens": null,
+            "loadMs": null,
+            "promptEvalMs": null,
+            "outputEvalMs": null
+          }
+        }
+      ]
+    },
+    "narrative": "You pick up the bronze key from the table.",
+    "live": {
+      "inventory": [
+        "Bronze key"
+      ],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_take_the_key_from_the_table",
+              "eventId": "",
+              "text": "I take the key from the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        }
+      },
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [
+        "Bronze key"
+      ],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_take_the_key_from_the_table",
+              "eventId": "",
+              "text": "I take the key from the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 97993,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 30778,
+        "contextCharacters": 29996,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 25644,
+        "contentCharacters": 471,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 4841,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 6167,
+        "contextCharacters": 5799,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 1486,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 3718,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 8251,
+        "contextCharacters": 7676,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 1270,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

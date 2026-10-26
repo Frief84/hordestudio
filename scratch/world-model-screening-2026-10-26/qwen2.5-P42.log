@@ -1,0 +1,7 @@
+P42: starting qwen2.5:14b-instruct-q4_K_M
+P42: page loaded
+P42: app ready
+P42: model request
+P42: binding draft
+P42: summary {"turnDurationMs":4811,"calls":[{"durationMs":4610,"status":200,"maxTokens":2048,"promptCharacters":32120,"contextCharacters":31266,"schemaCharacters":32796,"reasoningEffort":null,"responseCharacters":28592,"contentCharacters":533,"reasoningCharacters":0,"usage":null,"providerTiming":null}],"error":"World turn was not saved: The model claimed a completed World change without a matching validated effect, even after automatic repair. No turn was saved; your input remains available.. Your action is still in the input box.","liveStats":{"focus":9,"energy":5},"savedStats":{"focus":9,"energy":5},"savedHistoryLength":0}
+P42: {"error":"World turn was not saved: The model claimed a completed World change without a matching validated effect, even after automatic repair. No turn was saved; your input remains available.. Your action is still in the input box.","calls":1,"savedTurn":false}

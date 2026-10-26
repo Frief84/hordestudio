@@ -6,6 +6,8 @@ const workingApi = typeof module !== 'undefined' && module.exports
     ? require('./working-state') : root.HordeWorkingState;
 const registryApi = typeof module !== 'undefined' && module.exports
     ? require('./effect-registry') : root.HordeEffectRegistry;
+const checkApi = typeof module !== 'undefined' && module.exports
+    ? require('./universal-checks') : root.HordeUniversalChecks;
 const copy = value => value === undefined ? undefined : structuredClone(value);
 const safeId = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
@@ -35,6 +37,16 @@ const actorInventory = (working, id) => id === 'player'
     ? working.getSession('inventory') : working.getEntity(id).state?.inventory;
 const actorAt = (working, id) => id === 'player'
     ? working.getSession('playerLocation') : working.getEntity(id).state?.location;
+const resourceBalance = (working, actorId, resourceId) => {
+    if (actorId !== 'player' && working.getEntity(actorId).definition?.type !== 'npc')
+        throw new Error('unknown_resource_actor');
+    const values = actorId === 'player' ? working.getSession('playerStats')
+        : working.getEntity(actorId).state?.resources;
+    if (!values || !own(values, resourceId)) throw new Error('unknown_resource');
+    const balance = values[resourceId];
+    if (!Number.isFinite(balance) || balance < 0) throw new Error('invalid_resource_value');
+    return balance;
+};
 function expireCreatedItems(working, elapsed = 0) {
     const now = Number(working.getSession('worldClock')?.absoluteMinutes) + elapsed;
     if (!Number.isFinite(now)) return;
@@ -364,6 +376,10 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         const sourceItem = Array.isArray(sourceInventory)
             ? sourceInventory.find(item => itemMatches(item, value.item_id)) : null;
         const transferName = itemEntity.definition?.name || itemName(sourceItem) || value.item_id;
+        // Older inventories store a registered item's display name as a
+        // string. Its canonical ID must still be usable on a later transfer.
+        const sourceReference = !inventoryHas(sourceInventory, value.item_id)
+            && inventoryHas(sourceInventory, transferName) ? transferName : value.item_id;
         const looseItem = itemEntity.definition?.type === 'item'
             && placement(itemEntity) === value.from_id;
         const destinationIsLocation = !!working.getLocation(value.to_id).definition;
@@ -419,7 +435,7 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             throw new BlockedAction('item_already_placed');
         const sourceBefore = looseItem ? Number(itemEntity.state?.quantity
             ?? itemEntity.definition?.quantity ?? 1)
-            : inventoryUnits(sourceInventory, value.item_id);
+            : inventoryUnits(sourceInventory, sourceReference);
         const destinationInventory = destinationIsLocation ? null : value.to_id === 'player'
             ? working.getSession('inventory') : working.getEntity(value.to_id).state?.inventory;
         const destinationBefore = destinationIsLocation
@@ -427,15 +443,15 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 ? itemEntity.state?.quantity ?? 1 : 0)
             : inventoryUnits(destinationInventory, transferName);
         if (looseItem && sourceBefore < quantity) throw new BlockedAction('item_not_held_or_present');
-        if (!looseItem && inventoryUnits(sourceInventory, value.item_id) < quantity)
+        if (!looseItem && inventoryUnits(sourceInventory, sourceReference) < quantity)
             throw new BlockedAction('item_not_held_or_present');
         if (value.from_id === 'player') working.writeSession('inventory', field => {
             const inventory = field.value || [];
-            removeInventoryUnits(inventory, value.item_id, quantity);
+            removeInventoryUnits(inventory, sourceReference, quantity);
             field.value = inventory;
         });
         else if (!looseItem) working.writeEntity(value.from_id, entity => {
-            removeInventoryUnits(entity.state.inventory, value.item_id, quantity);
+            removeInventoryUnits(entity.state.inventory, sourceReference, quantity);
         });
         if (destinationIsLocation) {
             if (itemEntity.definition) working.writeEntity(resolvedId, entity => {
@@ -468,7 +484,7 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         });
         const sourceAfter = looseItem ? Number(working.getEntity(resolvedId).state?.quantity || 0)
             : inventoryUnits(value.from_id === 'player' ? working.getSession('inventory')
-                : working.getEntity(value.from_id).state?.inventory, value.item_id);
+                : working.getEntity(value.from_id).state?.inventory, sourceReference);
         const destinationAfter = destinationIsLocation
             ? Number(working.getEntity(resolvedId).state?.location === value.to_id
                 ? working.getEntity(resolvedId).state?.quantity || 0 : 0)
@@ -856,6 +872,29 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             });
         else throw new Error('unknown_outfit_actor');
     });
+    registerNative('resource_cost', value => safeId(value?.actor_id)
+        && safeId(value?.resource_id) && safeId(value?.rule_id)
+        && safeId(value?.result_id) && Number.isFinite(value?.amount)
+        && value.amount > 0 && value.amount <= 1e6
+        && typeof value?.transaction_id === 'string'
+        && value.transaction_id.length > 0 && value.transaction_id.length <= 600,
+    (value, working, context) => {
+        if (context.internalResourceCost !== true) throw new Error('unauthorized_resource_cost');
+        const ledger = working.getSession('resourceCostLedger') || [];
+        if (!Array.isArray(ledger) || ledger.includes(value.transaction_id))
+            throw new Error('duplicate_resource_cost');
+        const balance = resourceBalance(working, value.actor_id, value.resource_id);
+        if (balance < value.amount) throw new BlockedAction('insufficient_resource');
+        if (value.actor_id === 'player') working.writeSession('playerStats', field => {
+            field.value[value.resource_id] = balance - value.amount;
+        });
+        else working.writeEntity(value.actor_id, entity => {
+            entity.state.resources[value.resource_id] = balance - value.amount;
+        });
+        working.writeSession('resourceCostLedger', field => {
+            field.value = [...ledger, value.transaction_id];
+        });
+    });
     // Definitions added to the central registry carry their own validating
     // and reducing operation. No companion schema or executor list is edited.
     for (const descriptor of registryApi.technicalEffects.values())
@@ -874,10 +913,11 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             } else context.applyLegacyEffect(type, payload, working);
         });
     }
-    return capability ? { ...registry,
-        has: type => capability.names.includes(type) && registry.has(type),
-        types: () => registry.types().filter(type => capability.names.includes(type)) }
-        : registry;
+    const publicEffect = type => !registryApi.technicalEffects.get(type)?.internalOnly
+        && (!capability || capability.names.includes(type));
+    return { ...registry,
+        has: type => publicEffect(type) && registry.has(type),
+        types: () => registry.types().filter(publicEffect) };
 }
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
@@ -896,7 +936,77 @@ function executeLinkedActions(plan, world, session, context = {}) {
     const effects = createWorldEffectRegistry(context.legacyEffectKeys || [], capability);
     const facts = createFactRegistry();
     const outcomes = new Map();
+    const blockedReasons = new Map();
+    const checkResults = [];
     const events = [];
+    const checkConfig = world?.gameRules?.universalChecks;
+    try { if (checkConfig?.enabled === true)
+        checkApi.validateRules(checkConfig, new Set(effects.types())); }
+    catch (error) {
+        working.rollback();
+        return { ok: false, errors: [{ reason: error.message, stage: 'check_rule_validation' }],
+            outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [], checkResults: [] };
+    }
+    const checkRules = checkConfig?.enabled === true ? checkConfig.rules : [];
+    const costCapability = checkRules.some(rule => rule.results.some(result => result.costs?.length))
+        ? { ...capability,
+            names: [...capability.names, 'resource_cost'],
+            schemas: { ...capability.schemas,
+                resource_cost: registryApi.technicalEffects.get('resource_cost').schema } }
+        : null;
+    const costActor = (rule, action) => {
+        if (rule.actor !== 'event_actor') return 'player';
+        const references = (plan.events || [])
+            .filter(event => event.action_id === action.action_id && event.actor_id !== undefined)
+            .map(event => event.actor_id);
+        if (references.some(actor => !safeId(actor))) throw new Error('invalid_resource_actor');
+        const actors = [...new Set(references)];
+        if (actors.length !== 1) throw new Error('ambiguous_resource_actor');
+        return actors[0];
+    };
+    const validateCostTarget = (rule, action) => {
+        if (!rule.target) return;
+        const references = rule.target === 'event_target'
+            ? (plan.events || []).filter(event => event.action_id === action.action_id
+                && event.target_id !== undefined).map(event => event.target_id)
+            : [rule.target];
+        if (references.some(target => !safeId(target)))
+            throw new Error('invalid_resource_check_target');
+        const targets = [...new Set(references)];
+        if (targets.length !== 1 || targets[0] !== 'player'
+            && !working.getEntity(targets[0]).definition)
+            throw new Error('invalid_resource_check_target');
+    };
+    const preflightCosts = (rules, action) => {
+        const actors = new Map();
+        const required = new Map();
+        for (const rule of rules.filter(item => item.results.some(result => result.costs?.length))) {
+            const actor = costActor(rule, action);
+            validateCostTarget(rule, action);
+            actors.set(rule.id, actor);
+            const maximum = new Map();
+            for (const result of rule.results) for (const cost of result.costs || [])
+                maximum.set(cost.resourceId, Math.max(maximum.get(cost.resourceId) || 0, cost.amount));
+            for (const [resourceId, amount] of maximum) {
+                const key = JSON.stringify([actor, resourceId]);
+                required.set(key, (required.get(key) || 0) + amount);
+            }
+        }
+        // P4.2 policy: reserve the highest possible cost for every matching rule.
+        // This policy is local to this version; a later authored strategy can replace it.
+        for (const [key, amount] of required) {
+            const [actor, resourceId] = JSON.parse(key);
+            if (resourceBalance(working, actor, resourceId) < amount)
+                throw new BlockedAction('insufficient_resource');
+        }
+        return actors;
+    };
+    const checkRoll = (min, max, ruleId, actionSlot) => {
+        const seed = `${world.id}|${session.id}|${session.turnCount || 1}|${actionSlot}|${ruleId}`;
+        let hash = 2166136261;
+        for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
+        return min + (hash >>> 0) % (max - min + 1);
+    };
     const errors = [];
     // Only completed, structurally witnessed operations may survive a repair.
     // The reducer succeeding is deliberately insufficient: the action must
@@ -1043,7 +1153,9 @@ function executeLinkedActions(plan, world, session, context = {}) {
     };
     const turnTimeBudget = { remaining: Math.max(0, Number(context.includedTurnMinutes) || 0) };
     const travelSpent = new Map();
+    let actionSlot = 0;
     for (const action of plan.actions) {
+        actionSlot++;
         const guards = action.depends_on || [];
         if (guards.some(guard => outcomes.get(guard.action_id) !== guard.outcome)) {
             outcomes.set(action.action_id, 'skipped');
@@ -1068,6 +1180,67 @@ function executeLinkedActions(plan, world, session, context = {}) {
         try {
             if ((action.state_conditions || []).some(condition => !facts.test(condition, working)))
                 throw new BlockedAction('state_condition_not_met');
+            const matchingRules = checkRules.filter(rule => checkApi.matches(rule, action));
+            const costActors = preflightCosts(matchingRules, action);
+            const actionChecks = matchingRules
+                .map(rule => ({ ...checkApi.evaluate(rule, action, plan.events, working,
+                    (min, max, ruleId) => checkRoll(min, max, ruleId, actionSlot)), action_slot: actionSlot }));
+            const costEvents = [];
+            const costEffects = [];
+            const applyCheckCosts = () => {
+                for (const [checkIndex, check] of actionChecks.entries()) {
+                    if (!check.costs?.length) continue;
+                    const actor = costActors.get(check.rule_id);
+                    if (!actor || actor !== check.actor_id) throw new Error('resource_actor_mismatch');
+                    for (const [costIndex, cost] of check.costs.entries()) {
+                        const eventId = `resource_cost_${Number(session.turnCount) || 1}_${
+                            actionSlot}_${checkIndex}_${costIndex}`;
+                        if ((plan.events || []).some(event => event.id === eventId)
+                            || events.some(event => event.id === eventId))
+                            throw new Error('duplicate_resource_cost_event');
+                        const transactionId = JSON.stringify([world.id, session.id,
+                            context.turnId || session.turnCount || 1, actionSlot,
+                            check.rule_id, actor, cost.resourceId]);
+                        const payload = { actor_id: actor, resource_id: cost.resourceId,
+                            amount: cost.amount, rule_id: check.rule_id,
+                            result_id: check.result_id, transaction_id: transactionId };
+                        const applied = effects.run([{ type: 'resource_cost', payload }], working,
+                            { ...context, capability: costCapability, internalResourceCost: true,
+                                protocol: capability.protocol, executionMode: capability.executionMode,
+                                actionId: action.action_id });
+                        if (applied.changes[0] !== true) throw new Error('resource_cost_not_applied');
+                        costEvents.push({ id: eventId, type: 'resource_cost',
+                            action_id: action.action_id, passage_id: action.response_id || null,
+                            actor_id: actor, status: 'completed', resource_id: cost.resourceId,
+                            amount: cost.amount, rule_id: check.rule_id,
+                            result_id: check.result_id, cause: 'confirmed_universal_check' });
+                        costEffects.push({ action_id: action.action_id, source: 'rule',
+                            type: 'resource_cost', payload: copy(payload), origin: 'engine',
+                            result: 'changed' });
+                        check.cost_changes ||= [];
+                        check.cost_changes.push({ actor_id: actor, resource_id: cost.resourceId,
+                            amount: cost.amount, event_id: eventId });
+                    }
+                }
+            };
+            const recordCheckCosts = () => {
+                const firstIndex = events.length;
+                events.push(...costEvents);
+                confirmedEffects.push(...costEffects.map((effect, index) =>
+                    ({ ...effect, event_indices: [firstIndex + index] })));
+            };
+            const expectedCheckStatus = actionChecks.some(check => check.kind === 'blocked') ? 'blocked'
+                : actionChecks.some(check => check.kind === 'failure') ? 'attempted' : null;
+            if (expectedCheckStatus && action.status !== expectedCheckStatus
+                || !expectedCheckStatus && actionChecks.length
+                    && !['resolved', 'answered'].includes(action.status))
+                throw new Error('check_outcome_status_mismatch');
+            if (expectedCheckStatus && Object.values(action.action_effects || {})
+                .some(value => Array.isArray(value) ? value.length : !!value))
+                throw new Error('check_outcome_has_effects');
+            if (expectedCheckStatus && plan.events.some(event => event.action_id === action.action_id
+                && event.status === 'completed')) throw new Error('check_outcome_has_completed_event');
+            checkResults.push(...actionChecks);
             if (action.status === 'pending_check') {
                 const operations = action.action_effects || {};
                 if (Object.keys(operations).length !== 1 || !Array.isArray(operations.checks)
@@ -1095,19 +1268,37 @@ function executeLinkedActions(plan, world, session, context = {}) {
                         'time', 'status', 'escort', 'environment'].includes(event.type)
                         || event.type === 'interaction' && event.actor_id === 'player')))
                     throw new Error('failed_action_has_completed_event');
+                applyCheckCosts();
+                recordCheckCosts();
                 outcomes.set(action.action_id, 'failed');
                 continue;
             }
             if (action.status === 'blocked' && !Object.keys(action.action_effects || {}).length) {
+                if (expectedCheckStatus === 'blocked') { outcomes.set(action.action_id, 'blocked'); continue; }
                 throw new Error('unverified_blockage');
             }
             const operations = Object.entries(action.action_effects || {}).flatMap(([type, values]) => {
+                if (type === 'resource_cost') throw new Error('unauthorized_resource_cost');
                 if ((context.legacyEffectKeys || []).includes(type)
                     && !registryApi.technicalEffects.has(type))
                     return [{ type, payload: values }];
                 if (!Array.isArray(values)) throw new Error(`invalid_effect_list:${type}`);
                 return values.map(payload => ({ type, payload }));
             });
+            if (actionChecks.length) {
+                const denied = operations.find(operation => actionChecks.some(check =>
+                    !check.allowed_effects.includes(operation.type)));
+                if (denied) {
+                    const error = new Error('check_effect_not_allowed');
+                    error.checkDetail = {
+                        rejected_effect: denied.type,
+                        check_rules: actionChecks.map(check => ({ rule_id: check.rule_id,
+                            result_id: check.result_id, kind: check.kind,
+                            allowed_effects: check.allowed_effects }))
+                    };
+                    throw error;
+                }
+            }
             for (const operation of operations) if (['resolved', 'answered'].includes(action.status)
                 && operation.type === 'actor_move'
                 && ['journey', 'teleport'].includes(operation.payload?.mode)) {
@@ -1167,6 +1358,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 };
                 throw error;
             }
+            applyCheckCosts();
             const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
                 actionOperations: operations,
                 travelSpent,
@@ -1233,6 +1425,10 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 const witnessedInteraction = responseLinked && completed.some(event =>
                     event.type === 'interaction' && event.actor_id === 'player'
                     && event.passage_id === action.response_id);
+                const witnessedLocalActivity = responseLinked && completed.some(event =>
+                    event.type === 'activity' && event.actor_id === 'player'
+                    && event.passage_id === action.response_id
+                    && !!String(event.activity || '').trim());
                 const proved = action.kind === 'travel'
                     ? executed.some(effect => effect.type === 'actor_move'
                         && (effect.payload.actor_id === 'player'
@@ -1240,7 +1436,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     : action.kind === 'wait'
                         ? executed.some(effect => ['time_advance', 'time_skip_minutes'].includes(effect.type))
                         : action.kind === 'physical'
-                            ? physicalEffect || witnessedInteraction
+                            ? physicalEffect || witnessedInteraction || witnessedLocalActivity
                             : stateEffect || ['speech', 'question', 'observation', 'other']
                                 .includes(action.kind) && responseLinked;
                 if (!proved) throw new Error('unverified_action_success');
@@ -1352,15 +1548,20 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 error.effect = unwitnessed.type;
                 throw error;
             }
+            recordCheckCosts();
         } catch (error) {
             working.restore(point);
             turnTimeBudget.remaining = includedTimeAtStart;
             travelSpent.clear();
             for (const [actor, minutes] of travelSpentAtStart) travelSpent.set(actor, minutes);
-            if (error instanceof BlockedAction) outcomes.set(action.action_id, 'blocked');
+            if (error instanceof BlockedAction) {
+                outcomes.set(action.action_id, 'blocked');
+                blockedReasons.set(action.action_id, error.message);
+            }
             else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
                 code: error.code || error.message, effect: error.effect || '',
                 ...(error.movementDiagnostic || {}),
+                ...(error.checkDetail || {}),
                 ...(Number.isInteger(error.event_index) ? { event_index: error.event_index } : {}),
                 ...(error.requiredEffects ? { requiredEffects: error.requiredEffects } : {}),
                 protocol: capability.protocol, executionMode: capability.executionMode,
@@ -1375,7 +1576,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     : action.status === 'pending_check' ? 'pending' : 'unresolved';
         if (actual !== proposed) {
             errors.push({ action_id: action.action_id, reason: 'action_outcome_mismatch',
-                proposed, actual });
+                proposed, actual, ...(blockedReasons.has(action.action_id)
+                    ? { cause: blockedReasons.get(action.action_id) } : {}) });
             break;
         }
         if (actual === 'succeeded') verifiedEvents.push(...plan.events
@@ -1424,7 +1626,13 @@ function executeLinkedActions(plan, world, session, context = {}) {
     }
     const visiblePassages = (plan.narrative || []).filter(passage =>
         !passage.action_id || outcomes.get(passage.action_id) !== 'skipped');
-    return { ok: true, working, outcomes, events, verifiedEffects, verifiedEvents, confirmedEffects,
+    return { ok: true, working, outcomes, blockedReasons, events,
+        verifiedEffects, verifiedEvents, confirmedEffects,
+        checkResults: checkResults.map(check => ({ ...check,
+            effect_types: confirmedEffects.filter(effect => effect.action_id === check.action_id)
+                .map(effect => effect.type),
+            event_ids: events.filter(event => event.action_id === check.action_id)
+                .map(event => event.id).filter(Boolean) })),
         narrative: visiblePassages.map(passage => passage.text).join('\n\n'),
         skipped: [...outcomes].filter(([, result]) => result === 'skipped').map(([id]) => id) };
 }

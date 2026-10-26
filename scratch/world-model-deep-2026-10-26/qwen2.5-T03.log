@@ -1,0 +1,11 @@
+T03: starting qwen2.5:14b-instruct-q4_K_M
+T03: page loaded
+T03: app ready
+T03: model request
+T03: binding draft
+T03: model request
+T03: binding draft
+T03: model request
+T03: binding draft
+T03: summary {"turnDurationMs":107079,"calls":[{"durationMs":97993,"status":200,"maxTokens":8192,"promptCharacters":30778,"contextCharacters":29996,"schemaCharacters":32630,"reasoningEffort":null,"responseCharacters":25644,"contentCharacters":471,"reasoningCharacters":0,"usage":null,"providerTiming":null},{"durationMs":4841,"status":200,"maxTokens":8192,"promptCharacters":6167,"contextCharacters":5799,"schemaCharacters":32630,"reasoningEffort":null,"responseCharacters":1486,"contentCharacters":0,"reasoningCharacters":0,"usage":null,"providerTiming":null},{"durationMs":3718,"status":200,"maxTokens":8192,"promptCharacters":8251,"contextCharacters":7676,"schemaCharacters":32630,"reasoningEffort":null,"responseCharacters":1270,"contentCharacters":0,"reasoningCharacters":0,"usage":null,"providerTiming":null}],"error":"","accepted":3,"rejected":[],"checkResults":[],"liveStats":{},"savedStats":{},"savedHistoryLength":2}
+T03: {"error":"","calls":3,"accepted":3,"rejected":[],"savedTurn":true}

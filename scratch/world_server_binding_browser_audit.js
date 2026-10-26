@@ -118,6 +118,7 @@ const root = path.resolve(__dirname, '..');
                     input: document.getElementById('world-user-input').value,
                     error: document.getElementById('world-turn-error-text')?.textContent,
                     receipt: sess.worldTurnReceipts?.at(-1), reply: sess.history.at(-1)?.text,
+                    rendered: document.querySelector('#world-messages-container .msg-dm:last-of-type .msg-text')?.innerHTML || '',
                     sceneMemory: sess.history.at(-1)?.sceneMemory,
                     savedSceneMemory: saved?.history?.at(-1)?.sceneMemory };
             };
@@ -125,7 +126,27 @@ const root = path.resolve(__dirname, '..');
 "How observant. And here I was, hoping to pass for a particularly handsome pebble."
 He shifts slightly on his sun-warmed stone.
 "Tell me, traveller, do you often stop to insult the local wildlife, or am I receiving special treatment?"`;
-            outcomes.push(await run(aslan, [say('Lorne leans on his staff. "Special treatment, naturally. Most pebbles are less conversational."')]));
+            const inferredSpeakerTurn = await run(aslan,
+                [say('Lorne leans on his staff. "Special treatment, naturally. Most pebbles are less conversational."')]);
+            sess.presentationMode = 'cinematic';
+            renderWorldPlayState();
+            inferredSpeakerTurn.renderedCinematic = document.querySelector(
+                '#world-messages-container .msg-dm:last-of-type .msg-text')?.innerHTML || '';
+            sess.presentationMode = 'classic';
+            renderWorldPlayState();
+            outcomes.push(inferredSpeakerTurn);
+            const mixedVoices = say('Lorne says, "The road is open."');
+            mixedVoices.actions[0].response[0].speech = [{ speaker: 'lorne',
+                listeners: ['player', 'aslan'] }];
+            mixedVoices.actions[0].response.push({ text: 'Aslan replies, "Then let us go."',
+                speech: [{ speaker: 'aslan', listeners: ['player', 'lorne'] }] });
+            const mixedSpeakerTurn = await run('What do you two think?', [mixedVoices]);
+            sess.presentationMode = 'cinematic';
+            renderWorldPlayState();
+            mixedSpeakerTurn.renderedCinematic = document.querySelector(
+                '#world-messages-container .msg-dm:last-of-type .msg-text')?.innerHTML || '';
+            sess.presentationMode = 'classic';
+            renderWorldPlayState();
             outcomes.push(await run('I nod.', [say('Lorne returns the nod.', 'gesture')]));
             outcomes.push(await run('Tell me your story. '.repeat(180), [say('Lorne settles against his staff and begins his tale.')]));
             const moved = say('Lorne tips his hat.');
@@ -227,12 +248,19 @@ He gives a soft, amused croak.
             outcomes.push(await run('"The bridge is out."', [spokenWarning]));
             const invitation = await run('Lorne, come here.',
                 [say('Lorne hears you from the path but chooses not to come.', 'speech')]);
-            const speakers = say('Aslan says the path is clear.');
+            const speakers = say('Aslan says, "The path is clear."');
             speakers.actions[0].response[0].speech = [{ speaker: 'aslan', listeners: ['player'] }];
-            speakers.actions[0].response.push({ text: 'You say you will follow.',
+            speakers.actions[0].response.push({ text: 'You say, "I will follow."',
                 speech: [{ speaker: 'player', listeners: ['aslan'] }] });
             speakers.actions[0].response.push({ text: 'The leaves settle.' });
-            outcomes.push(await run('I ask Aslan about the path.', [speakers]));
+            const speakerTurn = await run('I ask Aslan about the path.', [speakers]);
+            sess.presentationMode = 'cinematic';
+            renderWorldPlayState();
+            speakerTurn.renderedCinematic = document.querySelector(
+                '#world-messages-container .msg-dm:last-of-type .msg-text')?.innerHTML || '';
+            sess.presentationMode = 'classic';
+            renderWorldPlayState();
+            outcomes.push(speakerTurn);
             const finalFixture = { world: structuredClone(world), session: structuredClone(sess) };
             const recoverable = say('Aslan answers from the stone, "The path is clear."');
             recoverable.reactions = [{ text: 'Lorne reaches the path.', effects: [], events: [{
@@ -289,10 +317,18 @@ He gives a soft, amused croak.
                     effects: [], response: [{ text: 'Aslan braces against the stone and does not move.' }] }
             ] };
             const partialTurn = await run('I put on a green coat. I try to push Aslan toward the path.', [partial]);
+            const sit = say('You settle onto the ground.', 'physical');
+            sit.actions[0].response[0].events = [{ type: 'activity', actor_id: 'player',
+                status: 'completed', activity: 'sitting' }];
+            const localSit = await run('Ich setze mich hin.', [sit]);
+            const stand = say('You stand again.', 'physical');
+            stand.actions[0].response[0].events = [{ type: 'activity', actor_id: 'player',
+                status: 'completed', activity: 'standing' }];
+            const localStand = await run('I stand up.', [stand]);
             window.fetch = realFetch;
-            return { outcomes, invitation, recovered, recoveredAttempt,
+            return { outcomes, mixedSpeakerTurn, invitation, recovered, recoveredAttempt,
                 movementFailure, positiveJoint, movementRepaired,
-                itemPickup, npcFollows, npcRefuses, npcState, partialTurn,
+                itemPickup, npcFollows, npcRefuses, npcState, partialTurn, localSit, localStand,
                 failedDiagnostics: sess.worldCallDiagnostics, npcLocation: sess.entityStates.lorne.location,
                 scheduled: sess.scheduledEvents, history: sess.history.map(message => message.text),
                 aslanObservations: sess.entityStates.aslan.observations,
@@ -321,8 +357,17 @@ He gives a soft, amused croak.
             assert.deepEqual(turn.savedSceneMemory, turn.sceneMemory);
         }
         assert.equal(result.outcomes[0].calls, 1);
+        assert.match(result.outcomes[0].renderedCinematic, /<strong>Lorne<\/strong>/,
+            'switching to cinematic mode must rerender an inferred NPC speaker');
+        for (const field of ['rendered', 'renderedCinematic']) {
+            assert.match(result.mixedSpeakerTurn[field], /<strong>Lorne<\/strong>/);
+            assert.match(result.mixedSpeakerTurn[field], /<strong>Aslan<\/strong>/);
+        }
         assert.equal(result.outcomes[0].receipt.audit.turnResolution.status, 'clean');
         assert.equal(result.outcomes[5].receipt.audit.turnResolution.status, 'repaired');
+        assert(result.outcomes[5].prompts.some(prompt =>
+            prompt.includes('Authoritative player inventory:')),
+        'repair prompts must retain authoritative ownership context');
         assert(result.outcomes[5].receipt.audit.turnResolution.originalFailure);
         assert.equal(result.recovered.receipt.audit.turnResolution.status, 'recovered');
         assert.equal(result.recovered.saved.receipts, result.recovered.after.receipts);
@@ -359,6 +404,13 @@ He gives a soft, amused croak.
             ['succeeded', 'failed']);
         assert.equal(result.partialTurn.after.aslanLocation, result.partialTurn.before.aslanLocation);
         assert.equal(result.partialTurn.saved.outfit, 'green coat');
+        for (const local of [result.localSit, result.localStand]) {
+            assert.equal(local.receipt.audit.turnResolution.status, 'clean');
+            assert.equal(local.saved.receipts, local.before.receipts + 1);
+            assert.equal(local.saved.playerLocation, local.before.playerLocation);
+            assert(local.receipt.receipt.events.some(event => event.type === 'activity'
+                && event.actor_id === 'player' && event.status === 'completed'));
+        }
         assert(result.failedDiagnostics.some(item => item.status === 'failed'
             && item.originalFailure && item.calls.length));
         const outfitTurn = result.outcomes[4];
@@ -421,8 +473,12 @@ He gives a soft, amused croak.
             ['aslan', 'player', null]);
         assert.deepEqual(finalReceipt.speech_attributions.map(item => item.speaker),
             ['aslan', 'player']);
-        assert(result.aslanObservations.some(item => item.text === 'You say you will follow.'));
-        assert(!result.lorneObservations.some(item => item.text === 'Aslan says the path is clear.'));
+        assert.match(result.outcomes.at(-1).rendered,
+            /<strong>Aslan<\/strong>/, 'validated NPC speaker name must appear in the visible message');
+        assert.match(result.outcomes.at(-1).renderedCinematic,
+            /<strong>Aslan<\/strong>/, 'validated NPC speaker name must appear in cinematic mode');
+        assert(result.aslanObservations.some(item => item.text === 'You say, "I will follow."'));
+        assert(!result.lorneObservations.some(item => item.text === 'Aslan says, "The path is clear."'));
         assert(!result.lorneObservations.some(item => item.text === 'The leaves settle.'),
             'unattributed narration must not become personal NPC knowledge');
         const failedProjection = receiptNarration.project(result.failedFixture.world,
@@ -438,7 +494,7 @@ He gives a soft, amused croak.
             ['aslan', 'player']);
         assert.equal(finalProjection.input.narrativeDetails.at(-1).speaker, null);
         assert(finalProjection.input.npcPerspectives.some(item => item.id === 'aslan'
-            && item.memories.some(memory => memory.text === 'You say you will follow.')));
+            && item.memories.some(memory => memory.text === 'You say, "I will follow."')));
         assert(!finalProjection.input.npcPerspectives.some(item => item.id === 'lorne'));
         assert.equal(result.outcomes.at(-1).reply, finalProjection.input.narrativeDetails
             .map(item => item.text).join('\n\n'));
@@ -482,7 +538,7 @@ He gives a soft, amused croak.
                     combinedCalls: result.outcomes.at(-1).calls,
                     world: result.finalFixture.world, session: result.finalFixture.session }
             ] }));
-        assert.equal(bindingCalls, 43,
+        assert.equal(bindingCalls, 46,
             'new repair proposals are bound; an identical rejected proposal is not retried');
         await page.reload();
         await page.waitForFunction(() => state.worldInstances?.bound_test?.sessions?.some(session => session.outfit === 'green coat'));
@@ -492,9 +548,9 @@ He gives a soft, amused croak.
                 sceneMemory: session.history.at(-1)?.sceneMemory,
                 aslanObservations: session.entityStates.aslan.observations };
         });
-        assert.deepEqual(reloaded.receipt, result.partialTurn.receipt.receipt);
-        assert.deepEqual(reloaded.sceneMemory, result.partialTurn.sceneMemory);
-        assert(reloaded.aslanObservations.some(item => item.text === 'You say you will follow.'));
+        assert.deepEqual(reloaded.receipt, result.localStand.receipt.receipt);
+        assert.deepEqual(reloaded.sceneMemory, result.localStand.sceneMemory);
+        assert(reloaded.aslanObservations.some(item => item.text === 'You say, "I will follow."'));
         console.log('P2.8 browser metrics:', JSON.stringify(Object.fromEntries([
             ['clean', result.outcomes[0]], ['repaired', result.outcomes[5]],
             ['recovered', result.recovered], ['recovered_attempt', result.recoveredAttempt],

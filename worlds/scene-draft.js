@@ -173,7 +173,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         if (events.items.properties.to_location_id) events.items.properties.to_location_id.description =
             'Required only when changing mapped places: exact allowed destination ID from this actor’s WORLD LORE movementOptions. Ordinary movement within the current room/place needs no movement event.';
         if (events.items.properties.activity) events.items.properties.activity.description =
-            'For type activity: the actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. Momentary posture and gestures belong in narrative without a state event.';
+            'For type activity: the player or NPC actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. No chair or target object is required for simply sitting. Momentary posture and gestures belong in narrative without a state event.';
         if (events.items.properties.next_status) events.items.properties.next_status.description =
             'Only for type status: the NPC lifecycle value alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.';
         if (events.items.properties.outfit) events.items.properties.outfit.description =

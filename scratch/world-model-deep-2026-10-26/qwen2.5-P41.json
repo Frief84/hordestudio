@@ -1,0 +1,77 @@
+[
+  {
+    "id": "P41",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I focus on the inscription on the table.",
+    "turnDurationMs": 6019,
+    "error": "World turn was not saved: Linked World turn was not committed: unverified_action_success. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 3704,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 32124,
+        "contextCharacters": 31270,
+        "schemaCharacters": 32796,
+        "reasoningEffort": null,
+        "responseCharacters": 19312,
+        "contentCharacters": 332,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 2029,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 6130,
+        "contextCharacters": 5772,
+        "schemaCharacters": 32796,
+        "reasoningEffort": null,
+        "responseCharacters": 710,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

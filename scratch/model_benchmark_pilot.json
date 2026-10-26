@@ -1,0 +1,57 @@
+[
+  {
+    "id": "T03",
+    "model": "ministral-3:14b",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 121547,
+    "error": "World turn was not saved: Linked World turn was not committed: request_coverage_mismatch. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 121214,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 30778,
+        "contextCharacters": 29996,
+        "schemaCharacters": 32630,
+        "reasoningEffort": null,
+        "responseCharacters": 97395,
+        "contentCharacters": 2047,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

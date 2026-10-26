@@ -149,6 +149,27 @@ test('validated speech IDs keep one NPC voice through ambiguous narration', () =
     assert(parts.filter(part=>part.speakerId==='lorne').every(part=>part.profile === profiles.lorne));
 });
 
+test('server-bound passage speech uses confirmed NPC IDs without guessing other quotes', () => {
+    const context = {};
+    buildContext(vm, ['worldNarrativeSegments'], context);
+    const world = { entities: [
+        { id: 'mara', type: 'npc', name: 'Mara' },
+        { id: 'lena', type: 'npc', name: 'Lena' }
+    ] };
+    const first = 'Mara turns to the door. "Come inside," she says.';
+    const second = 'Lena replies, "I will wait."';
+    const third = 'Mara looks at Lena. "Maybe later."';
+    const text = [first, second, third].join('\n\n');
+    const speech = [{ speaker: 'mara', statement: first, passage_id: 'p1' },
+        { speaker: 'lena', statement: second, passage_id: 'p2' }];
+    const segments = context.worldNarrativeSegments(world, text, speech);
+    assert.deepEqual(Array.from(segments.filter(part => part.kind === 'dialogue'),
+        part => part.speaker.id), ['mara', 'lena']);
+    assert(segments.some(part => part.kind === 'narration'
+        && part.text.includes('"Maybe later."')),
+    'an unconfirmed quote must not inherit a nearby speaker');
+});
+
 test('full-turn playback begins with the matching player action and spoken words', () => {
     const narrator = {engine:'kokoro',formula:'af_nicole:100'};
     const player = {engine:'kokoro',formula:'bm_lewis:100'};

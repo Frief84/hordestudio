@@ -48,6 +48,108 @@ function compile(proposal, custom = {}) {
     return { bound, compiled, executed, session };
 }
 async function main() {
+    const scalarResponse = { protocol: 'scene_draft_v3', actions: [{
+        kind: 'speech', status: 'resolved', response: 'Lorne answers.',
+        action_id: 'model_action', response_id: 'model_passage', effects: [] }] };
+    const repairedScalar = binding.bind(scalarResponse,
+        { ...context, input: 'Hello.', references: [{ id: 'lorne', name: 'Lorne' }] }, canonical);
+    assert(repairedScalar.ok, JSON.stringify(repairedScalar.errors));
+    assert.equal(repairedScalar.draft.narrative[0].text, 'Lorne answers.');
+    assert(repairedScalar.binding.repairs.some(item => item.type === 'wrap_response_text'));
+    assert(repairedScalar.binding.repairs.some(item => item.type === 'discard_engine_link'));
+    assert.equal(scalarResponse.actions[0].response, 'Lorne answers.',
+        'local normalization must not mutate the provider draft');
+    const namedActor = dialogue('Lorne sits beside the fire.');
+    namedActor.actions[0].response[0].events = [{ type: 'activity', actor_id: 'Lorne',
+        status: 'completed', activity: 'sitting', passage_id: 'model_passage' }];
+    const resolvedActor = binding.bind(namedActor,
+        { ...context, references: [{ id: 'lorne', name: 'Lorne' }] }, canonical);
+    assert(resolvedActor.ok, JSON.stringify(resolvedActor.errors));
+    assert.equal(resolvedActor.draft.events[0].actor_id, 'lorne');
+    assert.equal(resolvedActor.draft.events[0].passage_id, resolvedActor.draft.narrative[0].id);
+    const ambiguousActor = binding.bind(namedActor, { ...context, references: [
+        { id: 'lorne', name: 'Lorne' }, { id: 'lorne_other', name: 'Lorne' }
+    ] }, canonical);
+    assert(ambiguousActor.ok);
+    assert.equal(ambiguousActor.draft.events[0].actor_id, 'Lorne',
+        'ambiguous names must not be assigned an invented actor');
+    const namedItem = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+        status: 'resolved', response: [{ text: 'You take the bronze key.',
+            events: [{ type: 'inventory', actor_id: 'player', status: 'completed',
+                item: 'Bronze key' }] }],
+        effects: { item_transfer: [{ item_id: 'Bronze key', from_id: 'Stone',
+            to_id: 'player' }] } }] };
+    const resolvedItem = binding.bind(namedItem, { ...context, input: 'I take the bronze key.',
+        references: [{ id: 'key_1', name: 'Bronze key' }, { id: 'stone', name: 'Stone' }] }, canonical);
+    assert(resolvedItem.ok, JSON.stringify(resolvedItem.errors));
+    assert.deepEqual(resolvedItem.draft.actions[0].action_effects.item_transfer,
+        [{ item_id: 'key_1', from_id: 'stone', to_id: 'player' }]);
+    const verifiedNamedTransfer = [{ source: 'player', action_id: 'turn_stable_action_0',
+        request: 'I take the bronze key.', effects: [{ type: 'item_transfer',
+            payload: { item_id: 'key_1', from_id: 'stone', to_id: 'player' } }] }];
+    assert.deepEqual(binding.repairLosses(verifiedNamedTransfer, namedItem, canonical,
+        null, 'I take the bronze key.', [
+            { id: 'key_1', name: 'Bronze key' }, { id: 'stone', name: 'Stone' }]), [],
+    'a repair using unambiguous display names must preserve an ID-verified transfer');
+    assert.equal(binding.repairLosses(verifiedNamedTransfer, namedItem, canonical,
+        null, 'I take the bronze key.', [
+            { id: 'key_1', name: 'Bronze key' }, { id: 'key_2', name: 'Bronze key' },
+            { id: 'stone', name: 'Stone' }]).length, 1,
+    'ambiguous item names cannot replace a verified object identity');
+    const postconditionPickup = structuredClone(namedItem);
+    postconditionPickup.actions[0].state_conditions = [{ fact: 'has_item',
+        subject_id: 'player', operator: 'equals', value: 'Bronze key' }];
+    const cleanedPickup = binding.bind(postconditionPickup, { ...context,
+        input: 'I take the bronze key.', references: [
+            { id: 'key_1', name: 'Bronze key' }, { id: 'stone', name: 'Stone' }] }, canonical);
+    assert(cleanedPickup.ok, JSON.stringify(cleanedPickup.errors));
+    assert.equal(cleanedPickup.draft.actions[0].state_conditions, undefined,
+        'an item gained by this effect is not a precondition for that effect');
+    assert(cleanedPickup.binding.repairs.some(item => item.type === 'discard_effect_postcondition'));
+    const priorOwnership = structuredClone(postconditionPickup);
+    priorOwnership.actions[0].effects.item_transfer[0].from_id = 'player';
+    priorOwnership.actions[0].effects.item_transfer[0].to_id = 'lorne';
+    const retainedGuard = binding.bind(priorOwnership, { ...context,
+        input: 'I give the bronze key.', references: [
+            { id: 'key_1', name: 'Bronze key' }, { id: 'lorne', name: 'Lorne' }] }, canonical);
+    assert(retainedGuard.ok, JSON.stringify(retainedGuard.errors));
+    assert.equal(retainedGuard.draft.actions[0].state_conditions.length, 1,
+        'ownership before giving an item remains a meaningful guard');
+    const placeholderDraft = structuredClone(namedItem);
+    placeholderDraft.actions.push(...Array.from({ length: 31 }, () => ({ kind: 'physical',
+        status: 'resolved', effects: [], response: [{ text: '.' }] })));
+    const trimmedPlaceholders = binding.bind(placeholderDraft, { ...context,
+        input: 'I take the bronze key.', references: [
+            { id: 'key_1', name: 'Bronze key', type: 'item' },
+            { id: 'stone', name: 'Stone', type: 'location' }] }, canonical);
+    assert(trimmedPlaceholders.ok, JSON.stringify(trimmedPlaceholders.errors));
+    assert.equal(trimmedPlaceholders.draft.actions.length, 1);
+    assert(trimmedPlaceholders.binding.repairs.some(item =>
+        item.type === 'discard_empty_action_placeholders'));
+    const repeatedConsequence = structuredClone(namedItem);
+    repeatedConsequence.actions.push({ kind: 'physical', status: 'resolved', effects: [],
+        response: [{ text: 'The bronze key is now in your possession.' }] });
+    const mergedConsequence = binding.bind(repeatedConsequence, { ...context,
+        singleRequest: true, input: 'I take the bronze key.', references: [
+            { id: 'key_1', name: 'Bronze key', type: 'item' },
+            { id: 'stone', name: 'Stone', type: 'location' }] }, canonical);
+    assert(mergedConsequence.ok, JSON.stringify(mergedConsequence.errors));
+    assert.equal(mergedConsequence.draft.actions.length, 1);
+    assert.equal(mergedConsequence.draft.narrative.length, 2);
+    assert(mergedConsequence.binding.repairs.some(item =>
+        item.type === 'merge_single_request_continuation'));
+    assert(binding.bind(repeatedConsequence, { ...context,
+        singleRequest: false, input: 'I take the bronze key.' }, canonical).errors.some(item =>
+        item.reason === 'request_coverage_mismatch'),
+    'compound or unverified requests still need explicit part coverage');
+    const missingStatus = structuredClone(scalarResponse);
+    delete missingStatus.actions[0].status;
+    assert(binding.bind(missingStatus, context, canonical).errors.some(item =>
+        item.reason === 'missing_bound_field' && item.detail === 'actions.0.status'));
+    const unsupportedField = structuredClone(scalarResponse);
+    unsupportedField.actions[0].unknown = 'value';
+    assert(binding.bind(unsupportedField, context, canonical).errors.some(item =>
+        item.reason === 'unsupported_bound_field' && item.detail === 'actions.0.unknown'));
     const aslan = `Aslan slowly raises his head, his faintly glowing golden eyes settling on the traveller.
 "How observant. And here I was, hoping to pass for a particularly handsome pebble."
 He shifts slightly on his sun-warmed stone.
@@ -64,6 +166,47 @@ He shifts slightly on his sun-warmed stone.
     assert(gestures.executed.ok, JSON.stringify(gestures.executed.errors));
     assert.equal(gestures.bound.draft.events[0].action_id, gestures.bound.draft.actions[0].action_id,
         'events.0.action_id is supplied by the host');
+    for (const input of ['I walk toward the refrigerator.', 'Ich gehe zum Kühlschrank.',
+        'I look out of the window.', 'Ich schaue aus dem Fenster.']) {
+        const proposal = dialogue('You remain in the same room and notice the light outside.');
+        proposal.actions[0].kind = input.includes('look') || input.includes('schaue')
+            ? 'observation' : 'gesture';
+        const result = compile(proposal, { input });
+        assert(result.executed.ok, `${input}: ${JSON.stringify(result.executed.errors)}`);
+        assert.equal(result.session.playerLocation, 'stone');
+    }
+    for (const [input, activity] of [
+        ['Ich setze mich hin.', 'sitting'], ['I sit down.', 'sitting'],
+        ['Ich stehe wieder auf.', 'standing'], ['I stand up.', 'standing']
+    ]) {
+        const proposal = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+            status: 'resolved', effects: [], response: [{ text: `${activity} beside the table.`,
+                events: [{ type: 'activity', actor_id: 'player', status: 'completed', activity }] }] }] };
+        const result = compile(proposal, { input });
+        assert(result.executed.ok, `${input}: ${JSON.stringify(result.executed.errors)}`);
+        assert(result.executed.verifiedEvents.some(event => event.type === 'activity'
+            && event.actor_id === 'player' && event.activity === activity));
+        assert.equal(result.session.playerLocation, 'stone');
+    }
+    const unsupportedPickup = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+        status: 'resolved', effects: [], response: [{ text: 'You pocket the cup.' }] }] };
+    const pickupResult = compile(unsupportedPickup, { input: 'I take the cup.' });
+    assert(pickupResult.executed.errors.some(error => error.reason === 'unverified_action_success'),
+        'narration alone cannot prove an inventory transfer');
+    const typo = compile(dialogue('Lorne considers the request.'),
+        { input: 'Ich frgae Lorne nach dem Weg.' });
+    assert(typo.executed.ok, 'one action retains the exact typo-containing player request');
+    const combinedLocal = { protocol: 'scene_draft_v3', actions: [
+        { request: 'Ich setze mich hin und ', kind: 'physical', status: 'resolved', effects: [],
+            response: [{ text: 'You sit down.', events: [{ type: 'activity', actor_id: 'player',
+                status: 'completed', activity: 'sitting' }] }] },
+        { request: 'frage Lorne nach dem Weg.', kind: 'question', status: 'answered', effects: [],
+            response: [{ text: 'Lorne points toward the path.' }] }
+    ] };
+    const combinedResult = compile(combinedLocal,
+        { input: 'Ich setze mich hin und frage Lorne nach dem Weg.' });
+    assert(combinedResult.executed.ok, JSON.stringify(combinedResult.executed.errors));
+    assert.equal(combinedResult.executed.outcomes.size, 2);
     const answered = dialogue('Lorne says the map is in the archive.');
     answered.actions[0].kind = 'question'; answered.actions[0].status = 'answered';
     const answeredTurn = compile(answered, { input: 'Where is the map?' });
@@ -123,6 +266,43 @@ He shifts slightly on his sun-warmed stone.
     const omitted = structuredClone(double); omitted.actions[1].request = 'Third.';
     assert(binding.bind(omitted, { ...context, input: 'First. Second.' }, canonical).errors.some(error =>
         error.reason === 'request_coverage_mismatch'), 'a second player instruction cannot disappear or be replaced');
+    const grammatical = { protocol: 'scene_draft_v3', actions: [
+        { kind: 'question', status: 'answered', request: 'frage Lorne nach Weg', effects: [],
+            response: [{ text: 'Lorne names the path.' }] },
+        { kind: 'physical', status: 'attempted', request: 'nehme Tasse', effects: [],
+            response: [{ text: 'You reach toward the cup.' }] }
+    ] };
+    const grammaticalInput = 'Ich frage Lorne nach dem Weg, und nehme die Tasse.';
+    const grammaticalBound = binding.bind(grammatical,
+        { ...context, input: grammaticalInput }, canonical);
+    assert(grammaticalBound.ok, JSON.stringify(grammaticalBound.errors));
+    assert.equal(grammaticalBound.draft.actions.map(action => action.request).join(''),
+        grammaticalInput, 'binding restores the exact player wording after grammatical alignment');
+    const negated = structuredClone(grammatical);
+    assert(binding.bind(negated, { ...context,
+        input: 'Ich frage Lorne nach dem Weg, und nehme die Tasse nicht.' }, canonical)
+        .errors.some(error => error.reason === 'request_coverage_mismatch'),
+    'omitted negation cannot be normalized away');
+    const invented = structuredClone(grammatical);
+    invented.actions[1].request = 'nehme Tasse und Schlüssel';
+    assert(binding.bind(invented, { ...context, input: grammaticalInput }, canonical)
+        .errors.some(error => error.reason === 'request_coverage_mismatch'),
+    'an additional player action cannot be smuggled into coverage');
+    const omittedMiddle = { protocol: 'scene_draft_v3', actions: [
+        { kind: 'question', status: 'answered', request: 'I ask Lorne about the cup',
+            effects: [], response: [{ text: 'Lorne describes it.' }] },
+        { kind: 'gesture', status: 'resolved', request: 'leave',
+            effects: [], response: [{ text: 'You wave goodbye.' }] }
+    ] };
+    assert(binding.bind(omittedMiddle, { ...context,
+        input: 'I ask Lorne about the cup, then take it and leave.' }, canonical)
+        .errors.some(error => error.reason === 'request_coverage_mismatch'),
+    'conversational merging must not hide an omitted item action between anchors');
+    const unanchored = structuredClone(omittedMiddle);
+    unanchored.actions.forEach(action => { delete action.request; });
+    assert(binding.bind(unanchored, { ...context,
+        input: 'I ask Lorne about the cup, then take it and leave.' }, canonical)
+        .errors.length, 'unanchored multi-action replies cannot certify the complete player request');
     const duplicated = structuredClone(double);
     duplicated.actions[0].request = 'First. Second.';
     duplicated.actions[1].request = 'Second.';
@@ -213,9 +393,9 @@ He shifts slightly on his sun-warmed stone.
     const lift = { protocol: 'scene_draft_v3', actions: [
         { kind: 'speech', status: 'resolved', request: 'Aslan speaks of sick orchards', effects: [],
             response: [{ text: 'Lorne listens to the story of the orchards.' }] },
-        { kind: 'gesture', status: 'resolved', request: 'glances at his short legs', effects: [],
+        { kind: 'gesture', status: 'resolved', request: 'glances at his short legs makes a joke and', effects: [],
             response: [{ text: 'Lorne notices the glance and smiles.' }] },
-        { kind: 'question', status: 'answered', request: 'asks Lorne:', effects: [],
+        { kind: 'question', status: 'answered', request: 'asks Lorne: "Since you\'re heading to Millbrook anyway, perhaps you wouldn\'t mind giving an elderly toad a lift? I promise to be excellent company."', effects: [],
             response: [{ text: '"I can give you a lift," Lorne replies.' }] }
     ] };
     const lifted = compile(lift, { input: liftRequest });
@@ -248,7 +428,11 @@ He shifts slightly on his sun-warmed stone.
     assert.equal(retainedCancellation.draft.commitments[0].id, 'meeting',
         'an existing deadline may be cancelled without repeating its clock time');
     const forged = dialogue(); forged.actions[0].action_id = 'guessed';
-    assert(binding.bind(forged, context, canonical).errors.some(error => error.reason === 'engine_owned_binding_required'));
+    const relinked = binding.bind(forged, context, canonical);
+    assert(relinked.ok, JSON.stringify(relinked.errors));
+    assert.notEqual(relinked.draft.actions[0].action_id, 'guessed',
+        'the host replaces a model-authored action ID');
+    assert(relinked.binding.repairs.some(item => item.type === 'discard_engine_link'));
     const autonomous = dialogue();
     autonomous.reactions = [{ text: 'Lorne steps onto the path.',
         effects: { actor_move: [{ actor_id: 'lorne', to_location_id: 'path' }] },

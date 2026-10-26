@@ -1,0 +1,340 @@
+[
+  {
+    "id": "P42",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I focus on the inscription on the table.",
+    "turnDurationMs": 3710,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0",
+          "outcome": "succeeded"
+        }
+      ],
+      "accepted": 0,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:key",
+        "history",
+        "session:livingWorldActivity",
+        "session:_worldEpoch",
+        "time",
+        "session:worldClock",
+        "session:worldModelAttempts",
+        "session:worldModelTotals"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "clean",
+        "turnId": "turn_8055c38b3d1ec38b710ce3a8",
+        "diagnosticId": "turn_8055c38b3d1ec38b710ce3a8_1_diag",
+        "model": "qwen2.5:14b-instruct-q4_K_M",
+        "originalFailure": null,
+        "failures": [],
+        "repairResults": [],
+        "discarded": null,
+        "confirmedEffects": [],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 3528,
+            "usage": null
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_8055c38b3d1ec38b710ce3a8",
+        "worldActionIds": [],
+        "gestureActionIds": [],
+        "repairs": [],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 40,
+            "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "The inscription is a simple one: 'Beware the guardian of roundness.'",
+        "action_resolution": {
+          "kind": "speech",
+          "status": "resolved",
+          "outcome": "The inscription is a simple one: 'Beware the guardian of roundness.'"
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_8055c38b3d1ec38b710ce3a8_action_0_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_8055c38b3d1ec38b710ce3a8",
+        "passages": [
+          {
+            "id": "turn_8055c38b3d1ec38b710ce3a8_action_0_p0",
+            "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0",
+            "text": "The inscription is a simple one: 'Beware the guardian of roundness.'"
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 485
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "accepted": 0,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:key",
+          "history",
+          "session:livingWorldActivity",
+          "session:_worldEpoch",
+          "time",
+          "session:worldClock",
+          "session:worldModelAttempts",
+          "session:worldModelTotals"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "clean",
+          "turnId": "turn_8055c38b3d1ec38b710ce3a8",
+          "diagnosticId": "turn_8055c38b3d1ec38b710ce3a8_1_diag",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "originalFailure": null,
+          "failures": [],
+          "repairResults": [],
+          "discarded": null,
+          "confirmedEffects": [],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 3528,
+              "usage": null
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_8055c38b3d1ec38b710ce3a8",
+          "worldActionIds": [],
+          "gestureActionIds": [],
+          "repairs": [],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 40,
+              "action_id": "turn_8055c38b3d1ec38b710ce3a8_action_0"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 0,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3157,
+        "mainPromptCharacters": 64948,
+        "repairPromptCharacters": 0,
+        "firstTokenMs": 3526,
+        "firstContentMs": 3526,
+        "localValidationMs": 3,
+        "generationMs": 3528,
+        "outputCharacters": 333,
+        "estimatedInputTokens": 20297,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3157,
+          "locationDescription": 42,
+          "npcPerspectives": 1030,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 40,
+          "schema": 32796,
+          "sceneGuidance": 10295
+        }
+      },
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 3528,
+          "usage": null
+        }
+      ]
+    },
+    "narrative": "The inscription is a simple one: 'Beware the guardian of roundness.'",
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_focus_on_the_inscription_on_the_table",
+              "eventId": "",
+              "text": "I focus on the inscription on the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {
+        "focus": 9,
+        "energy": 5
+      },
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_focus_on_the_inscription_on_the_table",
+              "eventId": "",
+              "text": "I focus on the inscription on the table.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 3513,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 32120,
+        "contextCharacters": 31266,
+        "schemaCharacters": 32796,
+        "reasoningEffort": null,
+        "responseCharacters": 20157,
+        "contentCharacters": 333,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

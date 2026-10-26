@@ -13,7 +13,14 @@ function attempt(outcome, response, startedAt, now, data = null) {
         outcome,
         status: response?.status || 0,
         durationMs: Math.max(0, now() - startedAt),
-        usage: data?.usage || null
+        usage: data?.usage || null,
+        providerTiming: data && {
+            load_duration: data.load_duration ?? null,
+            prompt_eval_duration: data.prompt_eval_duration ?? null,
+            eval_duration: data.eval_duration ?? null,
+            prompt_eval_count: data.prompt_eval_count ?? null,
+            eval_count: data.eval_count ?? null
+        }
     };
 }
 

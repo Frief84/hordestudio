@@ -1,0 +1,47 @@
+[
+  {
+    "id": "T03",
+    "model": "gpt-oss:20b",
+    "input": "I take the key from the table.",
+    "turnDurationMs": 150143,
+    "error": "World turn was not saved: TimeoutError: The operation was aborted due to timeout. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 150044,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "pageErrors": []
+  }
+]

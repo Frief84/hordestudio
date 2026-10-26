@@ -1,4 +1,4 @@
-/** Hosted Worlds turns must end even when a provider only drips keepalive chunks. */
+/** World turns stop on idle or after five minutes, even with streamed progress. */
 'use strict';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -55,34 +55,27 @@ const host = 'world-hosted-deadline.test';
             renderWorldPlayState();
             const realFetch = window.fetch;
             const realSetTimeout = window.setTimeout;
-            const realClearTimeout = window.clearTimeout;
             let phase = '';
-            let scheduledCaps = 0;
-            let clearedCaps = 0;
-            const capIds = new Set();
             window.setTimeout = (callback, ms, ...args) => {
-                if (ms === WORLD_HOSTED_TURN_DEADLINE_MS) {
-                    scheduledCaps++;
-                    const id = realSetTimeout(callback, 75, ...args);
-                    capIds.add(id);
-                    return id;
-                }
+                if ((phase === 'hard_hosted' || phase === 'hard_local') && ms === 300000)
+                    return realSetTimeout(callback, 80, ...args);
                 if (phase === 'keepalive' && ms === 45000) return realSetTimeout(callback, 30, ...args);
+                if (phase === 'body_hang' && ms === 45000) return realSetTimeout(callback, 30, ...args);
                 if (phase === 'hosted_idle' && ms === 45000) return realSetTimeout(callback, 35, ...args);
+                if (phase === 'progress' && ms === 45000) return realSetTimeout(callback, 35, ...args);
                 return realSetTimeout(callback, ms, ...args);
-            };
-            window.clearTimeout = id => {
-                if (capIds.delete(id)) clearedCaps++;
-                return realClearTimeout(id);
             };
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 const body = JSON.parse(options.body || '{}');
                 if (!body.stream) throw new Error('An aborted stream must not spawn a repair request.');
-                if (phase === 'keepalive') {
+                if (phase === 'keepalive' || phase === 'progress'
+                    || phase === 'hard_hosted' || phase === 'hard_local') {
                     return new Response(new ReadableStream({
                         start(controller) {
-                            const bytes = new TextEncoder().encode(': keepalive\n\n');
+                            const bytes = new TextEncoder().encode(phase === 'keepalive'
+                                ? ': keepalive\n\n'
+                                : 'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n\n');
                             const interval = setInterval(() => controller.enqueue(bytes), 5);
                             options.signal?.addEventListener('abort', () => clearInterval(interval), { once: true });
                         }
@@ -97,34 +90,33 @@ const host = 'world-hosted-deadline.test';
                 if (provider === 'local') state.globalSettings.localGenerationTimeoutSeconds = 0;
                 document.getElementById('world-user-input').value = input;
                 const before = sess.history.length;
-                const capBefore = scheduledCaps;
-                const clearBefore = clearedCaps;
                 const started = performance.now();
                 const pending = executeWorldTurn();
                 if (name === 'local_user_stop') realSetTimeout(() => worldGenController?.abort(), 35);
+                if (name === 'progress') realSetTimeout(() => worldGenController?.abort(), 120);
                 await Promise.race([pending, new Promise((_, reject) => realSetTimeout(() =>
                     reject(new Error(`${name} did not release the World turn`)), 1500))]);
                 return {
                     elapsed: performance.now() - started,
-                    caps: scheduledCaps - capBefore,
-                    clears: clearedCaps - clearBefore,
                     historyBefore: before,
                     historyAfter: sess.history.length,
                     input: document.getElementById('world-user-input').value,
+                    error: document.getElementById('world-turn-error-text')?.textContent || '',
                     busy: worldTurnInProgress,
-                    stopButton: document.getElementById('world-send-btn').classList.contains('stop'),
-                    toast: document.querySelector('#toast-container .toast:last-child')?.textContent || ''
+                    stopButton: document.getElementById('world-send-btn').classList.contains('stop')
                 };
             };
             const outcomes = {
                 keepalive: await run('keepalive', 'openrouter', 'I listen in the hall.'),
                 bodyHang: await run('body_hang', 'openrouter', 'I inspect the walls.'),
                 hostedIdle: await run('hosted_idle', 'openrouter', 'I wait for an answer.'),
+                progress: await run('progress', 'openrouter', 'I listen to the storyteller.'),
+                hardHosted: await run('hard_hosted', 'openrouter', 'I wait for the hosted storyteller.'),
+                hardLocal: await run('hard_local', 'local', 'I wait for the local storyteller.'),
                 localStop: await run('local_user_stop', 'local', 'I listen to the local storyteller.')
             };
             window.fetch = realFetch;
             window.setTimeout = realSetTimeout;
-            window.clearTimeout = realClearTimeout;
             return outcomes;
         });
         for (const [name, outcome] of Object.entries(result)) {
@@ -134,20 +126,17 @@ const host = 'world-hosted-deadline.test';
             assert.equal(outcome.busy, false, `${name} left the composer busy`);
             assert.equal(outcome.stopButton, false, `${name} left a Stop button`);
         }
-        for (const outcome of [result.keepalive, result.bodyHang]) {
-            assert.equal(outcome.caps, 1);
-            assert.equal(outcome.clears, 1);
-            assert.match(outcome.toast, /Hosted Worlds turn exceeded 150s/i);
-            assert.doesNotMatch(outcome.toast, /local timeout/i);
-        }
-        assert.equal(result.hostedIdle.caps, 1);
-        assert.equal(result.hostedIdle.clears, 1);
-        assert.match(result.hostedIdle.toast, /Hosted model sent no data for 45s/i);
-        assert.doesNotMatch(result.hostedIdle.toast, /local timeout/i);
-        assert.equal(result.localStop.caps, 0, 'local generation must not have a hosted hard cap');
-        assert.match(result.localStop.toast, /Generation stopped/i);
+        assert(result.progress.elapsed >= 100, 'meaningful streamed progress must keep the turn alive');
+        assert(result.keepalive.elapsed < result.progress.elapsed,
+            'keepalive bytes must not keep the turn alive like model progress');
+        assert(result.bodyHang.elapsed < result.progress.elapsed,
+            'a silent response body must stop on idle');
+        assert.match(result.hardHosted.error, /five-minute limit/,
+            'hosted streamed progress must not bypass the hard limit');
+        assert.match(result.hardLocal.error, /five-minute limit/,
+            'local streamed progress must not bypass the hard limit');
         assert.deepEqual(errors, []);
-        console.log('PASS: hosted keepalive/body stalls hit an absolute cap, hosted idle copy is accurate, local generation remains idle-only');
+        console.log('PASS: idle stalls stop; streamed progress stops at the five-minute turn limit');
     } finally {
         await browser.close();
     }
