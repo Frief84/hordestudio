@@ -2189,6 +2189,7 @@ function validateWorldData(value, label = 'World', { clone = true } = {}) {
             });
         }
         globalThis.HordeUniversalChecks?.validateRules(value.gameRules.universalChecks);
+        globalThis.HordeDynamicObjectDiscovery?.validateConfig(value.gameRules.dynamicObjectDiscovery);
         if (value.gameRules.zeroHpMode !== undefined && !['fail_forward', 'lethal'].includes(value.gameRules.zeroHpMode)) {
             throw new Error(`${label} game rules zero HP mode is invalid`);
         }
@@ -11348,7 +11349,10 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 reject(index, event, 'inactive_or_missing_actor', actorId);
                 return;
             }
-            if (!proposedDestination.introduced && !worldNpcCanMove(world, sess, actorId, toLoc.id, movement.movement_mode === 'teleport', movement.explore)) {
+            const projectedNpcSession = { ...sess, entityStates: { ...sess.entityStates,
+                [actorId]: { ...npcState,
+                    location: projectedLocations.get(actorId) || npcState.location } } };
+            if (!proposedDestination.introduced && !worldNpcCanMove(world, projectedNpcSession, actorId, toLoc.id, movement.movement_mode === 'teleport', movement.explore)) {
                 reject(index, event, 'npc_access_denied', 'The actor has no permitted route to this place.');
                 return;
             }
@@ -11362,21 +11366,22 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 reject(index, event, 'actor_in_transit', 'This journey has not reached its destination.');
                 return;
             }
-            const actualFrom = getLocationRef(world, npcState.location || npcState.journey?.originId);
+            const actualFrom = getLocationRef(world, projectedNpcSession.entityStates[actorId].location
+                || npcState.journey?.originId);
             if (fromLoc && actualFrom && fromLoc.id !== actualFrom.id) {
                 reject(index, event, 'actor_origin_mismatch', `${actualFrom.id} ≠ ${fromLoc.id}`);
                 return;
             }
             if (!proposedDestination.introduced && actualFrom && actualFrom.id !== toLoc.id
-                && !findWorldTravelPath(typeof worldForSession === 'function' ? worldForSession(world, sess) : world, actualFrom.id, toLoc.id, { npcId: actorId, session: sess, explore: movement.explore })
+                && !findWorldTravelPath(typeof worldForSession === 'function' ? worldForSession(world, projectedNpcSession) : world, actualFrom.id, toLoc.id, { npcId: actorId, session: projectedNpcSession, explore: movement.explore })
                 && movement.movement_mode !== 'teleport') {
                 reject(index, event, 'unreachable_npc_destination', `${actualFrom.id} → ${toLoc.id}`);
                 return;
             }
             if (!npcState.journey && actualFrom && !proposedDestination.introduced && movement.movement_mode !== 'teleport') {
-                const view = worldForSession(world, sess);
-                const route = findWorldTravelPath(view, actualFrom.id, toLoc.id, { npcId: actorId, session: sess, explore: movement.explore });
-                if (route && getWorldPathTravelTime(view, route, sess, actorId) > declaredSkip + clock.timeStep) {
+                const view = worldForSession(world, projectedNpcSession);
+                const route = findWorldTravelPath(view, actualFrom.id, toLoc.id, { npcId: actorId, session: projectedNpcSession, explore: movement.explore });
+                if (route && getWorldPathTravelTime(view, route, projectedNpcSession, actorId) > declaredSkip + clock.timeStep) {
                     reject(index, event, 'insufficient_travel_time', 'Record the elapsed journey time before claiming arrival.');
                     return;
                 }
@@ -12926,6 +12931,40 @@ function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrat
     }, narrative));
     const lockedExitClaim = worldLockedExitClaimConflict(world, afterSession, narrative);
     if (lockedExitClaim) conflicts.push(lockedExitClaim);
+    // A completed interaction event describes an attempt's result, but cannot
+    // itself change the mapped door. Require the authoritative shared lock to
+    // be open before accepting a receipt that reports a successful unlock.
+    for (const event of Array.isArray(receipt?.events) ? receipt.events : []) {
+        if (event?.type !== 'interaction' || event.status !== 'completed'
+            || !['unlock', 'open'].includes(String(event.action || '').toLowerCase())) continue;
+        const doorId = String(event.target_id || '');
+        if (!doorId) continue;
+        const authoredLockedDoor = (world.locations || []).some(location =>
+            (location.exits || []).some(exit => exit?.doorId === doorId
+                && exit.lockState === 'locked'));
+        if (authoredLockedDoor && afterSession.unlockedExits?.[doorId] !== true)
+            conflicts.push({ reason: 'uncommitted_door_opening', detail: doorId });
+    }
+    const startLocation = getLocationRef(world, beforeSession.playerLocation);
+    const namedInput = normalizeLocationSearchText(playerInput);
+    const namedNarrative = normalizeLocationSearchText(narrative);
+    const lockedDoors = (startLocation?.exits || []).map(exit => ({ exit,
+        target: resolveWorldExitTarget(world, exit) })).filter(({ exit, target }) =>
+        target && exit.lockState === 'locked');
+    for (const { exit, target } of lockedDoors) {
+        const doorId = String(exit.doorId || '');
+        if (!doorId || afterSession.unlockedExits?.[doorId] === true) continue;
+        const name = normalizeLocationSearchText(target.name);
+        if (!(name && (namedInput.includes(name) || namedNarrative.includes(name))
+            || lockedDoors.length === 1)) continue;
+        const claimedOpen = worldNarrativeSentences(stripSpokenDialogue(narrative)).some(sentence =>
+            /\b(?:door|gate)\b[^.!?]{0,100}\b(?:swings?\s+open|opens?|opened|unlocks?|unlocked)\b|\b(?:open|opened|unlock|unlocked)\b[^.!?]{0,100}\b(?:door|gate)\b/i.test(sentence)
+            && !worldNegatedActionClaim(sentence)
+            && !/\b(?:try|tried|attempt|attempted|could|would|might|refus(?:e|es|ed)|fail(?:s|ed)?|cannot|can't|won't|not)\b/i.test(sentence));
+        if (claimedOpen && !conflicts.some(item => item.reason === 'uncommitted_door_opening'
+            && item.detail === doorId))
+            conflicts.push({ reason: 'uncommitted_door_opening', detail: doorId });
+    }
     if (committedDoor?.action === 'locked' && committedDoor.committed) {
         const account = stripSpokenDialogue(narrative);
         const inventedOneWayLock = /\b(?:lock|bolt|mechanism)\b[^.!?]{0,65}\bone[ -]?way\b|\bsecured\s+only\s+from\b[^.!?]{0,70}\bside\b/i.test(account)
@@ -12940,11 +12979,12 @@ function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrat
     // visible to the player and could contaminate the next turn's context.
     if (Array.isArray(receipt?.passages)) conflicts.push(...worldPassagePresenceConflicts(world, beforeSession, receipt));
     else {
-        detectNarratedPresence(world, afterSession, narrative).forEach(hit =>
+        detectNarratedPresence(world, afterSession, narrative, { includePinned: true }).forEach(hit =>
             conflicts.push({ reason: 'uncommitted_npc_presence_claim', detail: hit.evidence }));
         detectNarratedDepartures(world, afterSession, narrative).forEach(hit =>
             conflicts.push({ reason: 'uncommitted_npc_departure_claim', detail: hit.evidence }));
     }
+    conflicts.push(...worldNarratedNpcLocationConflicts(world, afterSession, narrative));
     const currentUrgentEvents = Array.isArray(receipt?.state_updates?.world_events)
         ? receipt.state_updates.world_events : [];
     const existingUrgentEvents = Array.isArray(afterSession.scheduledEvents)
@@ -16514,6 +16554,16 @@ function setupWorldStudioLogic() {
         const world = state.editingWorld;
         if (!world) return;
         normalizeWorldGameRules(world).universalChecks.enabled = e.target.checked;
+    };
+    document.getElementById('w-dynamic-object-discovery-enabled').onchange = (e) => {
+        const world = state.editingWorld;
+        if (!world) return;
+        const rules = normalizeWorldGameRules(world);
+        rules.dynamicObjectDiscovery.enabled = e.target.checked;
+        if (e.target.checked && !rules.universalChecks.rules.some(rule =>
+            rule.id === 'dynamic_object_discovery'))
+            rules.universalChecks.rules.push(HordeDynamicObjectDiscovery.defaultRule(
+                normalizeWorldDiceConfig(world).defaultDifficulty));
     };
     document.getElementById('w-rules-profile').onchange = (e) => {
         const world = state.editingWorld;
@@ -21758,6 +21808,14 @@ function renderWorldEntities(mode = 'people') {
             </div>` : `<div class="world-inspector-section" data-inspector-section="placement" style="margin-top:12px;">
                 <label class="form-label">Located at · Canon Link</label>
                 <select class="form-select ent-loc"><option value="">Unplaced item</option>${world.locations.map(location => `<option value="${escapeHTML(location.id)}" ${getLocationRef(world, ent.startLocation)?.id === location.id ? 'selected' : ''}>${escapeHTML(location.name || location.id)}</option>`).join('')}</select>
+                <label class="form-label" style="margin-top:10px;">Contents of this container</label>
+                <select class="form-select ent-contents-mode">
+                    <option value="unspecified" ${!['fixed', 'empty'].includes(ent.contentsMode) ? 'selected' : ''}>Unspecified · discovery may be possible</option>
+                    <option value="fixed" ${ent.contentsMode === 'fixed' ? 'selected' : ''}>Fixed initial contents · no extra discoveries</option>
+                    <option value="empty" ${ent.contentsMode === 'empty' ? 'selected' : ''}>Explicitly empty · no discoveries</option>
+                </select>
+                <label class="form-label" style="margin-top:10px;">Initially inside another object</label>
+                <select class="form-select ent-container"><option value="">No container</option>${world.entities.filter(other => other.id !== ent.id && other.type === 'item' && other.interactable && other.startLocation === ent.startLocation).map(other => `<option value="${escapeHTML(other.id)}" ${ent.properties?.containerId === other.id ? 'selected' : ''}>${escapeHTML(other.name || other.id)}</option>`).join('')}</select>
                 <p class="form-hint">This is where the object exists at the start of a new session. It is not a person, household member or autonomous actor.</p>
             </div>`}
             ${ent.type === 'npc' ? `<div class="world-inspector-section" data-inspector-section="relationships" style="margin-top:12px; padding:12px; border:1px solid var(--border); border-radius:12px;">
@@ -22117,6 +22175,18 @@ function renderWorldEntities(mode = 'people') {
             renderWorldFactions();   // member counts on the faction cards
         };
         div.querySelector('.ent-loc').onchange = (e) => { ent.startLocation = e.target.value; updateWorldTokenCount(); };
+        if (ent.type === 'item') {
+            div.querySelector('.ent-contents-mode').onchange = event => {
+                ent.contentsMode = event.target.value;
+                updateWorldTokenCount();
+            };
+            div.querySelector('.ent-container').onchange = event => {
+                ent.properties ||= {};
+                if (event.target.value) ent.properties.containerId = event.target.value;
+                else delete ent.properties.containerId;
+                updateWorldTokenCount();
+            };
+        }
         const homeControl = div.querySelector('.ent-home');
         if (homeControl) homeControl.onchange = (e) => { ent.homeLocation = e.target.value; updateWorldTokenCount(); };
         div.querySelector('.del-ent').onclick = () => {
@@ -23337,6 +23407,8 @@ function loadWorldGameRuleControls(world) {
     if (profile) profile.value = rules.profileId;
     const universalToggle = document.getElementById('w-universal-checks-enabled');
     if (universalToggle) universalToggle.checked = rules.universalChecks.enabled;
+    const discoveryToggle = document.getElementById('w-dynamic-object-discovery-enabled');
+    if (discoveryToggle) discoveryToggle.checked = rules.dynamicObjectDiscovery.enabled;
     const profileDescription = document.getElementById('w-rules-profile-description');
     if (profileDescription) profileDescription.textContent = worldRuleProfileDescription(rules.profileId);
     document.querySelectorAll('#w-rules-modules-grid [data-rule-module]').forEach(input => {
@@ -26535,6 +26607,9 @@ function normalizeWorldGameRules(world) {
             ? { enabled: raw.universalChecks.enabled === true,
                 rules: Array.isArray(raw.universalChecks.rules) ? raw.universalChecks.rules : [] }
             : { enabled: false, rules: [] },
+        dynamicObjectDiscovery: globalThis.HordeDynamicObjectDiscovery
+            ? HordeDynamicObjectDiscovery.validateConfig(raw.dynamicObjectDiscovery)
+            : { enabled: false, allowAmbientObjects: true, allowUncertainDiscoveries: true },
         capabilities: isPlainObject(raw.capabilities) ? raw.capabilities : {},
         consequences: {
             enabled: raw.consequences?.enabled !== false,
@@ -32137,6 +32212,8 @@ Time: ${exactTimeStr} (${period}, ${weekdayName}, Day ${days})
 Weather: ${weather} — weave it into descriptions where natural; it may subtly affect NPC moods and outdoor scenes.
 Description: ${promptLocationDescription}${locHidden}
 Exits: ${locExits}
+${linkedWorldTurn && normalizeWorldKernelConfig(world).serverBindings ? `Nearby structured actions (current snapshot; the engine rechecks every prerequisite): ${JSON.stringify(HordeWorldTurnContext.actionAffordances(visibleWorld, sess, sess.playerLocation))}
+For a locked door, use its exact door_id in interactable_transition with to_state:"open" and the actual acting actor_id. Put actor_move in a later action after the door transition; the later action sees the changed door state. A spoken request does not authorize an NPC action. Each NPC may accept or refuse and uses its own actor_id, inventory and movement evidence. NPCs understand that keys can open and lock doors in general. The required_item mapping above is DM-only mechanics, not NPC knowledge: an NPC may identify a particular match only after a witnessed use, a verified telling, an authored personal fact, or their own trial. An NPC may try a held key without knowing whether it fits; a failed trial must not become knowledge of a successful opening.` : ''}
 Place appearance and room contents are included in WORLD LORE. Treat that data as canonical unless this game’s committed state changed it.
 NPCs Present: ${presentNPCs.map(n => n.name).join(', ') || 'None'}
 NPCs escorting player: ${sessionNpcs(world, sess).filter(npc => sess.entityStates?.[npc.id]?.followingPlayer === true && isNpcActive(sess.entityStates[npc.id])).map(npc => npc.name).join(', ') || 'None'}
@@ -33055,7 +33132,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         const canonicalSceneSchema = sceneDrafts ? safeJsonClone(worldStateTool.function.parameters) : null;
         if (serverBoundTurns) {
             worldStateTool.function.parameters = HordeWorldTurnBinding.schema(canonicalSceneSchema,
-                { allowCommitments: ruleModules.livingWorld });
+                { allowCommitments: ruleModules.livingWorld,
+                    requireRequest: !!latestActionText?.trim()
+                        && !HordeWorldSceneDraft.simpleRequest(latestActionText) });
             sceneDraftFieldGuide = '\nEach event belongs to its containing response. Omit empty optional collections. The supported typed effect fields and their constraints are in the supplied schema.';
         }
 
@@ -33110,8 +33189,12 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
         if (serverBoundTurns) draftInstruction = `[SERVER-BOUND SCENE DRAFT]\nReturn protocol:"scene_draft_v3" and actions. Interpret the whole player message. Put the NPC/world response inside each action.response, not in a separate passage table. Use effects:[] for dialogue or gestures with no lasting change. Use kind gesture for a nonpersistent bodily expression, never for travel, item transfers, door changes or lasting conditions. Each real change must use a supported typed effect and match the prose. For compound actions, keep their order and cover every request; depends_on uses an earlier zero-based action_index and succeeded/failed/blocked. A single player attempt has one actual outcome in this draft; possible alternatives are not additional completed actions. If a registered check is required, propose one pending_check action with its checks effect and stop before its outcome. An NPC's answer belongs in the action response or a justified world reaction. Preserve successful earlier steps when later steps fail; stop before a pending check result. Do not narrate an unrequested player decision. Autonomous NPC reactions and movements use reactions, with their own actual effects and events; never attribute an NPC action to the player. Use only known actors, items, routes and capabilities or their explicit introduction operations. No generated action or passage IDs. Keep prose concise and character-appropriate. Quests and timed obligations require actual player authorization and supporting evidence; ordinary dialogue never requires them.\n${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.`;
         if (linkedWorldTurn) draftInstruction += '\nSTATE/OUTCOME/EFFECT CONTRACT: state_conditions[].fact is only one registered read-only name: actor_at, has_item, interactable_state, condition, relation. Put an exact subject_id, operator and value in separate fields. Never put a sentence, an intended action, consent, resistance or success in fact. For a requested companion, guide, pull or push, let the NPC agree, refuse or resist in the response. An attempt that does not move anyone uses status attempted, no actor_move and no completed movement event; narrate the concrete reaction. Only a completed mapped move uses actor_move with a matching completed movement event for each moved actor. Use companion_ids for a joint move and only after the NPC actually comes along. A new ongoing follower relation needs its supported status effect and escort event. Do not infer arrival from an invitation or from a started journey. Keep actions and reactions concise; cover compound requests with ordered contiguous request excerpts.';
-        if (linkedWorldTurn) draftInstruction += '\nATTEMPT AND REACTION: The player input states an attempt or request, never guarantees its outcome. state_conditions test facts that already exist before an action; do not use them to express a hoped-for result or an NPC decision made in this turn. In particular, picking up an item must not require has_item for that item; a completed pickup uses item_transfer and a matching completed inventory event, while a failed pickup has neither transfer nor success claim. Put an NPC reply in the linked passage or a separate reaction. For a physical attempt involving an NPC, describe the NPC\'s specific observed response when the scene supports one, such as stepping away, bracing, stumbling, resisting or cooperating; vary it with that NPC\'s character and circumstances. Do not merely repeat the player\'s intended action, and do not invent consent or refusal to satisfy a validator. An unsuccessful physical attempt uses status attempted, no lasting effect and no completed player interaction or state event. A completed local interaction needs a witnessed interaction event; a lasting change needs its validated effect and matching completed event. Do not assert an arrival, restraint or condition that the selected outcome did not commit.';
+        if (linkedWorldTurn) draftInstruction += '\nATTEMPT AND REACTION: The player input states an attempt or request, never guarantees its outcome. state_conditions test facts that already exist before an action; do not use them to express a hoped-for result or an NPC decision made in this turn. In particular, picking up an item must not require has_item for the item being picked up; a completed pickup uses item_transfer and a matching completed inventory event, while a failed pickup has neither transfer nor success claim. Ordinary scenery may exist without a registered item record: a chair can be bumped into or stumbled over without creating or transferring an item. For a completed momentary physical occurrence with no lasting change, use a completed player interaction event linked to its response passage; do not add item_transfer or invent a registered object. Put an NPC reply in the linked passage or a separate reaction. For a physical attempt involving an NPC, describe the NPC\'s specific observed response when the scene supports one, such as stepping away, bracing, stumbling, resisting or cooperating; vary it with that NPC\'s character and circumstances. Do not merely repeat the player\'s intended action, and do not invent consent or refusal to satisfy a validator. An unsuccessful physical attempt uses status attempted, no lasting effect and no completed player interaction or state event. A completed local interaction needs a witnessed interaction event; a lasting change needs its validated effect and matching completed event. Do not assert an arrival, restraint or condition that the selected outcome did not commit.';
         if (linkedWorldTurn) draftInstruction += '\nSCENE ITEMS: Structured room items are confirmed stock. Reuse an existing item ID; never introduce it again. Transfer its exact name or ID with item_transfer and a completed inventory event. A completed pickup has status resolved, effects:{"item_transfer":[{"item_id":"<existing item ID>","from_id":"<current location ID>","to_id":"player"}]}, and response.events:[{"type":"inventory","actor_id":"player","status":"completed","action":"pickup","item":"<item name>"}]. Replace placeholders with exact known IDs and names. An attempted or failed pickup cannot contain that completed event or success prose. For an NPC manipulating an item, set item_transfer.actor_id to that NPC; for a player taking an NPC-held item, keep the player as actor and describe consent, resistance or a successful theft honestly. A closed container or obstacle needs a successful authored interactable_transition before extraction. Use container_id when putting an item inside an open container. Consumption uses item_consume and a completed inventory event with action consume. A new item requires item_introduce with stable ID, exact current location, actor_id, cause and a matching completed discovery event (discovery cause) or inventory event (creation cause). Discovery requires an authored discoverableItems entry, an allowed ordinary category in the location discoveryPolicy, or an exact itemCreationRules rule_id; its own event is not independent proof. Crafting, conjuration, transmutation and replication require an exact authored itemCreationRules rule_id and the engine verifies ability, inputs, tools, resources, check and expiry. Use source_item_id for transmutation. Do not claim an item or ability on failed attempts. Mere incidental prose is not stock.';
+        if (linkedWorldTurn && gameRules.dynamicObjectDiscovery?.enabled === true
+            && /\b(?:search|look for|find|inspect|take|pick up|suche|durchsuche|finde|nehme|nimm|untersuche)\b/i.test(latestActionText || ''))
+            draftInstruction += '\nDYNAMIC OBJECT DISCOVERY: For an uncertain ordinary object, you may propose one item_introduce with cause discovery, a stable id and exact location_id; include container_id for a container. This is a proposal, never proof. The engine checks authored contents and world plausibility before any W20 existence roll, and can replace a speculative success with a no-find result. Do not claim a guaranteed find for an unestablished object. Use existing IDs for known items. No extra model request is needed.';
+        if (serverBoundTurns) draftInstruction += '\nSPEAKER AND FOLLOW EVIDENCE: Each speech entry needs quote with the exact spoken words in its response paragraph. A narrator sentence is not speech. If several people speak, record each quote under its own speaker. For lasting voluntary accompaniment, use npc_follow with actor_id set to the NPC and following:true only when that NPC explicitly agrees in their own quoted response. Include a completed escort event with actor_id that NPC, target_id:"player", action:"join", and evidence containing their quoted agreement. The engine checks both before setting follower state. A request alone never sets follower state.';
         if (sceneDrafts) draftInstruction = draftInstruction
             .replace(/\nExact player request to cover: [^\n]*/u, '')
             + `\nThe last user message contains the complete current action. Start ${serverBoundTurns ? 'actions[0].response[0].text' : 'narrative[0].text'} with the world’s response, an NPC reaction, or a new event. Never put the player’s action or speech into a narrative preamble. Exact request excerpts, when required for compound-action validation, belong only in actions[].request.`;
@@ -33121,11 +33204,20 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         if (sceneDrafts) draftInstruction = draftInstruction.replace('\nCurrent day:',
             '\nLeave commitments empty unless the current player message or linked narrative passage expressly establishes a future deadline with a specific time. A wish, offer, ambition, attribution request, rhetorical question or open-ended plan is dialogue, not a scheduled event. Do not convert it into an absolute day or minute_of_day. For an actual agreed deadline, the due time must be strictly later than the current World time; never guess a future date. A pause, glance, expression or momentary reaction belongs in narrative, not a completed status, time, condition or relationship event. Claim a completed mechanical event only when its matching typed action_effects change is present and valid.\nCurrent day:');
         if (serverBoundTurns) draftInstruction = draftInstruction.replaceAll('action_effects', 'effects');
+        if (serverBoundTurns) draftInstruction += '\nREGISTERED FOLLOW CONDITION: following_player is also a registered state_conditions fact. Use subject_id set to the NPC, operator:"equals", value:"true" to gate a move on that NPC already agreeing. For an ongoing escort, npc_follow is the typed effect; include the NPC\'s exact spoken agreement as speech.quote and a completed escort join event in the same action. A player invitation alone is never consent.';
+        if (serverBoundTurns) draftInstruction += '\nIN-TURN NPC DECISION: When a later player step depends on an NPC reply, put that NPC reaction after the initiating player action by setting reactions[].after_action_index to its zero-based player action index. The engine executes that reaction before later player actions. A later conditional move can require following_player:true through state_conditions. If the NPC refuses, mark the conditional move blocked with no movement effect or completed movement event. Reactions without after_action_index occur after all player actions.';
+        if (serverBoundTurns) draftInstruction += '\nNPC TASK ACCEPTANCE: An NPC request is player speech, not a completed task. If a present NPC actually accepts a concrete objective, put their quoted acceptance in a reaction after that speech action, add npc_goal_set with that NPC actor_id and concise goal, and add a completed quest event with the NPC as actor_id and action:"accept". The engine requires the NPC\'s own quoted agreement and stores the goal for later World ticks. A refusal has no npc_goal_set or completed quest event. Subsequent pickup, door and travel steps still need their own typed Effects and Events.';
         if (serverBoundTurns) draftInstruction = draftInstruction.replace(
             'If a registered check is required, propose one pending_check action with its checks effect and stop before its outcome.',
             'If an optional dice check is explicitly needed, propose one pending_check action with its checks effect and stop before its outcome. World-authored universal checks are evaluated automatically and require no checks effect.');
-        if (serverBoundTurns) draftInstruction += '\nClassify direct player manipulation of an object or person as physical, mapped room-to-room movement as travel, and words addressed to someone as speech or question. Trying to lead, carry, pull, push or take a person to another place is a physical attempt even when that person refuses; do not recast it as the player asking permission unless the player actually spoke a request. An NPC reply to a physical action does not change the player action kind. state_conditions are optional extra guards, not a way to restate ordinary stock, reachability or access checks already enforced by an effect. Omit a condition unless it is an independent known fact that must be true before this action.';
+        if (serverBoundTurns) draftInstruction += '\nClassify direct player manipulation of an object or person as physical, mapped room-to-room movement as travel, and words addressed to someone as speech or question. Dancing, holding, restraining, binding and releasing are physical player actions, not gestures or speech; a lasting hold or restraint needs a matching condition_change and completed condition event, while release removes that condition. A completed dance can use a completed player activity event without inventing an item or location change. Keep a spoken invitation and the player’s subsequent dance as separate actions, even if the NPC refuses to join. Trying to lead, carry, pull, push or take a person to another place is a physical attempt even when that person refuses; do not recast it as the player asking permission unless the player actually spoke a request. An NPC reply to a physical action does not change the player action kind. state_conditions are optional extra guards, not a way to restate ordinary stock, reachability or access checks already enforced by an effect. Omit a condition unless it is an independent known fact that must be true before this action.';
         if (serverBoundTurns) draftInstruction += '\nPRESENCE: An NPC listed as absent from the current scene cannot speak, answer, react or be witnessed here merely because their location is adjacent or the player calls to them. A known actor is not necessarily a present actor. Without a validated arrival, describe the call and the lack of a confirmed reply; never write remote dialogue or an uncommitted appearance.';
+        if (serverBoundTurns && latestActionText) {
+            const clauses = HordeWorldTurnContext.requestClauses(latestActionText);
+            if (clauses.length > 1) draftInstruction += '\nORDERED PLAYER INTENT HINTS (verbatim slices, not outcomes or required action count): '
+                + JSON.stringify(clauses)
+                + '\nCover every slice exactly once in order. One player slice may need several typed effects. A spoken request and an NPC decision are different actors; place independent NPC behavior in reactions. For a conditional follow-up, use depends_on only when its earlier action outcome is the actual condition. If the condition is NPC consent, do not claim consent from the request alone.';
+        }
         if (checkRuleGuide.length) draftInstruction += '\nWORLD-AUTHORED CHECKS FOR THIS REQUEST: '
             + JSON.stringify(checkRuleGuide)
             + '\nThese are automatic universal checks, distinct from optional dice checks. Do not propose pending_check or a checks effect merely because one of these rules matches. Give the action its honest resolved, attempted or blocked status with matching evidence; the engine evaluates prerequisites, values, random rolls and the actual result. For an action matching a rule, propose only effects allowed by its actual result; an empty allowed_effects list means no selectable effect even if the general schema lists one. Do not propose resource_cost or calculate resource spending: the engine checks and applies costs after a confirmed result. Keep the original player action and a truthful event or attempted outcome. A general schema capability does not override a check result.';
@@ -33248,6 +33340,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 turnCallAudit.metrics.contextSources.schema = JSON.stringify(
                     requestBody.tools || requestBody.response_format || {}).length;
                 turnCallAudit.metrics.contextSources.sceneGuidance = draftInstruction.length;
+                turnCallAudit.metrics.contextBudget = HordeWorldTurnContext.contextBudget(
+                    turnCallAudit.metrics.contextSources);
             }
         }
         if (estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
@@ -33600,11 +33694,26 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 const bindingReferences = [
                     ...sessionNpcs(world, sess).map(npc => ({ id: npc.id, name: npc.name, type: 'npc' })),
                     ...(receiptView.entities || []).filter(entity => entity.type === 'item')
-                        .map(entity => ({ id: entity.id, name: entity.name, type: 'item' })),
+                        .map(entity => ({ id: entity.id, name: entity.name, type: 'item',
+                            locationId: sess.entityStates?.[entity.id]?.location
+                                ?? entity.locationId ?? entity.location ?? '',
+                            reachable: sess.entityStates?.[entity.id]?.reachable !== false
+                                && !sess.entityStates?.[entity.id]?.containerId
+                                && !sess.entityStates?.[entity.id]?.hidden })),
                     ...(receiptView.locations || []).map(location =>
                         ({ id: location.id, name: location.name, type: 'location' }))
                 ].filter(item => typeof item.id === 'string'
                     && typeof item.name === 'string').slice(0, 1000);
+                const dynamicBinding = gameRules.dynamicObjectDiscovery?.enabled === true
+                    && /\b(?:search|look for|durchsuche|suche|finde|take|grab|pick up|nehme|nimm)\b/i.test(latestActionText || '')
+                    ? { enabled: true, containers: (receiptView.entities || [])
+                        .filter(entity => entity.interactable
+                            && (sess.entityStates?.[entity.id]?.location || entity.locationId
+                                || entity.startLocation) === sess.playerLocation)
+                        .map(entity => ({ id: entity.id, name: entity.name })),
+                        locationDescription: (receiptView.locations || []).find(location =>
+                            location.id === sess.playerLocation)?.description || '' }
+                    : null;
                 const losses = ['repair_scene_draft', 'recovery_scene_draft'].includes(source)
                     ? HordeWorldTurnBinding.repairLosses(protectedEffectTrace, args,
                         canonicalSceneSchema, firstRejectedActionProposal,
@@ -33618,7 +33727,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             singleRequest: HordeWorldSceneDraft.simpleRequest(latestActionText || ''),
                             questIds: (sess.quests || []).map(quest => quest.id),
                             commitmentIds: (sess.scheduledEvents || []).map(event => event.id),
-                            references: bindingReferences,
+                            references: bindingReferences, playerLocation: sess.playerLocation,
+                            dynamicDiscovery: dynamicBinding,
+                            prepareCertainEffects: true,
                             universalCheckRules: gameRules.universalChecks?.enabled === true
                                 ? gameRules.universalChecks.rules || [] : [],
                             allowCommitments: ruleModules.livingWorld,
@@ -33848,6 +33959,39 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             }
                         }
                     });
+                    // A delivered player statement is a sourced utterance, not proof
+                    // that its content is true. Only present named listeners learn it.
+                    working.applyDetached((candidateWorld, candidateSession) => {
+                        for (const action of compiled.linkedPlan.actions || []) {
+                            if (action.kind !== 'speech'
+                                || linked.outcomes.get(action.action_id) !== 'succeeded'
+                                || !String(action.request || '').trim()) continue;
+                            const spoken = String(action.request).trim();
+                            const tokens = value => String(value || '').normalize('NFKC')
+                                .toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+                            const spokenTokens = tokens(spoken);
+                            const listeners = sessionNpcs(candidateWorld, candidateSession)
+                                .filter(npc => {
+                                    if (candidateSession.entityStates?.[npc.id]?.location
+                                        !== candidateSession.playerLocation) return false;
+                                    const nameTokens = tokens(npc.name);
+                                    return nameTokens.length > 0 && spokenTokens.some((token, at) =>
+                                        token === nameTokens[0] && nameTokens.every((part, offset) =>
+                                            spokenTokens[at + offset] === part));
+                                });
+                            if (listeners.length !== 1) continue;
+                            addNpcKnowledge(candidateWorld, candidateSession, listeners[0].id, {
+                                id: `obs_player_speech_${action.action_id}`,
+                                text: `Player said: ${spoken}`,
+                                sourceType: 'told', sourceNpcId: 'player',
+                                evidenceMode: 'hearsay', confidence: 0.72,
+                                allowedToShare: true, turn: candidateSession.turnCount,
+                                absoluteMinute: getWorldTimeData(candidateWorld,
+                                    candidateSession).currentTotalMinutes,
+                                sourceLocationId: candidateSession.playerLocation
+                            });
+                        }
+                    });
                     const prepared = working.prepare();
                     const committedPassages = compiled.linkedPlan.narrative.filter(passage =>
                         linked.outcomes.get(passage.action_id) !== 'skipped');
@@ -33861,8 +34005,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         const link = compiled.linkedPlan.speech[index];
                         if (link && linked.outcomes.get(link.action_id) === 'skipped') return [];
                         if (!link || speech.speaker !== link.speaker || speech.action_id !== link.action_id
-                            || speech.statement !== committedPassages.find(passage => passage.id === link.passage_id
-                                && passage.action_id === link.action_id)?.text)
+                            || !committedPassages.find(passage => passage.id === link.passage_id
+                                && passage.action_id === link.action_id)?.text?.includes(speech.statement))
                             throw new Error('receipt_speech_reference_mismatch');
                         return [{ speaker: speech.speaker, statement: speech.statement,
                             listeners: [...speech.listeners], action_id: link.action_id,
@@ -33886,7 +34030,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         speech_attributions: committedSpeech,
                         passage_speakers: committedPassages.map(passage => {
                             const speakers = [...new Set(committedSpeech.filter(speech =>
-                                speech.passage_id === passage.id).map(speech => speech.speaker))];
+                                speech.passage_id === passage.id && speech.statement === passage.text)
+                                .map(speech => speech.speaker))];
                             return { passage_id: passage.id,
                                 speaker_id: speakers.length === 1 ? speakers[0] : null };
                         }),
@@ -34694,9 +34839,16 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         ? `\nPICKUP PROOF CORRECTION: ${JSON.stringify(failure.request)} names registered item ${JSON.stringify(failure.item_id)}. A resolved pickup needs effects.item_transfer moving that exact item from its current owner or location to player, plus a completed inventory event linked to the same action. If pickup failed, use attempted status and remove any claim that the player has it.`
                         : `\nMOVEMENT PROOF CORRECTION: ${JSON.stringify(failure.request)} names mapped destination ${JSON.stringify(failure.to_location_id)}. A resolved arrival needs effects.actor_move for player to that exact destination and a matching completed movement event with the actual from_location_id, to_location_id and movement_mode. If the route is blocked or the journey has not completed, use an honest noncompleted status and no arrival claim.`;
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
-                    ['request_coverage_mismatch', 'oversized_bound_turn'].includes(item.reason))) {
-                    repairBody.messages[0].content += `\nREQUEST COVERAGE CORRECTION: The complete input is ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}; the rejected draft has ${rejectedReceiptProposal?.actions?.length || 0} player actions. Only player-requested independent steps belong in actions. Do not create several alternative outcomes, repeated copies of the input, or conditional branches for one simple request. Put an incidental NPC reply or gesture in the same action response, or a world reaction in reactions. For one simple request, use exactly one action and omit its request field. For compound input, cover every request exactly once in order. A pending_check status requires one registered checks effect; NPC hesitation alone is not a pending check.`;
+                    ['request_coverage_mismatch', 'oversized_bound_turn'].includes(item.reason)
+                    || item.reason === 'missing_bound_field' && /\.request$/.test(item.detail || ''))) {
+                    repairBody.messages[0].content += `\nREQUEST COVERAGE CORRECTION: The complete input is ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}; the rejected draft has ${rejectedReceiptProposal?.actions?.length || 0} player actions. Only player-requested independent steps belong in actions. Do not create several alternative outcomes, repeated copies of the input, or conditional branches for one simple request. Put an incidental NPC reply or gesture in the same action response, or a world reaction in reactions. For one simple request, use exactly one action and omit its request field. For compound input, EVERY actions[] entry MUST have a request string copied verbatim from its own consecutive portion of the player input. The request strings, joined in order, must reproduce the entire input exactly apart from whitespace at their boundaries. Do not omit request, paraphrase it, use the full input in each action, or skip a connector such as 'then' or 'and'. If an action in the rejected draft lacks request, add the missing exact excerpt while retaining the player's actual intent and its outcome. Cover every request exactly once in order. A pending_check status requires one registered checks effect; NPC hesitation alone is not a pending check.`;
                 }
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'missing_speech_attribution'))
+                    repairBody.messages[0].content += '\nSPEAKER CORRECTION: A quoted NPC utterance in an action response has no speech evidence. Keep the exact quoted words in that same paragraph and add response[].speech with the known NPC speaker ID, quote containing only the spoken words, and listeners. Do not assign the player or narrator as speaker for an NPC quote. If the utterance is not supported, remove that quoted claim from the prose.';
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'speech_quote_not_in_passage'))
+                    repairBody.messages[0].content += '\nQUOTE CORRECTION: Every speech.quote must occur verbatim inside its own response.text, including punctuation. Copy the words between that paragraph’s quotation marks exactly; do not replace a comma with a period or change contractions. Keep the correct speaker ID and listeners.';
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     item.reason === 'pending_action_requires_check')) {
                     repairBody.messages[0].content += '\nMISSING CHECK CORRECTION: The previous status pending_check was rejected because that same action has no effects.checks entry. Do not repeat pending_check without a check. For an uncertain physical attempt, either provide effects:{"checks":[{"label":"specific attempted action","difficulty":11,"on_success":{},"on_failure":{}}]} with status pending_check and stop before its outcome, or use kind physical, status attempted, effects:[] and describe only an unsuccessful or still unresolved attempt. The key is actions[].effects.checks, never actions[].action_effects. A physical attempt is not speech. If the response already depicts the target evading the attempt, use physical/attempted with no completed restraint or condition claim. Remove redundant state_conditions such as actor_at when the authoritative scene already establishes them.';
@@ -34724,11 +34876,15 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     repairBody.messages[0].content += '\nSTATE PRECONDITION CORRECTION: state_conditions are read-only facts that must already be true before the action. A desired result is never a precondition: an item pickup must not require has_item for the item being picked up, and an attempted restraint must not require the restraint condition. Remove such a condition. Express a supported successful result through its typed effect and completed event, or express an unsuccessful attempt without a completed change. Never turn a prose sentence into a technical fact.';
                 }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
-                    ['missing_condition', 'missing_condition_action'].includes(item.reason)))
-                    repairBody.messages[0].content += '\nCONDITION CORRECTION: A lasting condition change needs its registered condition_change effect and a matching completed event for the same actor. Removing a condition requires that the actor already has it. A temporary reaction belongs only in the response. Preserve any independently verified player action and avoid inventing a condition.';
+                    ['missing_condition', 'missing_condition_action'].includes(item.reason))) {
+                    const conditionActor = receiptValidationFeedback.find(item =>
+                        ['missing_condition', 'missing_condition_action'].includes(item.reason))?.actor_id || '';
+                    repairBody.messages[0].content += `\nCONDITION CORRECTION: A lasting condition change needs its registered condition_change effect and a matching completed event for the same actor${conditionActor ? ` (${JSON.stringify(conditionActor)})` : ''}. For an actually completed restraint, put effects:{"condition_change":[{"target_id":${JSON.stringify(conditionActor || 'exact_actor_id')},"condition":"restrained","action":"add"}]} on the physical action and put {"type":"condition","actor_id":${JSON.stringify(conditionActor || 'exact_actor_id')},"status":"completed","condition":"restrained","action":"add"} in that action response.events. The event field is condition, not cause; action is add or remove, not restrained. Use the exact same condition string in both records. Removing a condition requires that the actor already has it. If the restraint did not actually succeed, mark the player action attempted and omit both the condition effect and completed condition event. A temporary reaction belongs only in the response. Preserve any independently verified player action and avoid inventing a condition.`;
+                }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
-                    ['uncommitted_npc_presence_claim', 'uncommitted_npc_departure_claim'].includes(item.reason)))
-                    repairBody.messages[0].content += '\nNPC PRESENCE CORRECTION: Check the NPC\'s authoritative current location and mapped route. A known NPC who is absent from the current scene cannot speak or answer from an adjacent room merely because the player called to them. Do not invent remote dialogue, a witnessed voice, refusal or arrival. A new arrival or departure across rooms needs an allowed actor_move and matching actor-scoped movement event; otherwise describe the call without a confirmed reply. Movement within one room is not a departure.';
+                    ['uncommitted_npc_presence_claim', 'uncommitted_npc_departure_claim',
+                        'npc_location_contradicts_state'].includes(item.reason)))
+                    repairBody.messages[0].content += '\nNPC LOCATION CORRECTION: Every NPC has one authoritative stored location. Do not narrate their body, gesture, activity or dialogue in another room, even when both rooms are outside the player scene. A new arrival or departure needs an allowed actor_move and matching actor-scoped movement event; otherwise keep the NPC in their stored location. Sound from another room may be heard only when physically plausible and must not imply the speaker moved.';
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     item.reason === 'unverified_journey_start'))
                     repairBody.messages[0].content += '\nJOURNEY CORRECTION: A future NPC journey needs actor_move.mode="journey" with its exact destination and a matching completed activity event for the start. A started journey is not an arrival. If no journey began, remove the journey effect, event and any travel claim.';
@@ -36129,6 +36285,35 @@ function narratedNpcNameVariants(world, sess, npc) {
         .map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 }
 
+function worldNarratedNpcLocationConflicts(world, sess, narrative) {
+    const prose = stripSpokenDialogue(narrative);
+    const view = worldForSession(world, sess);
+    const conflicts = [];
+    for (const npc of sessionNpcs(world, sess)) {
+        const stored = sess.entityStates?.[npc.id]?.location;
+        if (!stored || !isNpcActive(sess.entityStates[npc.id])) continue;
+        const variants = narratedNpcNameVariants(world, sess, npc);
+        for (const location of view.locations || []) {
+            if (location.id === stored || !location.name) continue;
+            const place = String(location.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            for (const variant of variants) {
+                // A location-first clause such as "Im Wohnzimmer hält Elif inne"
+                // describes her body there, not sound reaching that room.
+                const action = '(?:hält|steht|sitzt|wartet|lehnt|geht|weicht|blickt|schaut|schreibt|zeichnet|dreht|nickt|arbeitet|läuft|spricht|redet|lacht|seufzt|räuspert|bewegt|steht\\s+auf|sits|stands|waits|leans|walks|looks|writes|draws|turns|nods|works|runs|speaks|laughs|sighs|moves)';
+                const atPlace = `\\b(?:im|in der|in dem|am|auf dem|in the|at the)\\s+${place}\\b`;
+                const pattern = new RegExp(
+                    `(?:${atPlace}[^.!?\\n]{0,45}(?:\\b${action}\\s+${variant}\\b|\\b${variant}\\b[^.!?\\n]{0,30}\\b${action}\\b)|\\b${variant}\\b[^.!?\\n]{0,45}(?:${atPlace}[^.!?\\n]{0,25}\\b${action}\\b|\\b${action}\\b[^.!?\\n]{0,35}${atPlace}))`, 'iu');
+                const match = prose.match(pattern);
+                if (match) {
+                    conflicts.push({ reason: 'npc_location_contradicts_state', detail: `${npc.id}: ${match[0].trim().slice(0, 100)}` });
+                    break;
+                }
+            }
+        }
+    }
+    return conflicts;
+}
+
 function detectNarratedPresence(world, sess, narrative, options = {}) {
     const prose = stripSpokenDialogue(narrative);
     if (!prose.trim()) return [];
@@ -36162,6 +36347,23 @@ function detectNarratedPresence(world, sess, narrative, options = {}) {
                 break;
             }
             if (found.some(hit => hit.id === npc.id)) break;
+
+            // German narration often puts the local action in a relative clause:
+            // "Jonas, der immer noch im Flur steht". Keep the cue tied to the
+            // player's room so a remote action in the garden is not mistaken
+            // for presence here.
+            const playerRoom = getLocationRef(world, sess.playerLocation)?.name || '';
+            const roomWords = [playerRoom, ...String(playerRoom).split(/\s+/)]
+                .map(value => value.trim()).filter(value => value.length >= 3)
+                .map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+            const localPlace = roomWords.length ? `(?:${roomWords.join('|')})` : '(?:hier|neben dir)';
+            const germanLocal = new RegExp(
+                `\\b${variant}\\b[^.!?\\n]{0,65}\\b(?:im|in der|in dem|am|auf dem|hier)\\s+${localPlace}\\b[^.!?\\n]{0,35}\\b(?:steht|sitzt|wartet|lehnt|geht|weicht|blickt|schaut)\\b`, 'iu');
+            const localMatch = prose.match(germanLocal);
+            if (localMatch) {
+                found.push({ id: npc.id, name: fullName, evidence: localMatch[0].trim().slice(0, 80) });
+                break;
+            }
 
             const pattern = new RegExp(
                 `\\b${variant}\\b(?:[’']s)?\\s+(?:${PRESENCE_VERBS})\\b([^.!?\\n]{0,60})`, 'ig');
@@ -36457,6 +36659,7 @@ function applyPlayerOutfitIntent(sess, input) {
         const alreadyWorn = previous.toLowerCase().includes(intent.item.toLowerCase());
         next = alreadyWorn ? previous : [previous, intent.item].filter(Boolean).join(', ');
     } else if (intent.mode === 'remove') {
+        if (!previous) return null; // Unknown clothing cannot become a known undressed state.
         const escaped = intent.item.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         next = previous
             .replace(new RegExp(`(?:^|,|\\band\\b)\\s*(?:the\\s+|a\\s+|an\\s+)?${escaped}\\s*(?=,|\\band\\b|$)`, 'ig'), '')
@@ -39508,6 +39711,7 @@ function normalizeLivingWorldState(world, sess) {
     });
     sess.lastLivingWorldTick = Math.max(0, parseInt(sess.lastLivingWorldTick) || 0);
     sess.lastLivingWorldMinute = Math.max(0, parseInt(sess.lastLivingWorldMinute) || 0);
+    sess.lastNpcSimulationMinute = Math.max(0, parseInt(sess.lastNpcSimulationMinute) || 0);
     sess.lastWorldAgentTurn = Math.max(0, parseInt(sess.lastWorldAgentTurn) || 0);
     if (!sess.livingWorldActivity || typeof sess.livingWorldActivity !== 'object' || Array.isArray(sess.livingWorldActivity)) {
         sess.livingWorldActivity = {};
@@ -40968,8 +41172,9 @@ function runLivingWorldTick(world, sess, options = {}) {
         }
     });
 
-    sessionNpcs(world, sess).forEach(npc => {
-        if (clockCatchUpOnly) return;   // agendas advance per turn, not per clock jump
+    const advanceNpcGoals = (simulationMinute, simulationStep) => {
+        const npcIndex = buildNpcLocationIndex(world, sess);
+        sessionNpcs(world, sess).forEach(npc => {
         const entState = sess.entityStates?.[npc.id];
         if (!entState || !isNpcActive(entState)) return;
         const decisionContext = { knowsPlace: (actorId, placeId) =>
@@ -40978,7 +41183,7 @@ function runLivingWorldTick(world, sess, options = {}) {
         globalThis.HordeNpcGoalActions?.evaluateObservationReactions(npc,
             worldForSession(world, sess), sess, turn);
         globalThis.HordeNpcGoalActions?.selectNpcGoal(npc,
-            worldForSession(world, sess), sess, turn, decisionContext);
+            worldForSession(world, sess), sess, simulationStep, decisionContext);
         if (!entState.goal) return;
         if (entState.goalAutonomy === 'paused' && entState.goalStatus === 'active') {
             entState.goalStatus = 'interrupted';
@@ -41040,7 +41245,7 @@ function runLivingWorldTick(world, sess, options = {}) {
             const step = authoredActions ? actionSteps[index] : freeStep;
             if (!step) return;
             const inspection = globalThis.HordeNpcGoalActions?.inspectNpcGoalStep(
-                npc, step, worldForSession(world, sess), sess, turn, decisionContext);
+                npc, step, worldForSession(world, sess), sess, simulationStep, decisionContext);
             if (!inspection?.ok) {
                 if (inspection?.reason === 'stale_goal_proposal') {
                     entState.goalActionProposal = null;
@@ -41063,6 +41268,7 @@ function runLivingWorldTick(world, sess, options = {}) {
                 - Math.max(0, Number(world.hudConfig?.timeStep ?? 5));
             const result = globalThis.HordeNpcGoalActions?.executeNpcGoalStep(
                 npc, step, world, sess, {
+                    simulationMinute,
                     canMove: (candidateWorld, candidateSession, actorId, fromId, toId, moveOptions) =>
                         worldLinkedMovementVerdict(candidateWorld, candidateSession,
                             actorId, fromId, toId, moveOptions, startMinute),
@@ -41076,6 +41282,10 @@ function runLivingWorldTick(world, sess, options = {}) {
                     }
                 });
             if (!result?.ok) {
+                if (result?.reason === 'discovery_not_found' && result.candidate) {
+                    Object.assign(world, result.candidate.world);
+                    Object.assign(sess, result.candidate.session);
+                }
                 entState.goalStatus = 'blocked';
                 entState.goalBlockedReason = result?.reason || 'goal_action_unavailable';
                 globalThis.HordeNpcGoalActions?.recordNpcGoalStep(npc, step, sess,
@@ -41113,13 +41323,24 @@ function runLivingWorldTick(world, sess, options = {}) {
                 world_time: { absolute_minute: getWorldTimeData(world, sess).currentTotalMinutes },
                 world_state_version: sess.worldStateVersion || 0, committed: true });
             sess.turnEvents = sess.turnEvents.slice(-1200);
-            for (const confirmed of result.events || [result.event])
+            for (const confirmed of result.events || [result.event]) {
                 globalThis.HordeWorldPerception?.perceiveConfirmedEvent(world, sess,
                     { ...confirmed, location_id: originLocation });
+                const fact = String(step.label || '').trim();
+                if (!fact) continue;
+                const observers = new Set([npc.id, ...(buildNpcLocationIndex(world, sess)
+                    .get(originLocation) || [])]);
+                for (const observerId of observers) addNpcKnowledge(world, sess, observerId, {
+                    id: `obs_npc_action_${confirmed.id}_${observerId}`,
+                    eventId: confirmed.id, text: `${npc.name} ${fact}`,
+                    sourceType: 'witnessed', evidenceMode: 'direct', confidence: 1,
+                    sourceLocationId: originLocation, allowedToShare: true,
+                    turn, absoluteMinute: simulationMinute });
+            }
             goalCount++;
             if (step.effect?.type !== 'knowledge_share') addWorldNews(sess,
                 `${npc.name}: ${step.label}`, {
-                id: `news_goal_action_${npc.id}_${index}_${turn}`,
+                id: `news_goal_action_${npc.id}_${index}_${simulationStep}`,
                 locationId: originLocation, type: 'npc_goal',
                 playerVisible: originLocation === sess.playerLocation
                     || state.location === sess.playerLocation,
@@ -41276,7 +41497,65 @@ function runLivingWorldTick(world, sess, options = {}) {
             // shifts the balance of power, and provokes whoever it was aimed at.
             factionCount += resolveFactionVictory(world, sess, faction, turn);
         }
-    });
+        });
+        const conversations = buildNpcLocationIndex(world, sess);
+        for (const [place, occupants] of conversations) {
+            if (place === sess.playerLocation || occupants.length < 2) continue;
+            let delivered = false;
+            for (const speakerId of occupants) {
+                const speaker = sessionNpcs(world, sess).find(npc => npc.id === speakerId);
+                if (!speaker) continue;
+                const options = globalThis.HordeNpcGoalActions?.npcGoalOptions(speaker,
+                    worldForSession(world, sess), sess) || [];
+                for (const option of options.filter(item => item.effect.type === 'knowledge_share')) {
+                    const listener = sess.entityStates?.[option.effect.payload.recipient_id];
+                    const source = sess.entityStates?.[speakerId]?.observations?.find(item =>
+                        item.id === option.effect.payload.observation_id);
+                    if (!source || (listener?.observations || []).some(item =>
+                        item.originObservationId === (source.originObservationId || source.id)
+                        || item.sourceObservationId === source.id || item.id === source.id)) continue;
+                    const result = globalThis.HordeNpcGoalActions.executeNpcGoalStep(speaker,
+                        option, world, sess, { simulationMinute,
+                            canMove: () => ({ ok: false, reason: 'conversation_only' }) });
+                    if (!result?.ok) continue;
+                    Object.assign(world, result.candidate.world);
+                    Object.assign(sess, result.candidate.session);
+                    sess.turnEvents ||= [];
+                    for (const event of result.events || [result.event]) sess.turnEvents.push({
+                        ...event, turn, location_id: place, committed: true,
+                        world_time: { absolute_minute: simulationMinute } });
+                    sess.turnEvents = sess.turnEvents.slice(-1200);
+                    addWorldNews(sess, `${speaker.name} spoke with ${
+                        world.entities.find(item => item.id === option.effect.payload.recipient_id)?.name
+                        || option.effect.payload.recipient_id}.`, {
+                        id: `news_npc_conversation_${speakerId}_${simulationMinute}`,
+                        locationId: place, type: 'npc_goal', playerVisible: false,
+                        knownBy: [speakerId, option.effect.payload.recipient_id] });
+                    delivered = true;
+                    break;
+                }
+                if (delivered) break;
+            }
+        }
+    };
+    const npcStepMinutes = 10;
+    const previousNpcMinute = Number(sess.lastNpcSimulationMinute) || 0;
+    const targetNpcMinute = time.currentTotalMinutes;
+    if (targetNpcMinute > previousNpcMinute) {
+        const savedClock = structuredClone(sess.worldClock);
+        const firstMinute = previousNpcMinute > 0
+            ? Math.min(targetNpcMinute, previousNpcMinute + npcStepMinutes) : targetNpcMinute;
+        try {
+            for (let minute = firstMinute; minute <= targetNpcMinute;
+                minute = Math.min(targetNpcMinute, minute + npcStepMinutes)) {
+                sess.worldClock = { absoluteMinutes: minute, turnCount: sess.turnCount,
+                    bonusTimeMinutes: sess.bonusTimeMinutes || 0 };
+                advanceNpcGoals(minute, minute);
+                sess.lastNpcSimulationMinute = minute;
+                if (minute === targetNpcMinute) break;
+            }
+        } finally { sess.worldClock = savedClock; }
+    }
 
     // Powers with a shared border and no shared cause drift apart; powers with a
     // common enemy drift together. This is what eventually produces alliances
@@ -41950,6 +42229,10 @@ function worldLinkedMovementVerdict(world, sess, actorId, fromId, toId,
     const from = getLocationRef(view, fromId), to = getLocationRef(view, toId);
     if (!from || !to) return { ok: false, reason: 'unknown_destination' };
     if (options.mode === 'teleport') {
+        const magicEnabled = view.gameRules?.magic?.enabled === true
+            || view.magic?.enabled === true || view.movement?.allowTeleport === true;
+        if (!magicEnabled) return { ok: false, reason: 'teleport_not_authorized',
+            travelTime: 0, elapsedMinutes: 0 };
         const allowed = actorId === 'player' || worldNpcCanMove(view, sess,
             actorId, toId, true, options.explore === true);
         return { ok: allowed, reason: allowed ? '' : 'npc_access_denied',

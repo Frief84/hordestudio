@@ -1,5 +1,7 @@
 # World Engine: offene Befunde
 
+**Nach P4.3d-Teilstand (28.10.2026):** Die authored Vault-Tür-ID mit Doppelpunkten ist im `interactable_transition`-Pfad ausführbar; kontrollierte Tür-/Schlüssel-/Bewegungsfälle bestehen. Die P4.3b-Livefehler bei Multi-Action, Sprecherbelegen und Linda-Begleitung sind dadurch nicht als Modellverhalten behoben. Insbesondere fehlt ein neuer Live-Nachweis für vollständige `speech_attributions` und für NPC-Auftragsannahme und -Ausführung über mehrere World-Ticks. Siehe [P4.3d-Bericht](../../documentation-reports/world-p43d-context-action-reliability.md).
+
 Stand: 26.10.2026. Ein technischer Schutz, der einen falschen Modellvorschlag ablehnt, ist nicht selbst ein Fehler. „Offen“ bezieht sich auf die noch nicht belegte fachliche Zuverlässigkeit oder eine konkret fehlende Funktion.
 
 | Befund | Status und Beleg | Nächste Prüfung |

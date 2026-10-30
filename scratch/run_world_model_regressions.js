@@ -5,6 +5,9 @@ const { spawn } = require('node:child_process');
 const names = [
   'world_general_turn_matrix_audit.js',
   'world_server_binding_audit.js',
+  'world_p43e_speaker_receipt_audit.js',
+  'world_p43e_vault_turn_audit.js',
+  'world_p43d_action_reliability_audit.js',
   'world_linked_execution_audit.js',
   'world_linked_hardening_audit.js',
   'world_action_path_parity_audit.js',
@@ -40,7 +43,8 @@ async function run(name) {
     output = (output + chunk).slice(-5000);
   });
   let timeout = false;
-  const timer = setTimeout(() => { timeout = true; child.kill(); }, 120000);
+  const timer = setTimeout(() => { timeout = true; child.kill(); },
+    Number(process.env.HORDE_REGRESSION_TIMEOUT_MS || 120000));
   const code = await new Promise(resolve => child.on('exit', resolve));
   clearTimeout(timer);
   const result = { name, code, timeout, tail: output.trim().split(/\r?\n/).slice(-8).join('\n') };
@@ -50,6 +54,8 @@ async function run(name) {
 (async () => {
   const results = [];
   for (const name of names) results.push(await run(name));
-  fs.writeFileSync(path.join(__dirname, 'world-model-regressions-2026-10-26.json'),
+  fs.writeFileSync(process.env.HORDE_REGRESSION_OUTPUT
+    ? path.resolve(process.env.HORDE_REGRESSION_OUTPUT)
+    : path.join(__dirname, 'world-model-regressions-2026-10-26.json'),
     JSON.stringify(results, null, 2));
 })().catch(error => { console.error(error); process.exitCode = 1; });

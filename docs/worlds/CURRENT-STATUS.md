@@ -1,5 +1,7 @@
 # World Engine: aktueller Stand
 
+**P4.3d-Teilstand (28.10.2026):** [Implementierungsbericht](../../documentation-reports/world-p43d-context-action-reliability.md). Die autoritative Engine führt in kontrollierten Audits die Vault-Türöffnung mit beiden gleichnamigen, getrennt geführten Cell Keys und eine anschließende Spielerbewegung aus. Lindas Aufnahme des Tischschlüssels und eigene Türöffnung bestehen ebenfalls kontrolliert. Recovery-Audit und 25/25 World-Regressionsaudits bestanden. Eine neue lokale Modellprobe fand gemäß P4.3d-Vorgabe nicht statt; kombinierte Live-Turns, NPC-Begleitung und Sprecherabdeckung sind weiter offen.
+
 Stand: 26.10.2026, lokaler Dateistand. „Getestet“ meint die ausdrücklich genannten Testarten. Die P4.3a-Abnahme war laut letztem lokalen Bericht **deterministisch abgeschlossen: 26/26 Audits bestanden**; ein anschließender Live-Modelltest ist nicht dokumentiert.
 
 | Bereich | Implementiert und deterministisch geprüft | Echte lokale Modellprobe | Grenze |

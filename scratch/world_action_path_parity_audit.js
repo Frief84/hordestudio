@@ -28,6 +28,7 @@ const root = path.resolve(__dirname, '..');
             clearInterval(companionAlwaysOnTimer);
             const world = {
                 id: 'action_parity', name: 'Action parity', startLocationId: 'a',
+                magic: { enabled: true },
                 hudConfig: { timeStep: 0, startTimeHours: 8, enableSchedules: true },
                 locations: [
                     { id: 'a', name: 'A', exits: [{ targetLocationId: 'b', travelTime: 60 }] },

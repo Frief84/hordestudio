@@ -59,9 +59,12 @@ function schema(canonical, options = {}) {
             depends_on: list(shape({ action_index: { type: 'integer', minimum: 0, maximum: 31 },
                 outcome: { type: 'string', enum: ['succeeded', 'failed', 'blocked'] }
             }, ['action_index', 'outcome'])), state_conditions: action.state_conditions
-        }, ['kind', 'status', 'response'])),
+        }, [...(options.requireRequest ? ['request'] : []), 'kind', 'status', 'response'])),
         description: 'Responses belong inside their action. No action_id, passage_id or response_id: the server creates all links. Use one action for a dialogue with incidental gestures and questions. Split only independently resolved player actions; their request excerpts must cover the player message in order without duplicated wording.' },
-        reactions: list(shape({ ...paragraph.properties, effects }, ['text']), 16)
+        reactions: list(shape({ ...paragraph.properties, effects,
+            after_action_index: { type: 'integer', minimum: 0, maximum: 31,
+                description: 'Insert this NPC/world response immediately after the indexed player action, before later player actions.' }
+        }, ['text']), 16)
     }, ['protocol', 'actions']);
 }
 function validate(value, spec, path = '', errors = []) {
@@ -199,7 +202,13 @@ function playerIntentErrors(input, actions, spans, context) {
         const request = input.slice(spans[index].start, spans[index].end).trim();
         const act = directPlayerAct(request);
         if (!act) return;
-        const pickupObject = act.pickup ? act.body.replace(/^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife)\s+/iu, '')
+        if (/^(?:(?:try|attempt)\s+to\s+)?(?:dance|hold|restrain|bind|tie|release|tanze|halte|fessele|binde|lasse\s+los)\b/iu.test(act.body)
+            && action.kind !== 'physical')
+            errors.push({ reason: 'player_action_kind_mismatch', detail: `actions.${index}.kind`,
+                expected: 'physical', request });
+        const heldObject = act.pickup && /^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife)\s+(?:my|mein(?:e|en|em|es)?)\s+/iu.test(act.body)
+            && !/\b(?:from|off|aus|von|vom)\b/iu.test(act.body);
+        const pickupObject = act.pickup && !heldObject ? act.body.replace(/^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife)\s+/iu, '')
             .replace(/^(?:the|a|an|den|die|das|einen|eine|dem)\s+/iu, '') : '';
         const itemMatches = pickupObject ? mentions(pickupObject.split(/\s+(?:from|off|on|at|about|of|aus|von|vom|über|und|and|then|dann)\b/iu)[0], 'item') : [];
         if (itemMatches.length === 1 && !['physical', 'travel'].includes(action.kind))
@@ -238,6 +247,7 @@ function playerIntentErrors(input, actions, spans, context) {
 function bind(proposal, context, canonical) {
     proposal = clone(proposal);
     const repairs = [];
+    const speechEvidenceErrors = [];
     if (!context || !/^[a-z][a-z0-9_]{1,47}$/.test(context.turnId || '')
         || typeof context.input !== 'string') throw new TypeError('invalid_turn_binding_context');
     // The host owns links and knows the IDs behind current World names. Repair
@@ -273,6 +283,14 @@ function bind(proposal, context, canonical) {
                 if (Object.hasOwn(event, field)) event[field] = resolve(event[field],
                     `${path}.events.${index}.${field}`);
         }
+        if (Array.isArray(paragraph.speech) && typeof paragraph.text === 'string'
+            && ![...paragraph.text.matchAll(/[“"„«]([^”"»]{2,500})[”"»]|‘([^’]{2,500})’|(?<![\p{L}\p{N}])'((?:[^']|'(?=[\p{L}\p{N}])){2,500})'(?![\p{L}\p{N}])/gu)].length) {
+            const before = paragraph.speech.length;
+            paragraph.speech = paragraph.speech.filter(item => !item?.quote
+                || paragraph.text.includes(item.quote));
+            if (paragraph.speech.length !== before) repairs.push({
+                type: 'discard_unspoken_quote', detail: `${path}.speech` });
+        }
         for (const [index, speech] of (Array.isArray(paragraph.speech) ? paragraph.speech : []).entries()) {
             if (!object(speech)) continue;
             for (const field of ['action_id', 'passage_id', 'response_id'])
@@ -284,6 +302,43 @@ function bind(proposal, context, canonical) {
                 `${path}.speech.${index}.speaker`);
             if (Array.isArray(speech.listeners)) speech.listeners = speech.listeners.map((listener, i) =>
                 resolve(listener, `${path}.speech.${index}.listeners.${i}`));
+            if (typeof paragraph.text === 'string') {
+                const quotes = [...paragraph.text.matchAll(/["“„«]([^"”»]{1,1200})["”»]|‘([^’]{1,1200})’|(?<![\p{L}\p{N}])'((?:[^']|'(?=[\p{L}\p{N}])){1,1200})'(?![\p{L}\p{N}])/gu)];
+                if (quotes.length === 1 && paragraph.speech.length === 1) {
+                    const spoken = quotes[0][1] || quotes[0][2] || quotes[0][3];
+                    if (!speech.quote) {
+                        speech.quote = spoken;
+                        repairs.push({ type: 'extract_spoken_quote', detail: `${path}.speech.${index}` });
+                    } else if (!paragraph.text.includes(speech.quote)
+                        && speech.quote.replace(/[.,!?;:]+$/u, '').trim() === spoken
+                            .replace(/[.,!?;:]+$/u, '').trim()) {
+                        speech.quote = spoken;
+                        repairs.push({ type: 'align_quote_terminal_punctuation',
+                            detail: `${path}.speech.${index}` });
+                    }
+                }
+            }
+            if (!String(speech.quote || '').trim()) speechEvidenceErrors.push({
+                reason: 'missing_speech_quote', detail: `${path}.speech.${index}.quote` });
+        }
+        if (!paragraph.speech?.length && typeof paragraph.text === 'string') {
+            const npcNames = references.filter(item => item.type === 'npc'
+                && new RegExp(`\\b${item.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'iu')
+                    .test(paragraph.text));
+            const quoted = [...paragraph.text.matchAll(/[“"„«]([^”"»]{2,500})[”"»]|‘([^’]{2,500})’|(?<![\p{L}\p{N}])'((?:[^']|'(?=[\p{L}\p{N}])){2,500})'(?![\p{L}\p{N}])/gu)];
+            const attribution = /\b(?:she|he|they|sie|er)\s+(?:says?|asks?|replies|whispers?|sagt|fragt|antwortet)\b/iu;
+            if (quoted.some(match => {
+                const before = paragraph.text.slice(Math.max(0, match.index - 80), match.index);
+                const after = paragraph.text.slice(match.index + match[0].length,
+                    match.index + match[0].length + 80);
+                return npcNames.length === 1 && attribution.test(after)
+                    || npcNames.some(npc => {
+                        const name = npc.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        return new RegExp(`\\b${name}\\s+(?:says?|asks?|replies|whispers?|sagt|fragt|antwortet)\\s*$`, 'iu').test(before)
+                            || new RegExp(`^\\s*,?\\s*${name}\\s+(?:says?|asks?|replies|whispers?|sagt|fragt|antwortet)\\b`, 'iu').test(after);
+                    });
+            }))
+                speechEvidenceErrors.push({ reason: 'missing_speech_attribution', detail: `${path}.speech` });
         }
     };
     const referenceFields = new Set(['actor_id', 'target_id', 'from_id', 'to_id',
@@ -324,6 +379,21 @@ function bind(proposal, context, canonical) {
             normalizeParagraph(paragraph, `actions.${index}.response.${i}`));
         normalizeEffectRefs(action.effects, `actions.${index}.effects`);
         normalizeEffectRefs(action.state_conditions, `actions.${index}.state_conditions`);
+        if (Array.isArray(action.state_conditions)) action.state_conditions = action.state_conditions
+            .map((condition, conditionIndex) => {
+                const item = references.find(reference => reference.type === 'item'
+                    && reference.id === condition?.subject_id);
+                const owner = condition?.target_id;
+                if (!item || references.filter(reference => reference.type === 'item'
+                    && key(reference.name) === key(item.name)).length !== 1
+                    || condition.fact !== 'actor_at' || condition.operator !== 'equals'
+                    || condition.value !== undefined
+                    || !(owner === 'player' || references.some(reference =>
+                        reference.type === 'npc' && reference.id === owner))) return condition;
+                repairs.push({ type: 'item_ownership_fact',
+                    detail: `actions.${index}.state_conditions.${conditionIndex}` });
+                return { fact: 'has_item', subject_id: owner, operator: 'equals', value: item.name };
+            });
         if (Array.isArray(action.state_conditions) && Array.isArray(action.effects?.item_transfer)) {
             // A transfer's new owner is an outcome, never a fact required
             // before that same transfer. The reducer still proves source
@@ -465,6 +535,16 @@ function bind(proposal, context, canonical) {
         });
     }
     const errors = validate(proposal, schema(canonical, context));
+    errors.push(...speechEvidenceErrors);
+    if (errors.length) return { ok: false, errors };
+    if (proposal.actions.length === 1 && !context.singleRequest) {
+        const laterPhysical = /\b(?:then|and then|dann|und dann)\s+(?:I|ich)\s+(?:dance|take|pick up|walk|go|move|enter|hold|grab|tie|bind|release|let go|tanze|nehme|gehe|halte|fessele|lasse)\b/iu;
+        const laterSpeech = /\b(?:then|and|and then|dann|und|und dann)\s+(?:(?:I|ich)\s+)?(?:ask|tell|say|frage|sage|bitte)\b/iu;
+        if (['speech', 'question'].includes(proposal.actions[0].kind) && laterPhysical.test(context.input)
+            || ['physical', 'travel'].includes(proposal.actions[0].kind) && laterSpeech.test(context.input))
+            errors.push({ reason: 'request_coverage_mismatch',
+                detail: 'actions: later independent player action requires its own response' });
+    }
     if (errors.length) return { ok: false, errors };
     // A conversation can be phrased as several questions, jokes and gestures.
     // Merge those responses only when their anchors cover the complete input;
@@ -506,7 +586,7 @@ function bind(proposal, context, canonical) {
     // collapse several model-labelled speech actions into one.
     const originalSpans = proposal.actions.length > 1
         ? alignRequests(context.input, proposal.actions) : null;
-    if (originalSpans) errors.push(...playerIntentErrors(context.input,
+    if (originalSpans && context.prepareCertainEffects !== true) errors.push(...playerIntentErrors(context.input,
         proposal.actions, originalSpans, context));
     if (errors.length) return { ok: false, errors };
     if (conversational) {
@@ -530,6 +610,208 @@ function bind(proposal, context, canonical) {
                 : 'actions' });
     }
     if (errors.length) return { ok: false, errors };
+    if (context.prepareCertainEffects === true && requestSpans.length === proposal.actions.length) {
+        const references = Array.isArray(context.references) ? context.references : [];
+        const uniqueMention = (phrase, type) => {
+            const normalized = String(phrase || '').normalize('NFKC').toLocaleLowerCase();
+            const matches = references.filter(item => item.type === type && item.name
+                && normalized.includes(String(item.name).normalize('NFKC').toLocaleLowerCase()));
+            return matches.length === 1 ? matches[0] : null;
+        };
+        let playerPlace = String(context.playerLocation || '');
+        proposal.actions.forEach((action, index) => {
+            if (!['resolved', 'answered'].includes(action.status)) return;
+            const request = context.input.slice(requestSpans[index].start, requestSpans[index].end)
+                .trim().replace(/^(?:and|then|and then|und|dann|und dann)\s+/iu, '');
+            const phrase = request.replace(/^(?:I|Ich)\s+/iu, '');
+            if (/\b(?:if|wenn|falls|provided|sofern)\b/iu.test(phrase)
+                || /\b(?:not|nicht|never|kein|keine|keinen)\b/iu.test(phrase)) return;
+            action.effects = normalizedEffects(action.effects);
+            const response = Array.isArray(action.response) ? action.response[0] : null;
+            if (!response) return;
+            response.events = Array.isArray(response.events) ? response.events : [];
+            if (context.dynamicDiscovery?.enabled === true
+                && ['physical', 'observation', 'speech', 'question', 'other'].includes(action.kind)
+                && !(action.effects.item_introduce || []).length
+                && !(action.effects.item_transfer || []).length) {
+                const match = request.match(/\b(?:search|durchsuche|suche)\b[\s\S]{0,100}?\b(?:for|nach)\s+(?:(?:a|an|the|eine|einen|einem|ein|der|die|das)\s+)?([\p{L}\p{N}][\p{L}\p{N} -]{1,80})[.!?]?$/iu)
+                    || request.match(/\b(?:look\s+for|suche\s+nach)\s+(?:(?:a|an|the|eine|einen|einem|ein|der|die|das)\s+)?([\p{L}\p{N}][\p{L}\p{N} -]{1,80})[.!?]?$/iu);
+                const candidate = match?.[1]?.trim().replace(/[.!?]+$/, '')
+                    .replace(/\s+(?:in|inside|im|in der|aus der)\s+.+$/iu, '').trim();
+                const containers = (context.dynamicDiscovery.containers || []).filter(item =>
+                    item?.id && item?.name && request.toLocaleLowerCase()
+                        .includes(String(item.name).toLocaleLowerCase()));
+                if (candidate && !/^(?:something|anything|etwas|irgendwas|nichts)\b/iu.test(candidate)
+                    && candidate.split(/\s+/).length <= 5 && containers.length <= 1) {
+                    const slug = candidate.normalize('NFKD').toLowerCase()
+                        .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+                        .slice(0, 35) || 'object';
+                    const id = `discovery_${String(context.turnId || 'turn').slice(-16)}_${index}_${slug}`;
+                    action.kind = 'observation';
+                    delete action.state_conditions;
+                    action.effects.item_introduce = [{ id, name: candidate,
+                        location_id: playerPlace,
+                        ...(containers.length === 1 ? { container_id: containers[0].id } : {}),
+                        actor_id: 'player', cause: 'discovery' }];
+                    response.events = response.events.filter(event => event.type !== 'discovery'
+                        && event.type !== 'inventory');
+                    response.events.push({ type: 'discovery', actor_id: 'player',
+                        status: 'completed', target_id: id, item: candidate });
+                    response.text = /\b(?:suche|durchsuche)\b/iu.test(request)
+                        ? containers.length ? 'Du durchsuchst den Behälter.' : 'Du suchst in der Umgebung.'
+                        : containers.length ? 'You search the container.' : 'You search the area.';
+                    action.response = [response];
+                    repairs.push({ type: 'prepare_dynamic_discovery', detail: `actions.${index}` });
+                }
+            }
+            const inventoryEvent = response.events.find(event => event.type === 'inventory'
+                && event.actor_id === 'player' && event.status === 'completed'
+                && ['take', 'pickup', 'add', 'gain'].includes(event.action));
+            const movementEvent = response.events.find(event => event.type === 'movement'
+                && event.actor_id === 'player' && event.status === 'completed');
+            const pickup = action.kind === 'physical'
+                && (/^(?:take|pick\s+up|grab|collect|nehme|nimm|hebe\s+auf|greife|schnappe\s+mir)\b/iu.test(phrase)
+                    || !!inventoryEvent);
+            const travel = ['travel', 'physical'].includes(action.kind)
+                && (/^(?:walk|go|move|travel|enter|gehe|laufe|betrete|reise)\b/iu.test(phrase)
+                    || !!movementEvent && !pickup);
+            if (travel && action.kind === 'physical') {
+                action.kind = 'travel';
+                repairs.push({ type: 'classify_certain_travel', detail: `actions.${index}` });
+            }
+            if (pickup && !(action.effects.item_transfer || []).length) {
+                const item = uniqueMention(inventoryEvent?.item || phrase, 'item')
+                    || uniqueMention(phrase, 'item');
+                if (item && item.locationId === playerPlace && item.reachable !== false) {
+                    action.effects.item_transfer = [{ actor_id: 'player', item_id: item.id,
+                        from_id: playerPlace, to_id: 'player' }];
+                    if (!response.events.some(event => event.type === 'inventory'
+                        && event.actor_id === 'player'
+                        && [item.id, item.name].includes(event.item)))
+                        response.events.push({ type: 'inventory', actor_id: 'player',
+                            status: 'completed', action: 'take', item: item.id });
+                    repairs.push({ type: 'prepare_certain_pickup', detail: `actions.${index}` });
+                } else if (context.dynamicDiscovery?.enabled === true) {
+                    const match = phrase.match(/^(?:take|pick\s+up|grab|nehme|nimm)\s+(?:(?:a|an|the|einen|eine|ein|den|die|das)\s+)?([\p{L}\p{N}][\p{L}\p{N} -]{1,80}?)(?:\s+(?:and|then|und|dann)\b|[.!?]|$)/iu);
+                    const name = match?.[1]?.trim();
+                    if (name && name.split(/\s+/).length <= 5) {
+                        const slug = name.normalize('NFKD').toLowerCase()
+                            .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+                            .slice(0, 35) || 'object';
+                        const id = `discovery_${String(context.turnId || 'turn').slice(-16)}_${index}_${slug}`;
+                        action.effects.item_introduce = [{ id, name,
+                            location_id: playerPlace, actor_id: 'player', cause: 'discovery' }];
+                        action.effects.item_transfer = [{ actor_id: 'player', item_id: id,
+                            from_id: playerPlace, to_id: 'player' }];
+                        response.events = response.events.filter(event => event.type !== 'inventory'
+                            && event.type !== 'discovery');
+                        response.events.push({ type: 'discovery', actor_id: 'player',
+                            status: 'completed', target_id: id, item: name },
+                        { type: 'inventory', actor_id: 'player', status: 'completed',
+                            action: 'take', item: name });
+                        response.text = /^(?:nehme|nimm)/iu.test(phrase)
+                            ? 'Du greifst nach dem Gegenstand.' : 'You reach for the object.';
+                        action.response = [response];
+                        repairs.push({ type: 'prepare_dynamic_pickup', detail: `actions.${index}` });
+                    }
+                }
+            }
+            if (travel && !(action.effects.actor_move || []).length
+                && !response.events.some(event => event.type === 'movement'
+                    && event.actor_id && event.actor_id !== 'player')) {
+                const destination = references.find(item => item.type === 'location'
+                    && item.id === movementEvent?.to_location_id)
+                    || uniqueMention(phrase, 'location');
+                if (destination && playerPlace && destination.id !== playerPlace) {
+                    action.effects.actor_move = [{ actor_id: 'player',
+                        to_location_id: destination.id }];
+                    if (!response.events.some(event => event.type === 'movement'
+                        && event.actor_id === 'player'
+                        && event.to_location_id === destination.id))
+                        response.events.push({ type: 'movement', actor_id: 'player',
+                            status: 'completed', from_location_id: playerPlace,
+                            to_location_id: destination.id });
+                    repairs.push({ type: 'prepare_certain_movement', detail: `actions.${index}` });
+                }
+            }
+            for (const move of action.effects.actor_move || []) {
+                if (move.actor_id !== 'player' || move.companion_ids?.length
+                    || !playerPlace || !move.to_location_id) continue;
+                if (!response.events.some(event => event.type === 'movement'
+                    && event.actor_id === 'player'
+                    && event.to_location_id === move.to_location_id)) {
+                    response.events.push({ type: 'movement', actor_id: 'player',
+                        status: 'completed', from_location_id: playerPlace,
+                        to_location_id: move.to_location_id });
+                    repairs.push({ type: 'witness_verified_movement', detail: `actions.${index}` });
+                }
+                playerPlace = move.to_location_id;
+            }
+            for (const transfer of action.effects.item_transfer || []) {
+                if (transfer.to_id !== 'player' || !transfer.item_id) continue;
+                if (!response.events.some(event => event.type === 'inventory'
+                    && event.actor_id === 'player'
+                    && [transfer.item_id, references.find(item => item.id === transfer.item_id)?.name,
+                        (action.effects.item_introduce || []).find(item =>
+                            item.id === transfer.item_id)?.name]
+                        .includes(event.item))) {
+                    response.events.push({ type: 'inventory', actor_id: 'player',
+                        status: 'completed', action: 'take', item: transfer.item_id });
+                    repairs.push({ type: 'witness_verified_transfer', detail: `actions.${index}` });
+                }
+            }
+            const completeMoves = response.events.filter(event => event.type === 'movement'
+                && event.status === 'completed' && event.actor_id
+                && event.from_location_id && event.to_location_id);
+            if (completeMoves.length) {
+                const before = response.events.length;
+                response.events = response.events.filter(event => event.type !== 'movement'
+                    || !completeMoves.some(complete => complete.actor_id === event.actor_id)
+                    || event.from_location_id && event.to_location_id);
+                if (response.events.length !== before) repairs.push({
+                    type: 'discard_incomplete_duplicate_movement', detail: `actions.${index}` });
+            }
+            if (Array.isArray(action.state_conditions) && action.effects.item_transfer?.length) {
+                action.state_conditions = action.state_conditions.filter(condition =>
+                    !action.effects.item_transfer.some(transfer => condition.fact === 'has_item'
+                        && condition.operator === 'equals'
+                        && condition.subject_id === transfer.to_id
+                        && [transfer.item_id, references.find(item => item.id === transfer.item_id)?.name]
+                            .includes(condition.value)));
+                if (!action.state_conditions.length) delete action.state_conditions;
+            }
+            if (Array.isArray(action.state_conditions) && action.effects.actor_move?.length) {
+                const before = action.state_conditions.length;
+                action.state_conditions = action.state_conditions.filter(condition =>
+                    !action.effects.actor_move.some(move => condition.fact === 'actor_at'
+                        && condition.operator === 'equals'
+                        && condition.subject_id === move.actor_id
+                        && condition.value === move.to_location_id));
+                if (action.state_conditions.length !== before) repairs.push({
+                    type: 'discard_movement_postcondition', detail: `actions.${index}` });
+                if (!action.state_conditions.length) delete action.state_conditions;
+            }
+        });
+        for (const [index, action] of proposal.actions.entries()) {
+            if ((action.effects?.actor_move || []).length) continue;
+            for (const response of action.response || []) {
+                if (!Array.isArray(response.events)) continue;
+                const before = response.events.length;
+                response.events = response.events.filter(event => event.type !== 'movement'
+                    || !proposal.actions.some((other, otherIndex) => otherIndex !== index
+                        && (other.effects?.actor_move || []).some(move =>
+                            move.actor_id === event.actor_id
+                            && move.to_location_id === event.to_location_id)
+                        && (other.response || []).some(paragraph =>
+                            (paragraph.events || []).some(witness => witness.type === 'movement'
+                                && witness.actor_id === event.actor_id
+                                && witness.to_location_id === event.to_location_id))));
+                if (response.events.length !== before) repairs.push({
+                    type: 'discard_misattributed_duplicate_movement',
+                    detail: `actions.${index}` });
+            }
+        }
+    }
     if (requestSpans.length === proposal.actions.length)
         errors.push(...playerIntentErrors(context.input, proposal.actions, requestSpans, context));
     if (errors.length) return { ok: false, errors };
@@ -612,8 +894,21 @@ function bind(proposal, context, canonical) {
             actor_id: 'player', status: 'completed', action: action.request.slice(0, 180),
             action_id: actionId, passage_id: action.response_id });
     };
-    proposal.actions.forEach((action, index) => append(action, index));
-    (proposal.reactions || []).forEach((reaction, index) => append(reaction, index, true));
+    (proposal.reactions || []).forEach((reaction, index) => {
+        if (reaction.after_action_index !== undefined
+            && reaction.after_action_index >= proposal.actions.length)
+            errors.push({ reason: 'invalid_reaction_position',
+                detail: `reactions.${index}.after_action_index` });
+    });
+    proposal.actions.forEach((action, index) => {
+        append(action, index);
+        (proposal.reactions || []).forEach((reaction, reactionIndex) => {
+            if (reaction.after_action_index === index) append(reaction, reactionIndex, true);
+        });
+    });
+    (proposal.reactions || []).forEach((reaction, index) => {
+        if (reaction.after_action_index === undefined) append(reaction, index, true);
+    });
     if (context.input.trim() && !proposal.actions.length)
         errors.push({ reason: 'missing_player_response', detail: 'actions' });
     if (!draft.narrative.length) errors.push({ reason: 'missing_scene_response', detail: 'actions' });

@@ -10,7 +10,7 @@ const turnContext = require('../worlds/turn-context');
 const workingApi = require('../worlds/working-state');
 const fields = Object.fromEntries(['type', 'actor_id', 'status', 'action', 'item', 'outfit',
     'from_location_id', 'to_location_id', 'activity', 'condition', 'next_status',
-    'target_id', 'change']
+    'target_id', 'change', 'evidence']
     .map(key => [key, { type: 'string', maxLength: 1000 }]));
 fields.change = { type: 'integer' };
 const canonical = scene.schema({ events: { type: 'array', items: { type: 'object',
@@ -48,6 +48,62 @@ function compile(proposal, custom = {}) {
     return { bound, compiled, executed, session };
 }
 async function main() {
+    const danceInput = 'I ask Lorne to dance with me, then I dance beside him.';
+    const swallowedDance = { protocol: 'scene_draft_v3', actions: [{
+        kind: 'speech', status: 'resolved', request: danceInput, effects: [],
+        response: [{ text: 'Lorne watches you.' }] }] };
+    assert(binding.bind(swallowedDance, { ...context, input: danceInput,
+        singleRequest: false }, canonical).errors.some(error =>
+        error.reason === 'request_coverage_mismatch'),
+    'a speech action cannot swallow a later physical player action');
+    const mislabelledDance = { protocol: 'scene_draft_v3', actions: [{
+        request: 'I dance beside Lorne.', kind: 'gesture', status: 'attempted',
+        effects: [], response: [{ text: 'You begin to dance.' }] }] };
+    assert(binding.bind(mislabelledDance, { ...context,
+        input: 'I dance beside Lorne.' }, canonical).errors.some(error =>
+        error.reason === 'player_action_kind_mismatch'),
+    'an explicit dance is a physical player action');
+    const swallowedQuestion = { protocol: 'scene_draft_v3', actions: [{
+        request: 'I hold Lorne’s hands, then let go and ask whether he will dance.',
+        kind: 'physical', status: 'resolved', effects: [],
+        response: [{ text: 'Lorne smiles.' }] }] };
+    assert(binding.bind(swallowedQuestion, { ...context,
+        input: swallowedQuestion.actions[0].request, singleRequest: false }, canonical)
+        .errors.some(error => error.reason === 'request_coverage_mismatch'),
+    'a physical action cannot swallow a later spoken question with an implied player subject');
+    const uncreditedReply = { protocol: 'scene_draft_v3', actions: [{
+        kind: 'speech', status: 'resolved', effects: [], response: [{
+            text: 'Lorne smiles. “Yes,” he says.' }] }] };
+    assert(binding.bind(uncreditedReply, { ...context, input: 'I ask Lorne.',
+        references: [{ id: 'lorne', name: 'Lorne', type: 'npc' }] }, canonical)
+        .errors.some(error => error.reason === 'missing_speech_attribution'),
+    'an NPC quote cannot be committed without a speaker attribution');
+    const uncreditedDuo = structuredClone(uncreditedReply);
+    uncreditedDuo.actions[0].response[0].text = 'Lorne says “Yes.” Mira says “Wait.”';
+    assert(binding.bind(uncreditedDuo, { ...context, input: 'I ask both.',
+        references: [{ id: 'lorne', name: 'Lorne', type: 'npc' },
+            { id: 'mira', name: 'Mira', type: 'npc' }] }, canonical)
+        .errors.some(error => error.reason === 'missing_speech_attribution'),
+    'two named NPC quotes also require speaker evidence');
+    const commaQuote = structuredClone(uncreditedReply);
+    commaQuote.actions[0].response[0].text = 'Lorne says “Yes,” and waits.';
+    commaQuote.actions[0].response[0].speech = [{ speaker: 'lorne',
+        listeners: ['player'], quote: 'Yes.' }];
+    const alignedQuote = binding.bind(commaQuote, { ...context, input: 'I ask Lorne.',
+        references: [{ id: 'lorne', name: 'Lorne', type: 'npc' }] }, canonical);
+    assert(alignedQuote.ok, JSON.stringify(alignedQuote.errors));
+    assert.equal(alignedQuote.draft.speech[0].quote, 'Yes,');
+    assert(alignedQuote.binding.repairs.some(item =>
+        item.type === 'align_quote_terminal_punctuation'));
+    const contractedQuote = structuredClone(commaQuote);
+    contractedQuote.actions[0].response[0].text = "Lorne says 'I'm ready,' and waits.";
+    contractedQuote.actions[0].response[0].speech[0].quote = "I'm ready.";
+    const alignedContraction = binding.bind(contractedQuote, { ...context,
+        input: 'I ask Lorne.', references: [{ id: 'lorne', name: 'Lorne', type: 'npc' }] }, canonical);
+    assert(alignedContraction.ok, JSON.stringify(alignedContraction.errors));
+    assert.equal(alignedContraction.draft.speech[0].quote, "I'm ready,");
+    assert(binding.schema(canonical, { requireRequest: true }).properties.actions.items
+        .required.includes('request'), 'compound turns require a request excerpt');
     const scalarResponse = { protocol: 'scene_draft_v3', actions: [{
         kind: 'speech', status: 'resolved', response: 'Lorne answers.',
         action_id: 'model_action', response_id: 'model_passage', effects: [] }] };
@@ -84,6 +140,24 @@ async function main() {
     assert(resolvedItem.ok, JSON.stringify(resolvedItem.errors));
     assert.deepEqual(resolvedItem.draft.actions[0].action_effects.item_transfer,
         [{ item_id: 'key_1', from_id: 'stone', to_id: 'player' }]);
+    const ownedItemFact = { protocol: 'scene_draft_v3', actions: [{
+        kind: 'physical', status: 'attempted', effects: [],
+        state_conditions: [{ fact: 'actor_at', subject_id: 'cuffs',
+            operator: 'equals', target_id: 'player' }],
+        response: [{ text: 'You reach for the handcuffs.' }] }] };
+    const ownedItemBound = binding.bind(ownedItemFact, { ...context,
+        input: 'I reach for the handcuffs.', references: [{ id: 'cuffs',
+            name: 'Steel handcuffs', type: 'item' }] }, canonical);
+    assert(ownedItemBound.ok, JSON.stringify(ownedItemBound.errors));
+    assert.deepEqual(ownedItemBound.draft.actions[0].state_conditions[0], {
+        fact: 'has_item', subject_id: 'player', operator: 'equals',
+        value: 'Steel handcuffs' });
+    const ambiguousOwnedItem = binding.bind(ownedItemFact, { ...context,
+        input: 'I reach for the handcuffs.', references: [
+            { id: 'cuffs', name: 'Steel handcuffs', type: 'item' },
+            { id: 'cuffs_2', name: 'Steel handcuffs', type: 'item' }] }, canonical);
+    assert.equal(ambiguousOwnedItem.draft.actions[0].state_conditions[0].fact, 'actor_at',
+        'duplicate item names cannot be converted to an ownership fact');
     const verifiedNamedTransfer = [{ source: 'player', action_id: 'turn_stable_action_0',
         request: 'I take the bronze key.', effects: [{ type: 'item_transfer',
             payload: { item_id: 'key_1', from_id: 'stone', to_id: 'player' } }] }];
@@ -106,6 +180,11 @@ async function main() {
     assert.equal(cleanedPickup.draft.actions[0].state_conditions, undefined,
         'an item gained by this effect is not a precondition for that effect');
     assert(cleanedPickup.binding.repairs.some(item => item.type === 'discard_effect_postcondition'));
+    const heldKey = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+        status: 'resolved', response: [{ text: 'You hold your bronze key ready.' }], effects: [] }] };
+    const heldKeyBinding = binding.bind(heldKey, { ...context,
+        input: 'I take my bronze key.', references: [{ id: 'key_1', name: 'Bronze key' }] }, canonical);
+    assert(heldKeyBinding.ok, JSON.stringify(heldKeyBinding.errors));
     const priorOwnership = structuredClone(postconditionPickup);
     priorOwnership.actions[0].effects.item_transfer[0].from_id = 'player';
     priorOwnership.actions[0].effects.item_transfer[0].to_id = 'lorne';
@@ -231,6 +310,73 @@ He shifts slightly on his sun-warmed stone.
     spoken.actions[0].response[0].speech = [{ speaker: 'player', listeners: ['lorne'] }];
     const observed = compile(spoken, { input: '"The bridge is out."' });
     assert(observed.executed.ok, JSON.stringify(observed.executed.errors));
+    assert.equal(observed.compiled.speech[0].statement, 'The bridge is out.',
+        'only spoken words may enter NPC testimony from a mixed passage');
+    const twoSpeakers = dialogue('Lorne says "Wait here." You see the door move. You answer "All right."');
+    twoSpeakers.actions[0].kind = 'speech';
+    twoSpeakers.actions[0].response[0].speech = [
+        { speaker: 'lorne', listeners: ['player'], quote: 'Wait here.' },
+        { speaker: 'player', listeners: ['lorne'], quote: 'All right.' }
+    ];
+    const attributed = compile(twoSpeakers, { input: 'I answer Lorne.' });
+    assert(attributed.executed.ok, JSON.stringify(attributed.executed.errors));
+    assert.deepEqual(attributed.compiled.speech.map(item => item.statement),
+        ['Wait here.', 'All right.']);
+    assert.deepEqual(attributed.compiled.linkedPlan.speech.map(item => item.statement),
+        ['Wait here.', 'All right.']);
+    assert(!attributed.compiled.speech.some(item => item.statement.includes('door move')),
+        'observation prose must never become speaker testimony');
+    const unsupportedSpeech = dialogue('Lorne watches the closed door.');
+    unsupportedSpeech.actions[0].response[0].speech = [{ speaker: 'player', listeners: ['lorne'] }];
+    assert(binding.bind(unsupportedSpeech, { ...context, input: 'I watch the door.' }, canonical)
+        .errors.some(error => error.reason === 'missing_speech_quote'),
+    'observation prose without a direct quote cannot prove player speech');
+    const invitation = { protocol: 'scene_draft_v3', actions: [{ kind: 'speech',
+        status: 'resolved', response: [{ text: 'You invite Lorne along.' }], effects: [] }],
+    reactions: [{ text: 'Lorne says "Yes, I will come."',
+        speech: [{ speaker: 'lorne', listeners: ['player'], quote: 'Yes, I will come.' }],
+        effects: { npc_follow: [{ actor_id: 'lorne', following: true }] },
+        events: [{ type: 'escort', actor_id: 'lorne', target_id: 'player',
+            action: 'join', status: 'completed' }] }] };
+    const invited = compile(invitation, { input: 'I ask Lorne to come.' });
+    assert(invited.executed.ok, JSON.stringify(invited.executed.errors));
+    assert.equal(invited.executed.working.getEntity('lorne').state.followingPlayer, true);
+    const conditionalJourney = structuredClone(invitation);
+    conditionalJourney.actions[0].request = 'I ask Lorne to come.';
+    conditionalJourney.actions.push({ kind: 'travel', status: 'resolved',
+        request: 'I walk to the path.',
+        state_conditions: [{ fact: 'following_player', subject_id: 'lorne',
+            operator: 'equals', value: 'true' }],
+        effects: { actor_move: [{ actor_id: 'player', to_location_id: 'path',
+            companion_ids: ['lorne'] }] },
+        response: [{ text: 'You and Lorne walk to the path.', events: [
+            { type: 'movement', actor_id: 'player', status: 'completed',
+                from_location_id: 'stone', to_location_id: 'path' },
+            { type: 'movement', actor_id: 'lorne', status: 'completed',
+                from_location_id: 'stone', to_location_id: 'path' }] }] });
+    conditionalJourney.reactions[0].after_action_index = 0;
+    const journey = compile(conditionalJourney,
+        { input: 'I ask Lorne to come. I walk to the path.' });
+    assert(journey.executed.ok, JSON.stringify(journey.executed.errors));
+    assert.deepEqual(journey.bound.draft.actions.map(item => item.action_id),
+        ['turn_stable_action_0', 'turn_stable_world_0', 'turn_stable_action_1']);
+    assert.equal(journey.executed.working.getEntity('lorne').state.location, 'path');
+    assert.equal(journey.executed.working.getSession('playerLocation'), 'path');
+    const refusal = structuredClone(conditionalJourney);
+    refusal.reactions[0] = { text: 'Lorne says "I cannot come."',
+        after_action_index: 0,
+        speech: [{ speaker: 'lorne', listeners: ['player'], quote: 'I cannot come.' }],
+        effects: [] };
+    refusal.actions[1].request = 'I walk to the path if he agrees.';
+    refusal.actions[1].status = 'blocked';
+    refusal.actions[1].effects = [];
+    refusal.actions[1].response = [{ text: 'You remain in the room because Lorne declines.' }];
+    const declined = compile(refusal,
+        { input: 'I ask Lorne to come. I walk to the path if he agrees.' });
+    assert(declined.executed.ok, JSON.stringify(declined.executed.errors));
+    assert.equal(declined.executed.working.getSession('playerLocation'), 'stone');
+    assert.equal(declined.executed.working.getEntity('lorne').state.followingPlayer, undefined);
+    assert.equal(declined.executed.outcomes.get('turn_stable_action_1'), 'blocked');
     assert(observed.executed.events.some(event => event.type === 'observation'
         && event.actor_id === 'lorne' && event.action_id === observed.bound.draft.actions[0].action_id),
     'derived NPC knowledge is kept in the linked receipt and cannot be treated as neutral');

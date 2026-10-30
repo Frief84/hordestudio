@@ -470,15 +470,17 @@ He gives a soft, amused croak.
         'derived NPC knowledge must reach the persisted linked receipt');
         const finalReceipt = result.outcomes.at(-1).receipt.receipt;
         assert.deepEqual(finalReceipt.passage_speakers.map(item => item.speaker_id),
-            ['aslan', 'player', null]);
+            [null, null, null], 'mixed prose cannot be assigned one speaker');
         assert.deepEqual(finalReceipt.speech_attributions.map(item => item.speaker),
             ['aslan', 'player']);
+        assert.deepEqual(finalReceipt.speech_attributions.map(item => item.statement),
+            ['The path is clear.', 'I will follow.']);
         assert.match(result.outcomes.at(-1).rendered,
             /<strong>Aslan<\/strong>/, 'validated NPC speaker name must appear in the visible message');
         assert.match(result.outcomes.at(-1).renderedCinematic,
             /<strong>Aslan<\/strong>/, 'validated NPC speaker name must appear in cinematic mode');
-        assert(result.aslanObservations.some(item => item.text === 'You say, "I will follow."'));
-        assert(!result.lorneObservations.some(item => item.text === 'Aslan says, "The path is clear."'));
+        assert(result.aslanObservations.some(item => item.text === 'I will follow.'));
+        assert(!result.lorneObservations.some(item => item.text === 'The path is clear.'));
         assert(!result.lorneObservations.some(item => item.text === 'The leaves settle.'),
             'unattributed narration must not become personal NPC knowledge');
         const failedProjection = receiptNarration.project(result.failedFixture.world,
@@ -494,7 +496,7 @@ He gives a soft, amused croak.
             ['aslan', 'player']);
         assert.equal(finalProjection.input.narrativeDetails.at(-1).speaker, null);
         assert(finalProjection.input.npcPerspectives.some(item => item.id === 'aslan'
-            && item.memories.some(memory => memory.text === 'You say, "I will follow."')));
+            && item.memories.some(memory => memory.text === 'I will follow.')));
         assert(!finalProjection.input.npcPerspectives.some(item => item.id === 'lorne'));
         assert.equal(result.outcomes.at(-1).reply, finalProjection.input.narrativeDetails
             .map(item => item.text).join('\n\n'));
@@ -550,7 +552,7 @@ He gives a soft, amused croak.
         });
         assert.deepEqual(reloaded.receipt, result.localStand.receipt.receipt);
         assert.deepEqual(reloaded.sceneMemory, result.localStand.sceneMemory);
-        assert(reloaded.aslanObservations.some(item => item.text === 'You say, "I will follow."'));
+        assert(reloaded.aslanObservations.some(item => item.text === 'I will follow.'));
         console.log('P2.8 browser metrics:', JSON.stringify(Object.fromEntries([
             ['clean', result.outcomes[0]], ['repaired', result.outcomes[5]],
             ['recovered', result.recovered], ['recovered_attempt', result.recoveredAttempt],

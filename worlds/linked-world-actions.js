@@ -8,6 +8,8 @@ const registryApi = typeof module !== 'undefined' && module.exports
     ? require('./effect-registry') : root.HordeEffectRegistry;
 const checkApi = typeof module !== 'undefined' && module.exports
     ? require('./universal-checks') : root.HordeUniversalChecks;
+const discoveryApi = typeof module !== 'undefined' && module.exports
+    ? require('./dynamic-object-discovery') : root.HordeDynamicObjectDiscovery;
 const copy = value => value === undefined ? undefined : structuredClone(value);
 const safeId = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
@@ -150,6 +152,9 @@ function createFactRegistry() {
     };
     register('actor_at', (working, subject) => subject === 'player'
         ? working.getSession('playerLocation') : working.getEntity(subject).state?.location);
+    register('following_player', (working, subject) =>
+        working.getEntity(subject).definition?.type === 'npc'
+            ? working.getEntity(subject).state?.followingPlayer === true : undefined);
     register('has_item', (working, subject, expected) => {
         const inventory = subject === 'player' ? working.getSession('inventory')
             : working.getEntity(subject).state?.inventory;
@@ -275,7 +280,9 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             location.state ||= {}; location.state.lastEnteredTurn = turn;
         });
     });
-    registerNative('interactable_transition', value => ids(value?.target_id)
+    registerNative('interactable_transition', value =>
+        typeof value?.target_id === 'string'
+        && /^[a-zA-Z][a-zA-Z0-9_:-]{0,119}$/.test(value.target_id)
         && (value.actor_id === undefined || safeId(value.actor_id))
         && typeof value?.to_state === 'string' && !!value.to_state, (value, working, context) => {
         const actor = value.actor_id || 'player';
@@ -326,6 +333,77 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             field.value ||= {};
             if (value.to_state === 'open') field.value[value.target_id] = true;
             else delete field.value[value.target_id];
+        });
+    });
+    registerNative('npc_follow', value => safeId(value?.actor_id)
+        && typeof value?.following === 'boolean', (value, working, context) => {
+        const npc = working.getEntity(value.actor_id);
+        if (npc.definition?.type !== 'npc') throw new Error('unknown_follower');
+        if (actorAt(working, value.actor_id) !== actorAt(working, 'player'))
+            throw new BlockedAction('follower_not_present');
+        const action = value.following ? 'join' : 'leave';
+        const evidenceFor = event => String(event.evidence || (context.actionPassages || [])
+            .find(passage => passage.id === event.passage_id)?.text || '');
+        const proof = (context.actionEvents || []).filter(event => event.type === 'escort'
+            && event.status === 'completed' && event.actor_id === value.actor_id
+            && event.target_id === 'player' && event.action === action
+            && evidenceFor(event).trim());
+        if (proof.length !== 1) throw new Error('unwitnessed_npc_follow');
+        const testimony = (context.actionSpeech || []).filter(speech =>
+            speech.speaker === value.actor_id && String(speech.statement || '').trim()
+            && evidenceFor(proof[0]).includes(speech.statement));
+        if (testimony.length !== 1) throw new Error('missing_npc_follow_consent');
+        working.writeEntity(value.actor_id, entity => {
+            entity.state ||= {};
+            entity.state.followingPlayer = value.following;
+        });
+    });
+    registerNative('npc_goal_set', value => safeId(value?.actor_id)
+        && typeof value?.goal === 'string' && !!value.goal.trim()
+        && value.goal.length <= 200, (value, working, context) => {
+        const npc = working.getEntity(value.actor_id);
+        if (npc.definition?.type !== 'npc') throw new Error('unknown_goal_actor');
+        if (actorAt(working, value.actor_id) !== actorAt(working, 'player'))
+            throw new BlockedAction('goal_actor_not_present');
+        const evidenceFor = event => String(event.evidence || (context.actionPassages || [])
+            .find(passage => passage.id === event.passage_id)?.text || '');
+        const proof = (context.actionEvents || []).filter(event => event.type === 'quest'
+            && event.status === 'completed' && event.actor_id === value.actor_id
+            && event.action === 'accept' && evidenceFor(event).trim());
+        if (proof.length !== 1) throw new Error('unwitnessed_npc_goal_acceptance');
+        const testimony = (context.actionSpeech || []).filter(speech =>
+            speech.speaker === value.actor_id && String(speech.statement || '').trim()
+            && evidenceFor(proof[0]).includes(speech.statement));
+        if (testimony.length !== 1) throw new Error('missing_npc_goal_consent');
+        const goal = value.goal.trim();
+        const goalApi = typeof module !== 'undefined' && module.exports
+            ? require('./npc-goal-actions') : root.HordeNpcGoalActions;
+        if (typeof goalApi?.rememberNpcGoal !== 'function')
+            throw new Error('npc_goal_runtime_unavailable');
+        working.writeEntity(value.actor_id, entity => {
+            entity.state ||= {};
+            const state = entity.state;
+            if (state.goal && state.goal !== goal) {
+                goalApi.rememberNpcGoal(state);
+                if (state.goalStates?.[state.goal]?.goalStatus === 'active')
+                    state.goalStates[state.goal].goalStatus = 'interrupted';
+            }
+            state.goal = goal;
+            state.goalStatus = 'active';
+            state.goalProgress = 0;
+            state.goalStepIndex = 0;
+            state.goalActionIndex = 0;
+            state.goalSteps = [];
+            state.goalAutonomy = state.goalAutonomy === 'paused' ? 'medium'
+                : state.goalAutonomy || 'medium';
+            for (const field of ['goalActionProposal', 'goalActionProgress',
+                'goalActionGoal', 'goalLastAction', 'goalBlockedReason',
+                'goalWaitStatus', 'goalResolvedTurn', 'goalCompletionProof',
+                'goalCompletion', 'goalDeadlineTurn']) delete state[field];
+            state.goalPool ||= [];
+            if (!state.goalPool.some(item => (typeof item === 'string' ? item : item?.goal) === goal))
+                state.goalPool.push({ goal, priority: 70 });
+            state.goalPool = state.goalPool.slice(-20);
         });
     });
     registerNative('item_transfer', value => typeof value?.item_id === 'string'
@@ -380,6 +458,28 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         // string. Its canonical ID must still be usable on a later transfer.
         const sourceReference = !inventoryHas(sourceInventory, value.item_id)
             && inventoryHas(sourceInventory, transferName) ? transferName : value.item_id;
+        const sourceHasInstance = itemEntity.definition?.type === 'item'
+            && Array.isArray(sourceInventory)
+            && sourceInventory.some(entry => typeof entry === 'object'
+                && entry.id === resolvedId);
+        const duplicateIdentity = itemEntity.definition?.type === 'item'
+            && (inventoryHas(working.getSession('inventory'), transferName)
+                || working.getEntitiesByFilter(entity => entity.definition?.type === 'npc'
+                    && inventoryHas(entity.state?.inventory, transferName)).length > 0
+                || working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+                    && entity.definition.id !== resolvedId
+                    && itemKey(entity.definition.name) === itemKey(transferName)).length > 0);
+        // A legacy name-only inventory entry cannot prove ownership of a
+        // specific registered instance while a same-named loose copy exists.
+        if (sourceIsActor && itemEntity.definition?.type === 'item'
+            && value.item_id === itemEntity.definition.id
+            && !sourceInventory?.some(entry => typeof entry === 'object'
+                && entry.id === value.item_id)
+            && working.getEntitiesByFilter(entity => entity.definition?.type === 'item'
+                && entity.definition.id === value.item_id
+                && placement(entity) && Number(entity.state?.quantity
+                    ?? entity.definition.quantity ?? 1) > 0).length)
+            throw new BlockedAction('item_instance_not_held');
         const looseItem = itemEntity.definition?.type === 'item'
             && placement(itemEntity) === value.from_id;
         const destinationIsLocation = !!working.getLocation(value.to_id).definition;
@@ -464,13 +564,15 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             else throw new Error('unregistered_loose_item');
         } else if (value.to_id === 'player') working.writeSession('inventory', field => {
             field.value ||= [];
-            if (itemEntity.definition?.sceneOrigin)
+            if (itemEntity.definition?.sceneOrigin || sourceHasInstance
+                || looseItem && duplicateIdentity)
                 field.value.push({ id: resolvedId, name: transferName, quantity });
             else for (let count = 0; count < quantity; count++) field.value.push(transferName);
         });
         else if (working.getEntity(value.to_id).definition) working.writeEntity(value.to_id, entity => {
             entity.state ||= {}; entity.state.inventory ||= [];
-            if (itemEntity.definition?.sceneOrigin)
+            if (itemEntity.definition?.sceneOrigin || sourceHasInstance
+                || looseItem && duplicateIdentity)
                 entity.state.inventory.push({ id: resolvedId, name: transferName, quantity });
             else for (let count = 0; count < quantity; count++)
                 entity.state.inventory.push(transferName);
@@ -496,6 +598,7 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
     });
     registerNative('item_introduce', value => ids(value?.id, value?.location_id)
         && typeof value?.name === 'string' && !!value.name.trim()
+        && (value.container_id === undefined || safeId(value.container_id))
         && (value.actor_id === undefined || safeId(value.actor_id))
         && (value.rule_id === undefined || safeId(value.rule_id))
         && (value.source_item_id === undefined || typeof value.source_item_id === 'string')
@@ -524,6 +627,13 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             && typeof value.category === 'string'
             && (discoveryPolicy?.ordinaryCategories || []).includes(value.category)
             && (value.quantity || 1) <= Number(discoveryPolicy.maxQuantity || 1);
+        const dynamicProof = context.dynamicDiscovery?.get(value.id);
+        if (cause === 'discovery' && value.container_id) {
+            const container = working.getEntity(value.container_id);
+            const mode = discoveryApi.contentMode(container, working, value.location_id);
+            if (mode !== 'unspecified' && !rule)
+                throw new BlockedAction(`container_${mode}`);
+        }
         const catalogItem = (working.getWorld('gameRules')?.itemCatalog || [])
             .find(item => itemKey(item.name) === itemKey(value.name));
         const guardedName = working.locationIds().some(id =>
@@ -536,8 +646,18 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         if (categoryAllowed && (guardedName || catalogItem && (catalogItem.unique || catalogItem.questItem
             || catalogItem.properties?.access || catalogItem.properties?.unique)))
             throw new BlockedAction('special_item_requires_rule');
-        if (!rule && !discoverable && !categoryAllowed)
+        if (!rule && !discoverable && !categoryAllowed && dynamicProof?.type !== 'success')
             throw new BlockedAction('item_creation_not_authorized');
+        if (dynamicProof?.type === 'success' && value.container_id) {
+            const container = working.getEntity(value.container_id);
+            if (!container.definition || (container.state?.location
+                || container.definition.locationId || container.definition.startLocation)
+                !== value.location_id) throw new BlockedAction('container_unavailable');
+            const state = container.state?.interactableState
+                || container.definition.interactable?.initialState;
+            if (!['open', 'removed', 'cleared', 'broken'].includes(state))
+                throw new BlockedAction('container_closed');
+        }
         if (!rule && (value.duration_minutes || value.source_item_id))
             throw new BlockedAction('unruled_creation_property');
         if (rule) {
@@ -652,6 +772,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
             entity.state = { location: value.location_id, quantity: value.quantity || 1,
                 originCause: cause, originEventId: proof[0].id || context.actionId,
                 creatorId: actor,
+                ...(dynamicProof?.type === 'success' && value.container_id
+                    ? { containerId: value.container_id } : {}),
                 ...(value.duration_minutes ? { expiresAtMinute: now + value.duration_minutes } : {}) };
         });
     });
@@ -921,6 +1043,13 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
 }
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
+    if (world?.gameRules?.dynamicObjectDiscovery?.enabled === true
+        && (plan.events || []).some(event => event.type === 'discovery' && !event.id)) {
+        plan = { ...plan, events: (plan.events || []).map((event, index) =>
+            event.type === 'discovery' && !event.id
+                ? { ...event, id: `discovery_event_${session.turnCount || 1}_${index}` }
+                : event) };
+    }
     const working = context.workingState || workingApi.createWorkingState(world, session);
     expireCreatedItems(working);
     if (working.getSession('sceneItemSeeds'))
@@ -1007,6 +1136,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
         for (let i = 0; i < seed.length; i++) hash = Math.imul(hash ^ seed.charCodeAt(i), 16777619);
         return min + (hash >>> 0) % (max - min + 1);
     };
+    const dynamicDiscovery = new Map();
     const errors = [];
     // Only completed, structurally witnessed operations may survive a repair.
     // The reducer succeeding is deliberately insufficient: the action must
@@ -1064,7 +1194,9 @@ function executeLinkedActions(plan, world, session, context = {}) {
         return { ok: false, errors: [{ reason: 'invalid_event_rules', stage: 'event_rule_validation' }],
             outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [] };
     }
-    const eventTypes = { actor_move: ['movement'], interactable_transition: ['environment'],
+    const eventTypes = { actor_move: ['movement'], npc_follow: ['escort'],
+        npc_goal_set: ['quest'],
+        interactable_transition: ['environment'],
         item_transfer: ['inventory'], item_consume: ['inventory'],
         item_introduce: ['discovery', 'inventory'],
         entity_introduce: ['environment'], location_introduce: ['environment'],
@@ -1091,6 +1223,10 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 || event.action !== 'report')) return false;
         if (['interactable_transition', 'relation_set'].includes(operation.type)
             && event.target_id !== operation.payload?.target_id) return false;
+        if (operation.type === 'npc_follow'
+            && (event.target_id !== 'player'
+                || event.action !== (operation.payload.following ? 'join' : 'leave'))) return false;
+        if (operation.type === 'npc_goal_set' && event.action !== 'accept') return false;
         if (operation.type === 'outfit_set' && event.outfit !== operation.payload?.outfit) return false;
         if (operation.type === 'condition_change'
             && (event.condition !== operation.payload?.condition
@@ -1180,6 +1316,82 @@ function executeLinkedActions(plan, world, session, context = {}) {
         try {
             if ((action.state_conditions || []).some(condition => !facts.test(condition, working)))
                 throw new BlockedAction('state_condition_not_met');
+            // A model may propose a discovery, but only this engine-owned gate
+            // can authorize its existence. Run it only for an actual proposal.
+            if (world?.gameRules?.dynamicObjectDiscovery?.enabled === true) {
+                const introductions = action.action_effects?.item_introduce || [];
+                for (const value of introductions) {
+                    if ((value.cause || 'discovery') !== 'discovery' || value.rule_id) continue;
+                    const place = working.getLocation(value.location_id).definition;
+                    const mentionedContainers = working.getEntitiesByFilter(entity =>
+                        entity.definition?.interactable
+                        && (entity.state?.location || entity.definition?.locationId
+                            || entity.definition?.startLocation) === value.location_id
+                        && itemKey(action.request || '').includes(itemKey(entity.definition.name)))
+                        .map(entity => entity.definition.id);
+                    const containerMismatch = mentionedContainers.length === 1
+                        && value.container_id !== mentionedContainers[0];
+                    const authored = (place?.discoverableItems || []).some(item =>
+                        itemKey(typeof item === 'string' ? item : item?.name) === itemKey(value.name))
+                        || (place?.discoveryPolicy?.ordinaryCategories || []).includes(value.category);
+                    if (authored && !containerMismatch) continue;
+                    const actor = value.actor_id || 'player';
+                    const result = containerMismatch ? { type: 'blocked', reason: 'container_scope_mismatch' }
+                        : discoveryApi.resolveDynamicObjectDiscovery({
+                        request: { ...value, properties: value.properties || {} }, actor,
+                        location: place, container: value.container_id ? { id: value.container_id } : null,
+                        worldRules: world.gameRules, world, workingState: working,
+                        roll: (min, max, ruleId) => checkRoll(min, max, ruleId, actionSlot),
+                        evaluateCheck: (rule, checkActor, roll) => checkApi.evaluate(rule,
+                            { action_id: action.action_id, kind: 'observation', request: action.request },
+                            [{ action_id: action.action_id, actor_id: checkActor }], working, roll)
+                    });
+                    if (result.check && !result.repeated) checkResults.push({ ...result.check,
+                        action_slot: actionSlot, search_scope_id: value.container_id || value.location_id,
+                        search_object: value.name, check_type: 'existence' });
+                    if (result.type === 'existing') {
+                        action.action_effects.item_introduce = (action.action_effects.item_introduce || [])
+                            .filter(entry => entry.id !== value.id);
+                        if (!action.action_effects.item_introduce.length)
+                            delete action.action_effects.item_introduce;
+                        for (const transfer of action.action_effects.item_transfer || [])
+                            if (transfer.item_id === value.id) transfer.item_id = result.objectId;
+                        plan.events = plan.events.filter(event => event.action_id !== action.action_id
+                            || event.type !== 'discovery');
+                        const passage = plan.narrative?.find(item => item.id === action.response_id);
+                        if (passage) passage.text = /[äöüß]|\b(?:ich|suche|durchsuche|nach)\b/i
+                            .test(action.request || '')
+                            ? `Der vorhandene Gegenstand ist hier: ${value.name}.`
+                            : `The existing ${value.name} is here.`;
+                    } else if (result.type === 'success') {
+                        dynamicDiscovery.set(value.id, result);
+                        const passage = plan.narrative?.find(item => item.id === action.response_id);
+                        if (passage && /^(?:You search the (?:container|area)\.|Du (?:durchsuchst den Behälter|suchst in der Umgebung)\.)$/.test(passage.text))
+                            passage.text = /[äöüß]|\b(?:ich|suche|durchsuche|nach)\b/i
+                                .test(action.request || '')
+                                ? `Du findest den gesuchten Gegenstand: ${value.name}.`
+                                : `You find ${/^[aeiou]/i.test(value.name) ? 'an' : 'a'} ${value.name}.`;
+                        if (passage && /^(?:You reach for the object\.|Du greifst nach dem Gegenstand\.)$/.test(passage.text))
+                            passage.text = /[äöüß]|\b(?:ich|nehme|nimm)\b/i.test(action.request || '')
+                                ? `Du nimmst ${value.name} mit.`
+                                : `You take the ${value.name}.`;
+                    }
+                    else {
+                        // The search itself is valid. Replace the model's
+                        // speculative success before receipt validation.
+                        action.status = 'attempted';
+                        action.action_effects = {};
+                        plan.events = plan.events.filter(event => event.action_id !== action.action_id
+                            || event.status !== 'completed');
+                        const passage = plan.narrative?.find(item => item.id === action.response_id);
+                        if (passage) passage.text = /[äöüß]|\b(?:ich|suche|durchsuche|nach)\b/i
+                            .test(action.request || '')
+                            ? 'Die Suche bringt keinen bestätigten neuen Gegenstand hervor.'
+                            : 'The search reveals no confirmed new object.';
+                        break;
+                    }
+                }
+            }
             const matchingRules = checkRules.filter(rule => checkApi.matches(rule, action));
             const costActors = preflightCosts(matchingRules, action);
             const actionChecks = matchingRules
@@ -1284,7 +1496,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     return [{ type, payload: values }];
                 if (!Array.isArray(values)) throw new Error(`invalid_effect_list:${type}`);
                 return values.map(payload => ({ type, payload }));
-            });
+            }).sort((a, b) => a.type === 'item_introduce' && b.type === 'item_transfer'
+                ? -1 : a.type === 'item_transfer' && b.type === 'item_introduce' ? 1 : 0);
             if (actionChecks.length) {
                 const denied = operations.find(operation => actionChecks.some(check =>
                     !check.allowed_effects.includes(operation.type)));
@@ -1360,9 +1573,12 @@ function executeLinkedActions(plan, world, session, context = {}) {
             }
             applyCheckCosts();
             const applied = effects.run(operations, working, { ...context, capability, turnTimeBudget,
+                dynamicDiscovery,
                 actionOperations: operations,
                 travelSpent,
                 actionEvents: plan.events.filter(event => event.action_id === action.action_id),
+                actionSpeech: (plan.speech || []).filter(speech => speech.action_id === action.action_id),
+                actionPassages: (plan.narrative || []).filter(passage => passage.action_id === action.action_id),
                 consumedRelationEvents: new Set(),
                 protocol: capability.protocol, executionMode: capability.executionMode,
                 actionId: action.action_id, sessionId: session.id,
@@ -1459,7 +1675,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
                         condition: ['condition_change', 'player_condition_updates'],
                         relationship: ['relation_set', 'npc_relationship_updates'],
                         time: ['time_advance', 'time_skip_minutes'],
-                        status: ['npc_status_changes']
+                        status: ['npc_status_changes'], escort: ['npc_follow']
                     }[event.type];
                     if (requiredEffects && !executedOperations.some(operation =>
                         requiredEffects.includes(operation.type))) {
@@ -1469,11 +1685,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
                             cause: `Completed ${event.type} event has no matching executed effect.` });
                         throw error;
                     }
-                    if (event.type === 'movement' && !operations.some(operation =>
-                        operation.type === 'actor_move'
-                        && (operation.payload.actor_id === event.actor_id
-                            || (operation.payload.companion_ids || []).includes(event.actor_id))
-                        && operation.payload.to_location_id === event.to_location_id))
+                    if (event.type === 'movement' && !moveTransitions.some(move =>
+                        move.actor === event.actor_id && move.to === event.to_location_id))
                         throw new Error('unlinked_movement_event');
                     if (event.type === 'movement' && event.to_location_id
                         && (event.actor_id === 'player' ? working.getSession('playerLocation')

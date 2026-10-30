@@ -63,8 +63,9 @@ const transfer = (id, from, to) => ({ item_transfer: [{ item_id: id,
 const scenarios = [
     (f, i) => ({ input: i % 2 ? `Was weiß ${f.npcName} über Raum ${i}?`
         : `What does ${f.npcName} know about room ${i}?`,
-    actions: [action('question', 'answered', `${f.npcName} describes the room.`, {
-        speech: { speaker: f.npcId, listeners: ['player'] } })], expect: 'unchanged' }),
+    actions: [action('question', 'answered', `${f.npcName} says "The room is quiet."`, {
+        speech: { speaker: f.npcId, listeners: ['player'],
+            quote: 'The room is quiet.' } })], expect: 'unchanged' }),
     (f, i) => ({ input: i % 2 ? `Ich grüße ${f.npcName}.`
         : `I greet ${f.npcName}.`,
     actions: [action('speech', 'resolved', `${f.npcName} returns the greeting.`)],
@@ -149,10 +150,12 @@ const scenarios = [
     (f, i) => ({ input: i % 2 ? 'Ich frage beide nach dem Weg.'
         : 'I ask both of them for directions.',
         actions: [{ kind: 'question', status: 'answered', effects: [], response: [
-            { text: `${f.npcName} points toward the exit.`,
-                speech: [{ speaker: f.npcId, listeners: ['player'] }] },
-            { text: `${f.rivalName} recommends the same route.`,
-                speech: [{ speaker: f.rivalId, listeners: ['player'] }] }] }],
+            { text: `${f.npcName} says "Take the exit."`,
+                speech: [{ speaker: f.npcId, listeners: ['player'],
+                    quote: 'Take the exit.' }] },
+            { text: `${f.rivalName} says "I agree."`,
+                speech: [{ speaker: f.rivalId, listeners: ['player'],
+                    quote: 'I agree.' }] }] }],
         expect: 'unchanged' }),
     (f, i) => ({ input: i % 2 ? 'Ich werfe den Tisch um.' : 'I overturn the table.',
         actions: [action('physical', 'resolved', `The table tips onto its side.`, {

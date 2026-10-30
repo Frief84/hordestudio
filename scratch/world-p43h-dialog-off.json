@@ -1,0 +1,687 @@
+[
+  {
+    "id": "P43H_DIALOG_OFF",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I ask Linda how she is.",
+    "background": null,
+    "turns": [
+      {
+        "index": 1,
+        "input": "I ask Linda how she is.",
+        "durationMs": 4105,
+        "error": "",
+        "audit": {
+          "turn": 2,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 0,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 1,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:linda",
+            "entity:key",
+            "history",
+            "session:livingWorldActivity",
+            "session:_worldEpoch",
+            "time",
+            "session:worldClock",
+            "session:worldModelAttempts",
+            "session:worldModelTotals"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "turn_19ecc86cf407acd14c0b8429",
+            "diagnosticId": "turn_19ecc86cf407acd14c0b8429_1_diag",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [],
+            "calls": [
+              {
+                "kind": "main",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "qwen2.5:14b-instruct-q4_K_M",
+                "status": 200,
+                "durationMs": 3864,
+                "usage": null
+              }
+            ]
+          },
+          "binding": {
+            "turnId": "turn_19ecc86cf407acd14c0b8429",
+            "worldActionIds": [],
+            "gestureActionIds": [],
+            "repairs": [],
+            "actionSpans": [
+              {
+                "start": 0,
+                "end": 23,
+                "action_id": "turn_19ecc86cf407acd14c0b8429_action_0"
+              }
+            ]
+          }
+        },
+        "receipt": {
+          "receipt": {
+            "summary": "I'm doing well, thanks. How about you?",
+            "action_resolution": {
+              "kind": "speech",
+              "status": "resolved",
+              "outcome": "I'm doing well, thanks. How about you?"
+            },
+            "scene": {
+              "player_location_id": "foyer",
+              "player_location_changed": false,
+              "present_character_ids": [
+                "linda"
+              ]
+            },
+            "events": [],
+            "entity_updates": [],
+            "state_updates": {},
+            "action_results": [
+              {
+                "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+                "outcome": "succeeded"
+              }
+            ],
+            "confirmed_effects": [],
+            "check_results": [],
+            "speech_attributions": [],
+            "passage_speakers": [
+              {
+                "passage_id": "turn_19ecc86cf407acd14c0b8429_action_0_p0",
+                "speaker_id": null
+              }
+            ],
+            "turn_id": "turn_19ecc86cf407acd14c0b8429",
+            "passages": [
+              {
+                "id": "turn_19ecc86cf407acd14c0b8429_action_0_p0",
+                "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+                "text": "I'm doing well, thanks. How about you?"
+              }
+            ],
+            "start_scene": {
+              "player_location_id": "foyer",
+              "actor_locations": {
+                "linda": "foyer",
+                "key": "foyer"
+              }
+            },
+            "clock": {
+              "absolute_minutes": 485
+            }
+          },
+          "audit": {
+            "turn": 2,
+            "protocol": "scene_draft_v3",
+            "actions": [
+              {
+                "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+                "outcome": "succeeded"
+              }
+            ],
+            "accepted": 0,
+            "informational": 0,
+            "rejected": [],
+            "world_state_version": 1,
+            "cast_checksum_match": true,
+            "dirtyKeys": [
+              "entity:linda",
+              "entity:key",
+              "history",
+              "session:livingWorldActivity",
+              "session:_worldEpoch",
+              "time",
+              "session:worldClock",
+              "session:worldModelAttempts",
+              "session:worldModelTotals"
+            ],
+            "compilerRepairs": [],
+            "repairCount": 0,
+            "turnResolution": {
+              "status": "clean",
+              "turnId": "turn_19ecc86cf407acd14c0b8429",
+              "diagnosticId": "turn_19ecc86cf407acd14c0b8429_1_diag",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "originalFailure": null,
+              "failures": [],
+              "repairResults": [],
+              "discarded": null,
+              "confirmedEffects": [],
+              "calls": [
+                {
+                  "kind": "main",
+                  "provider": "local",
+                  "outcome": "ok",
+                  "model": "qwen2.5:14b-instruct-q4_K_M",
+                  "status": 200,
+                  "durationMs": 3864,
+                  "usage": null
+                }
+              ]
+            },
+            "binding": {
+              "turnId": "turn_19ecc86cf407acd14c0b8429",
+              "worldActionIds": [],
+              "gestureActionIds": [],
+              "repairs": [],
+              "actionSpans": [
+                {
+                  "start": 0,
+                  "end": 23,
+                  "action_id": "turn_19ecc86cf407acd14c0b8429_action_0"
+                }
+              ]
+            }
+          }
+        },
+        "inventory": [],
+        "playerLocation": "foyer",
+        "npcObservations": {
+          "linda": [
+            {
+              "id": "obs_0_i_ask_linda_how_she_is",
+              "eventId": "",
+              "text": "I ask Linda how she is.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_19ecc86cf407acd14c0b8429_action_0",
+              "eventId": "",
+              "text": "Player said: I ask Linda how she is.",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 485
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ]
+        }
+      }
+    ],
+    "turnDurationMs": 4110,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+          "outcome": "succeeded"
+        }
+      ],
+      "accepted": 0,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:key",
+        "history",
+        "session:livingWorldActivity",
+        "session:_worldEpoch",
+        "time",
+        "session:worldClock",
+        "session:worldModelAttempts",
+        "session:worldModelTotals"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "clean",
+        "turnId": "turn_19ecc86cf407acd14c0b8429",
+        "diagnosticId": "turn_19ecc86cf407acd14c0b8429_1_diag",
+        "model": "qwen2.5:14b-instruct-q4_K_M",
+        "originalFailure": null,
+        "failures": [],
+        "repairResults": [],
+        "discarded": null,
+        "confirmedEffects": [],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 3864,
+            "usage": null
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_19ecc86cf407acd14c0b8429",
+        "worldActionIds": [],
+        "gestureActionIds": [],
+        "repairs": [],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 23,
+            "action_id": "turn_19ecc86cf407acd14c0b8429_action_0"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "I'm doing well, thanks. How about you?",
+        "action_resolution": {
+          "kind": "speech",
+          "status": "resolved",
+          "outcome": "I'm doing well, thanks. How about you?"
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_19ecc86cf407acd14c0b8429_action_0_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_19ecc86cf407acd14c0b8429",
+        "passages": [
+          {
+            "id": "turn_19ecc86cf407acd14c0b8429_action_0_p0",
+            "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+            "text": "I'm doing well, thanks. How about you?"
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 485
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_19ecc86cf407acd14c0b8429_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "accepted": 0,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:key",
+          "history",
+          "session:livingWorldActivity",
+          "session:_worldEpoch",
+          "time",
+          "session:worldClock",
+          "session:worldModelAttempts",
+          "session:worldModelTotals"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "clean",
+          "turnId": "turn_19ecc86cf407acd14c0b8429",
+          "diagnosticId": "turn_19ecc86cf407acd14c0b8429_1_diag",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "originalFailure": null,
+          "failures": [],
+          "repairResults": [],
+          "discarded": null,
+          "confirmedEffects": [],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 3864,
+              "usage": null
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_19ecc86cf407acd14c0b8429",
+          "worldActionIds": [],
+          "gestureActionIds": [],
+          "repairs": [],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 23,
+              "action_id": "turn_19ecc86cf407acd14c0b8429_action_0"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 0,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3064,
+        "mainPromptCharacters": 69200,
+        "repairPromptCharacters": 0,
+        "firstTokenMs": 3862,
+        "firstContentMs": 3862,
+        "localValidationMs": 3,
+        "generationMs": 3864,
+        "outputCharacters": 246,
+        "estimatedInputTokens": 21625,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3064,
+          "locationDescription": 42,
+          "npcPerspectives": 1030,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 23,
+          "schema": 34163,
+          "sceneGuidance": 12100
+        },
+        "contextBudget": {
+          "basis": "estimated_from_characters",
+          "tokenDivisor": 3.2,
+          "parts": {
+            "lore": {
+              "characters": 3064,
+              "estimatedTokens": 958
+            },
+            "locationDescription": {
+              "characters": 42,
+              "estimatedTokens": 14
+            },
+            "npcPerspectives": {
+              "characters": 1030,
+              "estimatedTokens": 322
+            },
+            "ledgerAndArchive": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "memoryMatrix": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "sourceLinkedRecall": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "recentHistory": {
+              "characters": 23,
+              "estimatedTokens": 8
+            },
+            "schema": {
+              "characters": 34163,
+              "estimatedTokens": 10676
+            },
+            "sceneGuidance": {
+              "characters": 12100,
+              "estimatedTokens": 3782
+            }
+          },
+          "estimatedTokens": 15760
+        }
+      },
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 3864,
+          "usage": null
+        }
+      ]
+    },
+    "narrative": "I'm doing well, thanks. How about you?",
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_ask_linda_how_she_is",
+              "eventId": "",
+              "text": "I ask Linda how she is.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_19ecc86cf407acd14c0b8429_action_0",
+              "eventId": "",
+              "text": "Player said: I ask Linda how she is.",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 485
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "itemIds": [
+        "key",
+        "drawer"
+      ],
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_0_i_ask_linda_how_she_is",
+              "eventId": "",
+              "text": "I ask Linda how she is.",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_19ecc86cf407acd14c0b8429_action_0",
+              "eventId": "",
+              "text": "Player said: I ask Linda how she is.",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 485
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ]
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 3847,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 35005,
+        "contextCharacters": 34154,
+        "schemaCharacters": 34163,
+        "reasoningEffort": null,
+        "responseCharacters": 15845,
+        "contentCharacters": 246,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "rawResponse": "data: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"{\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"protocol\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"scene\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"_draft\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"_v\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"3\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"actions\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" [\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"   \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" {\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"kind\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"speech\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"status\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"resolved\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"response\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" [\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"       \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" {\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"         \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"text\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"I\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"'m\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" doing\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" well\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\",\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" thanks\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\".\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" How\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" about\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" you\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"?\\\"\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"       \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" }\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" ],\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"effects\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" []\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"   \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" }\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" ]\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"}\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-918\",\"object\":\"chat.completion.chunk\",\"created\":1793370114,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        "providerTiming": null
+      }
+    ],
+    "bindingResponses": [
+      {
+        "request": "{\"draft\":{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"kind\":\"speech\",\"status\":\"resolved\",\"response\":[{\"text\":\"I'm doing well, thanks. How about you?\"}],\"effects\":[]}]},\"canonical\":{\"type\":\"object\",\"properties\":{\"protocol\":{\"type\":\"string\",\"enum\":[\"scene_draft_v3\"]},\"narrative\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":16,\"description\":\"Ordered scene continuation, starting with a consequence or NPC response; never repeat the player input. Reference passage IDs without repeating prose.\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.\",\"maxLength\":80},\"text\":{\"type\":\"string\",\"description\":\"One paragraph of new player-facing narrative or attributed NPC dialogue, never a player-action preamble.\",\"maxLength\":4000},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"id\",\"text\"],\"additionalProperties\":false}},\"actions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"request\":{\"type\":\"string\",\"description\":\"Omit only for one simple action. For compound input, copy contiguous excerpts covering the full request in order.\",\"maxLength\":16000},\"kind\":{\"type\":\"string\",\"enum\":[\"physical\",\"speech\",\"question\",\"observation\",\"travel\",\"wait\",\"other\"]},\"status\":{\"type\":\"string\",\"enum\":[\"resolved\",\"answered\",\"attempted\",\"pending_check\",\"blocked\",\"needs_clarification\"],\"description\":\"pending_check means one real unresolved engine check in this action's action_effects.checks; no check means use the actual resolved, attempted, blocked or clarification status. A requested NPC decision is not a check.\"},\"response_id\":{\"type\":\"string\",\"description\":\"Passage that RESPONDS to this request: the answer, refusal, result or check setup. Not a passage merely repeating the player’s question.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80},\"depends_on\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"action_id\":{\"type\":\"string\",\"description\":\"Exact ID of an earlier action.\",\"maxLength\":80},\"outcome\":{\"type\":\"string\",\"enum\":[\"succeeded\",\"failed\",\"blocked\"]}},\"required\":[\"action_id\",\"outcome\"],\"additionalProperties\":false},\"maxItems\":32},\"state_conditions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"fact\":{\"type\":\"string\",\"description\":\"Registered read-only fact name, never a sentence or an action result.\",\"maxLength\":80,\"enum\":[\"actor_at\",\"following_player\",\"has_item\",\"interactable_state\",\"condition\",\"relation\"]},\"subject_id\":{\"type\":\"string\",\"description\":\"Exact entity or location ID.\",\"maxLength\":120},\"target_id\":{\"type\":\"string\",\"description\":\"Exact second actor or faction ID for a relation fact.\",\"maxLength\":120},\"operator\":{\"type\":\"string\",\"enum\":[\"equals\",\"not_equals\",\"exists\"]},\"value\":{\"type\":\"string\",\"description\":\"Expected value; omit for exists.\",\"maxLength\":200}},\"required\":[\"fact\",\"subject_id\",\"operator\"],\"additionalProperties\":false},\"maxItems\":32},\"action_effects\":{\"type\":\"object\",\"properties\":{\"time_skip_minutes\":{\"type\":\"integer\"},\"stat_changes\":{\"type\":\"object\",\"properties\":{}},\"stat_change_cause\":{\"type\":\"string\"},\"transactions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\",\"enum\":[\"buy\",\"sell\"]},\"item\":{\"type\":\"string\"},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100},\"price\":{\"type\":\"number\"},\"location_id\":{\"type\":\"string\"}},\"required\":[\"type\",\"item\",\"price\"],\"additionalProperties\":false}},\"checks\":{\"type\":\"array\",\"maxItems\":1,\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"},\"stat_id\":{\"type\":\"string\"},\"capability_id\":{\"type\":\"string\"},\"difficulty\":{\"type\":\"integer\",\"minimum\":2,\"maximum\":30},\"modifier\":{\"type\":\"integer\",\"minimum\":-5,\"maximum\":5},\"failure_cost\":{\"type\":\"object\",\"properties\":{\"stat_changes\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"number\"}},\"inventory_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"time_skip_minutes\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":14400},\"condition\":{\"type\":\"string\"},\"cause\":{\"type\":\"string\"}},\"additionalProperties\":false},\"on_success\":{\"type\":\"object\",\"additionalProperties\":true},\"on_failure\":{\"type\":\"object\",\"additionalProperties\":true}},\"required\":[\"label\",\"difficulty\"],\"additionalProperties\":false}},\"ledger_update\":{\"type\":\"string\"},\"quests_update\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"giver\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"completed\",\"failed\",\"abandoned\"]},\"completion_note\":{\"type\":\"string\"},\"objectives\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"type\":{\"type\":\"string\",\"enum\":[\"manual\",\"location\",\"inventory\",\"stat\",\"secret\",\"npc_status\",\"thread\"]},\"target\":{\"type\":\"string\"},\"expected\":{\"type\":\"string\"},\"required\":{\"type\":\"number\"},\"current\":{\"type\":\"number\"},\"progress_change\":{\"type\":\"number\"},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"completed\",\"failed\"]},\"optional\":{\"type\":\"boolean\"}},\"additionalProperties\":false}},\"rewards\":{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"stat_changes\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"number\"}},\"faction_reputation\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"faction_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"}},\"required\":[\"faction_id\",\"change\"],\"additionalProperties\":false}}},\"additionalProperties\":false}},\"additionalProperties\":false}},\"access_grants\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"grantor_npc_id\":{\"type\":\"string\"},\"recipient_npc_id\":{\"type\":\"string\"},\"location_id\":{\"type\":\"string\"},\"action\":{\"type\":\"string\",\"enum\":[\"grant\",\"revoke\"]}},\"required\":[\"grantor_npc_id\",\"recipient_npc_id\",\"location_id\",\"action\"],\"additionalProperties\":false}},\"npc_status_changes\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"npc_id\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"alive\",\"dead\",\"gone\"]},\"cause\":{\"type\":\"string\"}},\"required\":[\"npc_id\",\"status\"],\"additionalProperties\":false}},\"threads_update\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"open\",\"resolved\"]}},\"required\":[\"id\",\"text\"],\"additionalProperties\":false}},\"npc_relationship_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"source_npc_id\":{\"type\":\"string\"},\"target_npc_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"},\"label\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"source_npc_id\",\"target_npc_id\"],\"additionalProperties\":false}},\"economy_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"location_id\":{\"type\":\"string\"},\"item\":{\"type\":\"string\"},\"quantity_change\":{\"type\":\"number\"},\"set_quantity\":{\"type\":\"number\"},\"price\":{\"type\":\"number\"},\"regen_per_turn\":{\"type\":\"number\"},\"max_quantity\":{\"type\":\"number\"}},\"required\":[\"location_id\",\"item\"],\"additionalProperties\":false}},\"player_identity_update\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"social_rank\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"legal_status\":{\"type\":\"string\"},\"faction_id\":{\"type\":\"string\"},\"privileges_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"privileges_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"obligations_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"obligations_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"holdings_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"holdings_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"heat_change\":{\"type\":\"number\"},\"crime\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"reason\"],\"additionalProperties\":false},\"npc_disposition_changes\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"npc_id\":{\"type\":\"string\"},\"change\":{\"type\":\"integer\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"npc_id\",\"change\"],\"additionalProperties\":false}},\"npc_introduced\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"persona\":{\"type\":\"string\"},\"home_location\":{\"type\":\"string\"}},\"required\":[\"id\",\"name\",\"persona\"],\"additionalProperties\":false}},\"location_introduced\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"region\":{\"type\":\"string\"},\"connects_to\":{\"type\":\"string\"},\"map_type\":{\"type\":\"string\",\"enum\":[\"region\",\"route\",\"building\",\"outdoor\",\"room\",\"area\"]},\"parent_location_id\":{\"type\":\"string\"},\"floor\":{\"type\":\"string\"}},\"required\":[\"id\",\"name\",\"connects_to\"],\"additionalProperties\":false}},\"actor_move\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"to_location_id\":{\"type\":\"string\",\"maxLength\":120},\"mode\":{\"type\":\"string\",\"enum\":[\"journey\",\"teleport\"]},\"explore\":{\"type\":\"boolean\"},\"companion_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"maxLength\":120},\"maxItems\":32}},\"required\":[\"actor_id\",\"to_location_id\"],\"additionalProperties\":false},\"maxItems\":32},\"npc_follow\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"following\":{\"type\":\"boolean\"}},\"required\":[\"actor_id\",\"following\"],\"additionalProperties\":false},\"maxItems\":32},\"npc_goal_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"goal\":{\"type\":\"string\",\"maxLength\":200}},\"required\":[\"actor_id\",\"goal\"],\"additionalProperties\":false},\"maxItems\":32},\"interactable_transition\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"to_state\":{\"type\":\"string\",\"maxLength\":80},\"actor_id\":{\"type\":\"string\",\"maxLength\":120}},\"required\":[\"target_id\",\"to_state\"],\"additionalProperties\":false},\"maxItems\":32},\"item_transfer\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"item_id\":{\"type\":\"string\",\"maxLength\":120},\"from_id\":{\"type\":\"string\",\"maxLength\":120},\"to_id\":{\"type\":\"string\",\"maxLength\":120},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"container_id\":{\"type\":\"string\",\"maxLength\":120},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}},\"required\":[\"item_id\",\"from_id\",\"to_id\"],\"additionalProperties\":false},\"maxItems\":32},\"item_consume\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"item_id\":{\"type\":\"string\",\"maxLength\":120},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}},\"required\":[\"item_id\",\"actor_id\"],\"additionalProperties\":false},\"maxItems\":32},\"item_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"location_id\":{\"type\":\"string\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"maxLength\":500},\"container_id\":{\"type\":\"string\",\"maxLength\":120},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"cause\":{\"type\":\"string\",\"enum\":[\"discovery\",\"crafting\",\"conjuration\",\"transmutation\",\"replication\"]},\"category\":{\"type\":\"string\",\"maxLength\":120},\"rule_id\":{\"type\":\"string\",\"maxLength\":120},\"source_item_id\":{\"type\":\"string\",\"maxLength\":120},\"duration_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080}},\"required\":[\"id\",\"name\",\"location_id\"],\"additionalProperties\":false},\"maxItems\":32},\"entity_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"location_id\":{\"type\":\"string\",\"maxLength\":120},\"persona\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"name\",\"location_id\",\"persona\"],\"additionalProperties\":false},\"maxItems\":32},\"location_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"connects_to\":{\"type\":\"string\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"name\",\"connects_to\"],\"additionalProperties\":false},\"maxItems\":32},\"condition_change\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"condition\":{\"type\":\"string\",\"maxLength\":160},\"action\":{\"type\":\"string\",\"enum\":[\"add\",\"remove\"]}},\"required\":[\"target_id\",\"condition\",\"action\"],\"additionalProperties\":false},\"maxItems\":32},\"relation_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"subject_id\":{\"type\":\"string\",\"maxLength\":120},\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"value\":{\"type\":\"integer\",\"minimum\":-100,\"maximum\":100}},\"required\":[\"subject_id\",\"target_id\",\"value\"],\"additionalProperties\":false},\"maxItems\":32},\"event_emit\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"type\":{\"type\":\"string\",\"maxLength\":80},\"description\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"type\",\"description\"],\"additionalProperties\":false},\"maxItems\":32},\"knowledge_share\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"recipient_id\":{\"type\":\"string\",\"maxLength\":120},\"observation_id\":{\"type\":\"string\",\"maxLength\":120}},\"required\":[\"actor_id\",\"recipient_id\",\"observation_id\"],\"additionalProperties\":false},\"maxItems\":32},\"time_advance\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080}},\"required\":[\"minutes\"],\"additionalProperties\":false},\"maxItems\":32},\"outfit_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"outfit\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"actor_id\",\"outfit\"],\"additionalProperties\":false},\"maxItems\":32}},\"required\":[],\"additionalProperties\":false}},\"required\":[\"kind\",\"status\",\"response_id\",\"action_id\"],\"additionalProperties\":false},\"maxItems\":32},\"events\":{\"type\":\"array\",\"description\":\"Canonical events. Every physical or durable change needs an actor and completion status. 'toward', 'tries', plans and starts are intended/attempted/in_progress, never completed.\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"type\":{\"type\":\"string\",\"enum\":[\"movement\",\"escort\",\"activity\",\"interaction\",\"outfit\",\"inventory\",\"condition\",\"time\",\"observation\",\"status\",\"relationship\",\"quest\",\"discovery\",\"environment\",\"dialogue\",\"other\"],\"description\":\"Canonical event type. Movement changes mapped places; gestures and showing held items do not. Escort means an NPC joins/leaves as a continuing follower: actor_id must be that NPC, never player. Taking or dragging a person to a named room is travel, not escort; the engine may already have committed both arrivals. Use inventory for transfers, activity for lasting poses, condition only with a named lasting condition, status only for alive/dead/gone.\"},\"actor_id\":{\"type\":\"string\",\"description\":\"Exact NPC ID, or 'player'. Required for actor actions. NPC movement can never move the player.\"},\"participants\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"status\":{\"type\":\"string\",\"enum\":[\"intended\",\"attempted\",\"in_progress\",\"completed\",\"cancelled\",\"failed\"]},\"from_location_id\":{\"type\":\"string\",\"description\":\"Movement only: exact current location ID for this actor, as shown in WORLD LORE movementOptions.\"},\"to_location_id\":{\"type\":\"string\",\"description\":\"Required only when changing mapped places: exact allowed destination ID from this actor’s WORLD LORE movementOptions. Ordinary movement within the current room/place needs no movement event.\"},\"movement_mode\":{\"type\":\"string\",\"enum\":[\"voluntary\",\"forced\",\"carried\",\"vehicle\",\"fall\",\"teleport\"]},\"explore\":{\"type\":\"boolean\",\"description\":\"NPC only: deliberate search into one adjacent unknown place.\"},\"caused_by_actor_id\":{\"type\":\"string\",\"description\":\"Required with a non-voluntary player movement.\"},\"activity\":{\"type\":\"string\",\"description\":\"For type activity: the player or NPC actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. No chair or target object is required for simply sitting. Momentary posture and gestures belong in narrative without a state event.\"},\"action\":{\"type\":\"string\",\"description\":\"Inventory: add/gain/take or remove/lose/consume/give/drop. Condition: explicit add/remove/clear/recover and an exact lasting condition name. Gestures, mood and momentary poses are not conditions. Never record an offered-but-unaccepted item as gained.\"},\"target_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"},\"label\":{\"type\":\"string\"},\"item\":{\"type\":\"string\"},\"outfit\":{\"type\":\"string\",\"description\":\"Required for an outfit event. Describe the resulting complete outfit. If no outfit is established and the scene establishes or changes clothing, invent a plausible outfit consistent with the character, setting, weather and story; never leave blank.\"},\"condition\":{\"type\":\"string\",\"description\":\"Required for type condition: exact named lasting condition. For remove/clear/recover, name an existing condition of this actor. Loosening a tether without freeing its wearer does not remove cuffs.\"},\"minutes_elapsed\":{\"type\":\"integer\"},\"observation\":{\"type\":\"string\"},\"place_id\":{\"type\":\"string\",\"description\":\"For a verified told observation: exact ID of a place the NPC learns exists.\"},\"source_type\":{\"type\":\"string\",\"enum\":[\"witnessed\",\"told\",\"public\",\"suspected\",\"believed\"]},\"source_npc_id\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\"},\"visibility\":{\"type\":\"string\",\"enum\":[\"public\",\"private\"]},\"contradicted\":{\"type\":\"boolean\"},\"allowed_to_share\":{\"type\":\"boolean\"},\"next_status\":{\"type\":\"string\",\"enum\":[\"alive\",\"dead\",\"gone\"],\"description\":\"Only for type status: the NPC lifecycle value alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.\"},\"witnessed_by\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"IDs of characters who directly witnessed this event. Include 'player' when applicable.\"},\"cause\":{\"type\":\"string\"},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"type\",\"status\",\"actor_id\",\"passage_id\"],\"additionalProperties\":false}},\"effects\":{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false,\"description\":\"Changed enabled fields only. Omit when nothing changes.\"},\"speech\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"speaker\":{\"type\":\"string\",\"description\":\"Exact present NPC ID or player\",\"maxLength\":120},\"listeners\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"description\":\"Exact present listener ID or player\",\"maxLength\":120},\"maxItems\":32},\"quote\":{\"type\":\"string\",\"description\":\"Exact spoken words contained in the linked passage; omit only when the entire passage is speech.\",\"maxLength\":1200},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"speaker\",\"listeners\",\"passage_id\"],\"additionalProperties\":false},\"maxItems\":32},\"commitments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Stable event ID; reuse to acknowledge an existing commitment\",\"maxLength\":80},\"title\":{\"type\":\"string\",\"description\":\"Player-facing commitment\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"description\":\"What is due and why\",\"maxLength\":500},\"day\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Absolute world day, starting at 1. Never a relative duration.\"},\"minute_of_day\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":1439,\"description\":\"24-hour time: 17:00 is 1020.\"},\"location_id\":{\"type\":\"string\",\"description\":\"Registered location ID\",\"maxLength\":120},\"status\":{\"type\":\"string\",\"enum\":[\"scheduled\",\"cancelled\"]},\"reschedule\":{\"type\":\"boolean\",\"description\":\"True only for an explicitly agreed change, not when repeating a deadline.\"},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"id\",\"title\",\"day\",\"minute_of_day\",\"location_id\",\"status\",\"passage_id\"],\"additionalProperties\":false},\"maxItems\":32,\"description\":\"Only a newly agreed future deadline with a time expressly stated in the current player message or its linked passage. Wishes, offers, open-ended plans, aspirations and attribution requests are not timed commitments; use [] for them. Never manufacture day or minute_of_day from the World clock.\"}},\"required\":[\"protocol\",\"narrative\",\"actions\"],\"additionalProperties\":false},\"context\":{\"worldId\":\"gemma_live_P43H_DIALOG_OFF\",\"sessionId\":\"wsess_1793370111610\",\"version\":0,\"nonce\":\"195c2ae7-8229-4bac-bd37-19856b71740d\",\"input\":\"I ask Linda how she is.\",\"singleRequest\":true,\"questIds\":[],\"commitmentIds\":[],\"references\":[{\"id\":\"linda\",\"name\":\"Linda\",\"type\":\"npc\"},{\"id\":\"key\",\"name\":\"Bronze key\",\"type\":\"item\",\"locationId\":\"foyer\",\"reachable\":true},{\"id\":\"drawer\",\"name\":\"drawer\",\"type\":\"item\",\"locationId\":\"\",\"reachable\":true},{\"id\":\"foyer\",\"name\":\"Kitchen\",\"type\":\"location\"},{\"id\":\"round\",\"name\":\"Round Room\",\"type\":\"location\"}],\"playerLocation\":\"foyer\",\"dynamicDiscovery\":null,\"prepareCertainEffects\":true,\"universalCheckRules\":[],\"allowCommitments\":false,\"now\":485}}",
+        "response": "{\"ok\":true,\"draft\":{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"action_id\":\"turn_19ecc86cf407acd14c0b8429_action_0\",\"kind\":\"speech\",\"status\":\"resolved\",\"request\":\"I ask Linda how she is.\",\"response_id\":\"turn_19ecc86cf407acd14c0b8429_action_0_p0\",\"action_effects\":{}}],\"narrative\":[{\"id\":\"turn_19ecc86cf407acd14c0b8429_action_0_p0\",\"action_id\":\"turn_19ecc86cf407acd14c0b8429_action_0\",\"text\":\"I'm doing well, thanks. How about you?\"}],\"events\":[],\"effects\":{},\"speech\":[],\"commitments\":[],\"resolutions\":[]},\"binding\":{\"turnId\":\"turn_19ecc86cf407acd14c0b8429\",\"worldActionIds\":[],\"gestureActionIds\":[],\"repairs\":[],\"actionSpans\":[{\"start\":0,\"end\":23,\"action_id\":\"turn_19ecc86cf407acd14c0b8429_action_0\"}]}}",
+        "error": "",
+        "status": 0
+      }
+    ],
+    "pageErrors": []
+  }
+]

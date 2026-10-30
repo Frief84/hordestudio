@@ -36,6 +36,21 @@ assert.equal(compiled.actions[0].verifiedLocalInteraction, true);
 assert.deepEqual(compiled.receipt.events, []);
 assert.deepEqual(compiled.receipt.state_updates, {});
 assert.equal(draft.actions[0].request, undefined, 'compiler is pure');
+const stumble = scene.compile({ protocol: 'scene_draft_v3',
+    narrative: [{ id: 'p1', action_id: 'a1', text: 'Du stolperst über einen Stuhl und fängst dich.' }],
+    actions: [{ action_id: 'a1', kind: 'physical', status: 'resolved', response_id: 'p1', action_effects: {} }] },
+{ ...baseContext, input: 'du stolperst über einen Stuhl', present: [], inventory: [] });
+assert(stumble.ok, JSON.stringify(stumble.errors));
+assert.equal(stumble.linkedPlan.events[0].type, 'interaction');
+assert.equal(stumble.linkedPlan.events[0].actor_id, 'player');
+assert.equal(stumble.linkedPlan.events[0].action_id, stumble.linkedPlan.actions[0].action_id);
+const takingScenery = scene.compile({ protocol: 'scene_draft_v3',
+    narrative: [{ id: 'p1', action_id: 'a1', text: 'Du nimmst einen Stuhl mit.' }],
+    actions: [{ action_id: 'a1', kind: 'physical', status: 'resolved', response_id: 'p1', action_effects: {} }] },
+{ ...baseContext, input: 'du nimmst einen Stuhl', present: [], inventory: [] });
+assert(takingScenery.ok, JSON.stringify(takingScenery.errors));
+assert.equal(takingScenery.linkedPlan.events.length, 0,
+    'an unregistered prop cannot be acquired through incidental-action proof');
 for (const input of ['I give Linda the letter.', 'I go to the hall.', 'I do not show Linda the letter.',
     'I show Linda the letter and give her the key.', 'I open the door.']) {
     assert.equal(scene.localInteraction(input, baseContext), false, input);

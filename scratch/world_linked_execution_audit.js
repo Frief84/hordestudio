@@ -194,6 +194,38 @@ world, session, { requireEffectWitnesses: true });
 assert(partial.ok, JSON.stringify(partial.errors));
 assert(partial.working.getEntity('guide_1').state.conditions.includes('held'));
 assert.equal(partial.working.getEntity('guide_1').state.location, 'foyer');
+const heldSession = structuredClone(partial.working.prepare().session);
+const boundHands = executeLinkedActions({ actions: [sceneAction('bind', 'physical',
+    'resolved', { condition_change: [{ target_id: 'guide_1', condition: 'bound',
+        action: 'add' }] })], events: [{ type: 'condition', actor_id: 'guide_1',
+        condition: 'bound', action: 'add', status: 'completed', action_id: 'bind',
+        passage_id: 'bind_p' }], narrative: [passage('bind',
+        'The guide remains held with their hands bound.')] },
+world, heldSession, { requireEffectWitnesses: true });
+assert(boundHands.ok, JSON.stringify(boundHands.errors));
+assert(boundHands.working.getEntity('guide_1').state.conditions.includes('held'));
+assert(boundHands.working.getEntity('guide_1').state.conditions.includes('bound'));
+const boundSession = structuredClone(boundHands.working.prepare().session);
+const releasedHands = executeLinkedActions({ actions: [sceneAction('release', 'physical',
+    'resolved', { condition_change: [
+        { target_id: 'guide_1', condition: 'held', action: 'remove' },
+        { target_id: 'guide_1', condition: 'bound', action: 'remove' }] })],
+events: ['held', 'bound'].map(condition => ({ type: 'condition', actor_id: 'guide_1',
+    condition, action: 'remove', status: 'completed', action_id: 'release',
+    passage_id: 'release_p' })), narrative: [passage('release',
+    'You let go and free the guide’s hands.')] },
+world, boundSession, { requireEffectWitnesses: true });
+assert(releasedHands.ok, JSON.stringify(releasedHands.errors));
+assert.deepEqual(releasedHands.working.getEntity('guide_1').state.conditions, []);
+const danced = executeLinkedActions({ actions: [sceneAction('dance', 'physical',
+    'resolved')], events: [{ type: 'activity', actor_id: 'player',
+    status: 'completed', activity: 'dancing', action_id: 'dance',
+    passage_id: 'dance_p' }], narrative: [passage('dance',
+    'You dance beside the guide while they decide whether to join.')] },
+world, structuredClone(releasedHands.working.prepare().session),
+{ requireEffectWitnesses: true });
+assert(danced.ok, JSON.stringify(danced.errors));
+assert.equal(danced.working.getEntity('guide_1').state.location, 'foyer');
 const journey = executeLinkedActions({ actions: [sceneAction('depart', 'physical',
     'resolved', { actor_move: [{ actor_id: 'guide_1', to_location_id: 'archive',
         mode: 'journey' }] })], events: [{ type: 'activity', actor_id: 'guide_1',

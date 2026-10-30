@@ -18,6 +18,11 @@ const technicalEffects = new Map(Object.entries({
         explore: { type: 'boolean' },
         companion_ids: list(field('Exact accompanying actor ID.')) },
     ['actor_id', 'to_location_id'])),
+    npc_follow: list(shape({ actor_id: field('Exact consenting NPC ID.'),
+        following: { type: 'boolean', description: 'True after an explicit NPC agreement to accompany the player; false when that NPC leaves.' } },
+    ['actor_id', 'following'])),
+    npc_goal_set: list(shape({ actor_id: field('Exact accepting NPC ID.'),
+        goal: field('Concrete accepted NPC objective.', 200) }, ['actor_id', 'goal'])),
     interactable_transition: list(shape({ target_id: field('Exact object or door ID.'),
         to_state: field('Authored target state.', 80),
         actor_id: field('Exact acting player or NPC ID; defaults to player.') },
@@ -34,6 +39,7 @@ const technicalEffects = new Map(Object.entries({
     ['item_id', 'actor_id'])),
     item_introduce: list(shape({ id: field('New stable item ID.'), name: field('Item name.', 160),
         location_id: field('Exact present location ID.'), description: field('Short description.', 500),
+        container_id: field('Exact existing container ID when the object is found inside it.'),
         quantity: { type: 'integer', minimum: 1, maximum: 100 },
         actor_id: field('Exact creating or discovering actor ID.'),
         cause: { type: 'string', enum: ['discovery', 'crafting', 'conjuration', 'transmutation', 'replication'] },
@@ -84,6 +90,35 @@ technicalEffects.get('item_consume').npcAction = {
     event: ({ step }) => ({ type: 'inventory', action: 'consume',
         item: step.effect.payload.item_id })
 };
+technicalEffects.get('item_introduce').npcAction = {
+    options: ({ npc, world, session, locationId }) => {
+        if (world.gameRules?.dynamicObjectDiscovery?.enabled !== true) return [];
+        const goal = String(session.entityStates?.[npc.id]?.goal || '');
+        const match = goal.match(/\b(?:find|search for|look for|suche nach|finde|suche)\s+(?:a|an|the|eine|einen|ein|der|die|das)?\s*([\p{L}\p{N} -]{3,80})/iu);
+        if (!match) return [];
+        const name = match[1].replace(/\s+(?:in|inside|from|im|in der|aus)\s+.*$/iu, '').trim();
+        if (!name || name.split(/\s+/).length > 5) return [];
+        const local = (world.entities || []).filter(item => item.interactable
+            && (session.entityStates?.[item.id]?.location || item.locationId
+                || item.startLocation) === locationId
+            && ['open', 'removed', 'cleared', 'broken'].includes(
+                session.entityStates?.[item.id]?.interactableState
+                || item.interactable.initialState));
+        if (local.length !== 1) return [];
+        const container = local[0];
+        const slug = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9]+/g, '_')
+            .replace(/^_+|_+$/g, '').slice(0, 40) || 'object';
+        const id = `discovery_${locationId}_${slug}_${session.turnCount || 1}`.slice(0, 119);
+        return [{ label: `search ${container.name || container.id} for ${name}`,
+            targetId: container.id, payload: { id, name, actor_id: npc.id,
+                location_id: locationId, container_id: container.id, cause: 'discovery' },
+            prerequisites: ['grounded_context', 'open_container', 'universal_check'] }];
+    },
+    event: ({ step }) => ({ type: 'discovery', target_id: step.effect.payload.id,
+        item: step.effect.payload.name }),
+    satisfied: ({ step, world }) => world.entities?.some(item =>
+        item.id === step.effect.payload.id)
+};
 technicalEffects.get('knowledge_share').npcAction = {
     options: ({ npc, world, session, locationId }) => {
         const source = session.entityStates?.[npc.id];
@@ -120,6 +155,7 @@ technicalEffects.get('knowledge_share').npcAction = {
 technicalEffects.get('knowledge_share').eventTypes = ['dialogue'];
 const effectModules = Object.freeze({ item_transfer: 'inventory', item_consume: 'inventory',
     item_introduce: 'inventory',
+    npc_goal_set: 'livingWorld',
     condition_change: 'conditions' });
 function moduleVerdict(effect, modules) {
     const module = effectModules[effect];

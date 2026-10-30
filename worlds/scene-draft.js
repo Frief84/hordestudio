@@ -7,7 +7,8 @@ const copy = v => JSON.parse(JSON.stringify(v));
 const kinds = ['physical', 'speech', 'question', 'observation', 'travel', 'wait', 'other'];
 const statuses = ['resolved', 'answered', 'attempted', 'pending_check', 'blocked', 'needs_clarification'];
 const confirmedOutcomes = ['succeeded', 'failed', 'blocked'];
-const stateFactNames = ['actor_at', 'has_item', 'interactable_state', 'condition', 'relation'];
+const stateFactNames = ['actor_at', 'following_player', 'has_item',
+    'interactable_state', 'condition', 'relation'];
 const actionIdPattern = /^[a-z][a-z0-9_]{0,79}$/;
 const hasReadableText = value => !!String(value || '').trim()
     && !/^[\s"'“”„‘’«»]+$/u.test(String(value));
@@ -203,8 +204,9 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         speech: list(shape({
             speaker: text('Exact present NPC ID or player', 120),
             listeners: list(text('Exact present listener ID or player', 120)),
+            quote: text('Exact spoken words contained in the linked passage; omit only when the entire passage is speech.', 1200),
             passage_id: passage
-        })),
+        }, ['speaker', 'listeners', 'passage_id'])),
         commitments: { ...list(shape({
             id: text('Stable event ID; reuse to acknowledge an existing commitment', 80),
             title: text('Player-facing commitment', 120),
@@ -553,6 +555,13 @@ function localInteraction(request, context) {
     if (match) return names.includes(normalize(match[1]));
     return /^(?:(?:I|you)\s+(?:wave|nod|smile)|(?:Ich|Du)\s+(?:wink(?:e|st)|nick(?:e|st)|lächel(?:e|st)))$/i.test(input);
 }
+function incidentalSelfAction(request) {
+    const text = String(request || '').trim();
+    if (!simpleRequest(text) || /\b(?:not|never|nicht|kein\w*)\b/i.test(text)) return false;
+    // These describe a momentary bodily action. Their incidental scenery is
+    // not an inventory item or a durable world object.
+    return /^(?:(?:I|you|ich|du|er|sie)\s+)?(?:stolper\w*|strauchel\w*|hust\w*|nies\w*|gähn\w*|räusper\w*|schwank\w*|zuck\w*|blinzel\w*|stumble\w*|trip\w*|cough\w*|sneez\w*|yawn\w*|blink\w*)\b/i.test(text);
+}
 function decode(value) {
     if (object(value)) return value;
     let source = String(value).trim();
@@ -858,7 +867,27 @@ function compile(draft, context) {
         };
         bind(draft.actions, 'response_id', 'response', 'actions');
         bind(draft.events, 'passage_id', 'evidence', 'events');
+        if (draft.protocol === 'scene_draft_v3') for (const [index, item] of (draft.speech || []).entries()) {
+            if (String(item?.quote || '').trim()) continue;
+            const passageText = passages.get(item?.passage_id);
+            const speechCount = draft.speech.filter(entry => entry?.passage_id === item?.passage_id).length;
+            const quotes = [...String(passageText || '').matchAll(/["“„«]([^"”»]{1,1200})["”»]/gu)];
+            if (speechCount === 1 && quotes.length === 1) item.quote = quotes[0][1];
+            else fail(`speech.${index}.quote`, 'missing_speech_quote');
+        }
         bind(draft.speech, 'passage_id', 'statement', 'speech');
+        for (const item of draft.speech || []) {
+            if (typeof item.quote === 'string' && item.quote.trim()) {
+                if (!item.statement?.includes(item.quote.trim()))
+                    fail('speech.quote', 'speech_quote_not_in_passage');
+                else item.statement = item.quote.trim();
+            }
+            delete item.quote;
+        }
+        if (linkedPlan) linkedPlan.speech.forEach((item, index) => {
+            item.statement = draft.speech[index]?.statement;
+            delete item.quote;
+        });
         bind(draft.commitments, 'passage_id', 'evidence', 'commitments');
         bind(draft.resolutions, 'passage_id', 'response', 'resolutions');
         draft.narrative = [...passages.values()].join('\n\n');
@@ -979,6 +1008,18 @@ function compile(draft, context) {
     const present = new Set(['player', ...(context.present || [])]);
     if (Array.isArray(effects.npc_introduced)) effects.npc_introduced.forEach(npc => { if (npc?.id) present.add(npc.id); });
     const events = copy(draft.events);
+    for (const action of actions) if (action.kind === 'physical' && action.status === 'resolved'
+        && incidentalSelfAction(action.request)
+        && !(draft.events || []).some(event => event?.action_id === action.action_id
+            && event?.actor_id === 'player' && event.status === 'completed')
+        && !Object.keys(effects).length && !(draft.commitments || []).length
+        && !(draft.resolutions || []).length) {
+        const event = { type: 'interaction', actor_id: 'player', status: 'completed',
+            action: action.request.slice(0, 180), evidence: action.response.slice(0, 400),
+            ...(linkedPlan ? { action_id: action.action_id, passage_id: action.response_id } : {}) };
+        events.push(event);
+        if (linkedPlan) linkedPlan.events.push(copy(event));
+    }
     // The action entry already identifies an exact player request and a
     // linked narrative passage. If the model marks a physical attempt but
     // forgets its informational event, record that attempt locally. It grants

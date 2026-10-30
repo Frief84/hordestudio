@@ -1,6 +1,10 @@
 # World Engine: Testnachweise und Messgrenzen
 
+P4.3d (28.10.2026): [Bericht](../../documentation-reports/world-p43d-context-action-reliability.md). `scratch/world_p43d_action_reliability_audit.js` prüft positive Vault-Tür-/Cell-Key-/NPC-Aktionsketten und negative Schlüssel-/Instanzfälle einschließlich Commit/Reload. P4.3a-Recovery-Audit separat bestanden; der finale Lauf der 25 World-Regressionsaudits steht in `scratch/world-p43d-regressions-final.json` (25/25 bestanden, 0 Timeouts). `scratch/world_context_budget_browser_audit.js` sowie die P4.3b-Tür- und Schlüssel-Audits bestanden. Keine neuen Ollama-Requests.
+
 Stand: 26.10.2026. Die Zahlen bezeichnen verschiedene Prüfarten und dürfen nicht addiert oder als allgemeine Erfolgsquote ausgegeben werden. Der ursprüngliche [Modellbenchmark](../world-local-model-benchmark-2026-10-26.md), seine Diagnosen unter `../../scratch/world-model-*-2026-10-26` und reproduzierbare `../../scratch/world_*audit.js`-Skripte bleiben erhalten.
+
+P4.3b vom 27.10.2026 verwendet die reale 11-Raum-Welt **The Submission Vault** in isolierten Browser-Timelines. Der [Live-Bericht](../../documentation-reports/world-p43b-live-20261027.md) und die Rohdaten unter `../../scratch/world-model-p43b-2026-10-27/` dokumentieren Modellrequests, Belege, Fehler und Persistenz. Die Befunde sind getrennt von den P4.3a-Zahlen unten zu lesen.
 
 ## Kontrollierte World-Turn-Prüfungen
 

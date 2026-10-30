@@ -259,8 +259,16 @@ function npcGoalOptions(npc, world, session, context = {}) {
         if (item.type !== 'item') continue;
         const itemState = session.entityStates?.[item.id];
         const location = itemState?.location ?? item.locationId ?? item.location;
-        if (location !== place || itemState?.expired || itemState?.containerId
-            || itemState?.blockedBy || itemState?.reachable === false
+        const opened = id => !id || (() => {
+            const barrier = world.entities?.find(candidate => candidate.id === id);
+            return !!barrier && ['open', 'removed', 'cleared', 'broken'].includes(
+                session.entityStates?.[id]?.interactableState
+                || barrier.interactable?.initialState);
+        })();
+        if (location !== place || itemState?.expired
+            || !opened(itemState?.containerId || item.properties?.containerId)
+            || !opened(itemState?.blockedBy || item.properties?.blockedBy)
+            || itemState?.reachable === false
             || itemState?.hidden === true || item.properties?.hidden === true
             || item.properties?.reachable === false) continue;
         add(`take ${item.name || item.id}`, 'item_transfer',
@@ -338,7 +346,8 @@ function goalStepKey(npc, step, world, session) {
     const actor = npc?.id, state = session.entityStates?.[actor] || {};
     const effect = step?.effect || {}, payload = effect.payload || {};
     const place = world.locations?.find(item => item.id === state.location);
-    const target = session.entityStates?.[payload.item_id || payload.target_id] || {};
+    const target = session.entityStates?.[payload.item_id || payload.target_id
+        || payload.container_id] || {};
     const exit = (place?.exits || []).find(item => typeof item === 'object'
         && (item.doorId === payload.target_id || item.targetLocationId === payload.to_location_id));
     return JSON.stringify({ goal: state.goal, effect, location: state.location,
@@ -496,7 +505,7 @@ function executeNpcGoalStep(npc, step, world, session, context = {}) {
     if (effect.type === 'interactable_transition'
         && (!payload.target_id || !payload.to_state))
         return { ok: false, reason: 'invalid_goal_transition' };
-    const actionId = `npc_goal_${actor}_${session.turnCount || 1}_${
+    const actionId = `npc_goal_${actor}_${context.simulationMinute ?? session.turnCount ?? 1}_${
         session.entityStates?.[actor]?.goalActionIndex || 0}`;
     const passageId = `${actionId}_passage`;
     const event = { id: `${actionId}_event`, action_id: actionId,
@@ -521,6 +530,10 @@ function executeNpcGoalStep(npc, step, world, session, context = {}) {
         text: String(step.label || effect.type) }] };
     const result = linked.executeLinkedActions(plan, world, session,
         { ...context, requireEffectWitnesses: true });
+    if (effect.type === 'item_introduce' && result.ok
+        && result.outcomes.get(actionId) === 'failed')
+        return { ok: false, reason: 'discovery_not_found',
+            candidate: result.working.prepare() };
     if (!result.ok || result.outcomes.get(actionId) !== 'succeeded'
         || result.verifiedEffects.length !== 1
         || !result.verifiedEvents.some(proof => proof.id === event.id))

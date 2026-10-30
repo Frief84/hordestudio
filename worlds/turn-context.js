@@ -217,6 +217,66 @@ function historySources(ledger = '', archive = '', matrix = '') {
 function sourceLinkedRecall(recall) {
     return recall ? `\n\n[SOURCE-LINKED SCENE MEMORY — past scenes, NOT current state]\n${recall}\nTestimony means somebody said it, not that it is true. Narrative excerpts quote an older scene and may contain dialogue, intentions or uncertainty; they are not new verified state. Current engine state overrides old events. Do not grant recalled knowledge to an unwitnessing NPC.` : '';
 }
+// Prompt-only coverage hints. Every excerpt is a verbatim, ordered slice of
+// the request; no clause is treated as an outcome or as NPC consent.
+function requestClauses(input) {
+    const source = String(input || '');
+    if (!source.trim()) return [];
+    const boundaries = [0];
+    const pattern = /[.!?]\s+(?=\S)|\s+(?=(?:while|and|then)\s+(?:I\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|wait|nehme|öffne|gehe|frage|sage|warte)\b)|(?<=[,;])\s+(?=(?:I\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|wait|nehme|öffne|gehe|frage|sage|warte)\b)|\s+(?=if\s+(?:she|he|they|[A-Z][\p{L}]+)\s+agree\b)/giu;
+    for (const match of source.matchAll(pattern)) boundaries.push(match.index + match[0].length);
+    boundaries.push(source.length);
+    return boundaries.slice(0, -1).map((start, index) => ({
+        start, end: boundaries[index + 1],
+        request: source.slice(start, boundaries[index + 1]).trim()
+    })).filter(item => item.request);
+}
+
+function contextBudget(components, actualInputTokens = null) {
+    const parts = Object.fromEntries(Object.entries(components || {}).map(([name, value]) => {
+        const characters = Math.max(0, Number(value) || 0);
+        return [name, { characters, estimatedTokens: Math.ceil(characters / 3.2) }];
+    }));
+    return { basis: 'estimated_from_characters', tokenDivisor: 3.2,
+        parts, estimatedTokens: Object.values(parts).reduce((n, item) => n + item.estimatedTokens, 0),
+        ...(Number.isFinite(actualInputTokens) ? { providerInputTokens: actualInputTokens } : {}) };
+}
+// A prompt projection of nearby authored operations. This never grants access:
+// the effect reducer rechecks ownership, reachability and the current door state.
+function actionAffordances(world, session, locationId) {
+    const location = (world?.locations || []).find(place => place.id === locationId);
+    const npcs = (world?.entities || []).filter(entity => entity.type === 'npc'
+        && session?.entityStates?.[entity.id]?.location === locationId);
+    const holdings = [{ actor_id: 'player', inventory: session?.inventory || [] },
+        ...npcs.map(npc => ({ actor_id: npc.id,
+            inventory: session.entityStates[npc.id]?.inventory || [] }))];
+    const nameOf = item => typeof item === 'string' ? item : String(item?.name || item?.id || '');
+    const held = (actor, required) => holdings.find(entry => entry.actor_id === actor)
+        ?.inventory.some(item => nameOf(item).normalize('NFKC').toLowerCase()
+            === String(required || '').normalize('NFKC').toLowerCase()) || false;
+    const doors = (location?.exits || []).filter(exit => exit && typeof exit === 'object'
+        && exit.doorId).map(exit => ({
+            door_id: exit.doorId, from_location_id: locationId,
+            to_location_id: exit.targetLocationId || exit.to || null,
+            lock_state: session?.unlockedExits?.[exit.doorId] ? 'open'
+                : exit.lockState || 'unspecified',
+            required_item: exit.requiredItem || exit.lockKeyItem || null,
+            actors_holding_required_item: exit.requiredItem || exit.lockKeyItem
+                ? holdings.filter(entry => held(entry.actor_id,
+                    exit.requiredItem || exit.lockKeyItem)).map(entry => entry.actor_id) : []
+        }));
+    const items = (world?.entities || []).filter(entity => entity.type === 'item'
+        && (session?.entityStates?.[entity.id]?.location
+            || (!session?.entityStates?.[entity.id]
+                && (entity.startLocation || entity.locationId || entity.location))) === locationId
+        && session?.entityStates?.[entity.id]?.expired !== true
+        && Number(session?.entityStates?.[entity.id]?.quantity ?? entity.quantity ?? 1) > 0)
+        .map(entity => ({ item_id: entity.id, name: entity.name,
+            quantity: Number(session?.entityStates?.[entity.id]?.quantity
+                ?? entity.quantity ?? 1) }));
+    return { location_id: locationId, doors, loose_items: items,
+        npc_inventories: holdings.slice(1) };
+}
 // Lightweight retrieval only: these keys select source text, never rewrite it
 // or infer facts. Prefix matching tolerates common English/German inflections.
 const recallStopWords = new Set(('the and that this with from have has had was were what which when where who why how '
@@ -290,6 +350,6 @@ function recall(history, query, location, limit = 4500, excludedIds = [], option
 }
 root.HordeWorldTurnContext = { history, sceneMemory, eventAudience, circulatesAsWorldFact,
     recall, loreForPrompt,
-    historySources, sourceLinkedRecall };
+    historySources, sourceLinkedRecall, requestClauses, contextBudget, actionAffordances };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldTurnContext;
 })(globalThis);

@@ -43,12 +43,13 @@ function project(world, session) {
         && !(world.entities || []).some(entity => entity.id === item.speaker))
         || (passages.length && !passages.some(passage =>
             passage.id === item.passage_id && passage.action_id === item.action_id
-            && passage.text === item.statement))))
+            && passage.text.includes(item.statement)))))
         return bad('speech_reference_mismatch');
     const speakerByPassage = new Map((receipt.passage_speakers || [])
         .map(item => [item.passage_id, item.speaker_id]));
     if (passages.some(passage => {
-        const speakers = [...new Set(speech.filter(item => item.passage_id === passage.id)
+        const speakers = [...new Set(speech.filter(item => item.passage_id === passage.id
+            && item.statement === passage.text)
             .map(item => item.speaker))];
         return speakerByPassage.has(passage.id)
             && speakerByPassage.get(passage.id) !== (speakers.length === 1 ? speakers[0] : null);

@@ -14,15 +14,16 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { app, functionSource, buildContext } = require('./app_source.js');
 
-const context = { console: { warn() {}, log() {} } };
+const context = { console: { warn() {}, log() {} }, worldForSession: world => world };
 buildContext(vm, [
     'detectNarratedPresence', 'detectNarratedDepartures', 'applyNarratedPresence',
+    'worldNarratedNpcLocationConflicts',
     'detectNarratedLocation', 'applyNarratedLocation',
     'detectNarratedOutfit', 'applyNarratedOutfit',
     'stripSpokenDialogue', 'isVisibleToSession', 'sessionNpcs', 'isNpcActive',
     'isNpcPinned', 'getExitTargetName', 'normalizeLocationSearchText',
     'findFuzzyLocation', 'resolveWorldExitTarget', 'resolveWorldContainmentParent',
-    'findWorldTravelPath'
+    'findWorldTravelPath', 'getLocationRef'
 ], context);
 
 const tests = [];
@@ -105,6 +106,42 @@ test('an elsewhere marker vetoes the match', () => {
      'Emily is in the kitchen with the others.', 'Greg is still at work.'].forEach(line => {
         assert.deepEqual(detect(line), [], `elsewhere marker ignored in: "${line}"`);
     });
+});
+
+test('German local narration flags an NPC stored in the garden', () => {
+    const world = makeWorld();
+    world.locations[0].name = 'Flur';
+    world.locations[1].name = 'Garten';
+    world.entities.push({ id: 'npc_jonas', name: 'Jonas Weber', type: 'npc' });
+    const sess = makeSession();
+    sess.entityStates.npc_jonas = { location: 'kitchen', pinnedUntilTurn: 12 };
+    const text = 'Jonas, der immer noch im Flur steht, weicht einen kleinen Schritt zurück.';
+    assert.deepEqual(Array.from(context.detectNarratedPresence(world, sess, text, { includePinned: true }),
+        hit => hit.id), ['npc_jonas']);
+    assert.deepEqual(Array.from(context.detectNarratedPresence(world, sess,
+        'Jonas steht im Garten und repariert den Schlauch.', { includePinned: true })), []);
+});
+
+test('German room-first narration cannot put Elif in another room', () => {
+    const world = makeWorld();
+    world.locations[0].name = 'Flur';
+    world.locations[1].name = 'Küche';
+    world.locations.push({ id: 'living', name: 'Wohnzimmer' });
+    world.entities.push({ id: 'npc_elif', name: 'Elif Demir', type: 'npc' });
+    const sess = makeSession();
+    sess.entityStates.npc_elif = { location: 'kitchen' };
+    const hits = Array.from(context.worldNarratedNpcLocationConflicts(world, sess,
+        'Im Wohnzimmer hält Elif kurz inne, ihr Stift stoppt auf dem Papier.'));
+    assert.equal(hits.length, 1);
+    assert.equal(hits[0].reason, 'npc_location_contradicts_state');
+    assert.equal(context.worldNarratedNpcLocationConflicts(world, sess,
+        'Elif sitzt im Wohnzimmer und zeichnet.').length, 1);
+    assert.equal(context.worldNarratedNpcLocationConflicts(world, sess,
+        'Elif dreht im Wohnzimmer den Kopf.').length, 1);
+    assert.deepEqual(Array.from(context.worldNarratedNpcLocationConflicts(world, sess,
+        'In der Küche hält Elif kurz inne.')), []);
+    assert.deepEqual(Array.from(context.worldNarratedNpcLocationConflicts(world, sess,
+        'Aus dem Wohnzimmer ist Elifs Stimme zu hören.')), []);
 });
 
 test('a remote room prefix does not imply arrival in the player scene', () => {
