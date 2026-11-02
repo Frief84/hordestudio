@@ -428,6 +428,7 @@
     "voiceGender": "neutral",
     "ttsVoiceURI": "",
     "ttsMode": "browser",
+    "voice_profile": null,
     "ttsModel": "",
     "ttsVoice": "alloy",
     "ttsResponseFormat": "auto",

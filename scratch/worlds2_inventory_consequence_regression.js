@@ -10,6 +10,7 @@ const { buildContext } = require('./app_source.js');
 const world = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/worlds2-rpg-live.horde_world'), 'utf8'));
 const context = buildContext(vm, ['validateWorldTurnReceipt', 'recordWorldTurnCommit'], {
     state: { worldInstances: {} },
+    HordeWorldTurnContext: require('../worlds/turn-context.js'),
     showToast() {},
     console: { log() {}, warn() {}, error() {} }
 });

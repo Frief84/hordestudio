@@ -22,4 +22,4 @@ const blocked=fixture(),a=blocked.vh2People.actors.sam;a.policy.incomePerHour=12
 // An expense cannot create a negative travel balance or disappear when unaffordable.
 const poor=fixture(),p=poor.vh2People.actors.sam;p.balance=0;p.policy.dailyExpense=10;e.advance(poor,start+1440*MIN,local);assert.equal(p.balance,0);assert.equal(p.unpaidExpenses,10);
 const report={seeds:100,daysPerSeed:14,uniqueOutcomes:signatures.size,actions:[...actions].sort(),finalBudgetRange:[Math.min(...balances),Math.max(...balances)],earnedIncomeRange:[Math.min(...earned),Math.max(...earned)],providersUsed:0};
-fs.writeFileSync('/tmp/vh2-people-14-day-report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
+fs.writeFileSync(require('node:path').join(require('node:os').tmpdir(), 'vh2-people-14-day-report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report));

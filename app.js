@@ -17728,6 +17728,21 @@ function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = 
     if (!from || !to) return null;
     if (from.id === to.id) return [from.id];
 
+    // Legacy containment-only maps may use parent and child places without
+    // explicit exits. Linked V3 worlds still require authored route edges.
+    const legacyChildren = new Map();
+    const parentOf = place => {
+        for (const ref of [place.parentLocationId, place.region]) {
+            const key = String(ref || '').trim().toLowerCase();
+            const parent = locationById.get(key) || locationsByName.get(key);
+            if (parent && parent.id !== place.id) return parent;
+        }
+        return null;
+    };
+    if (world.kernel?.sceneDraftProtocol !== 'scene_draft_v3') for (const place of world.locations) {
+        const parent = parentOf(place);
+        if (parent) legacyChildren.set(parent.id, [...(legacyChildren.get(parent.id) || []), place]);
+    }
     // Dijkstra: minimize elapsed travel time, then hops for zero-time legacy
     // links. A heap keeps large, sparse worlds responsive on the main thread.
     let sequence = 0;
@@ -17784,6 +17799,14 @@ function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = 
             const minutes = typeof exit === 'object' ? Math.max(0, Number(exit?.travelTime) || 0) : 0;
             if (!neighbors.has(target.id) || minutes < neighbors.get(target.id).minutes) {
                 neighbors.set(target.id, { target, minutes });
+            }
+        }
+        if (world.kernel?.sceneDraftProtocol !== 'scene_draft_v3') {
+            const parent = parentOf(current);
+            for (const target of [parent, ...(legacyChildren.get(current.id) || [])].filter(Boolean)) {
+                const authored = (current.exits || []).some(exit => resolveWorldExitTarget(world, exit)?.id === target.id)
+                    || (target.exits || []).some(exit => resolveWorldExitTarget(world, exit)?.id === current.id);
+                if (!authored && !neighbors.has(target.id)) neighbors.set(target.id, { target, minutes: 0 });
             }
         }
         for (const { target, minutes } of neighbors.values()) {

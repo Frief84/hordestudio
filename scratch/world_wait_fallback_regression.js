@@ -206,7 +206,7 @@ assert.match(turn, /reason: 'narrated_route_closure_uncommitted'/);
 assert.match(turn, /receiptContext\.narrativeText = stripWorldLedgerDirective\(scrubNarrativeArtifacts\(fullText\)\);[\s\S]{0,5000}\/\/ Legacy narrative-first turns may need a receipt after prose rescue/,
     'Narrative rescue must update receipt validation with its final prose.');
 assert.match(freeze, /else \{[\s\S]*?source: 'frozen_no_receipt'|else \{[\s\S]*?'frozen_no_receipt'/);
-assert.match(turn, /if \(frozenReceiptApplied\) \{[\s\S]*?fullText = candidate \|\| \(fallbackWaitApplied\s*\? worldUnverifiedWaitNotice\(world, sess, fallbackWaitApplied\)/);
+assert.match(turn, /if \(frozenReceiptApplied\) \{[\s\S]*?fullText = fallbackWaitApplied\s*\? worldUnverifiedWaitNotice\(world, sess, fallbackWaitApplied\)/);
 assert.match(turn, /const completedExplicitWait = explicitWait && !frozenReceiptApplied/);
 assert.match(turn, /Number\(sess\.bonusTimeMinutes\)[\s\S]*?- \(Number\(turnSnapshot\?\.session\?\.bonusTimeMinutes\) \|\| 0\) >= explicitWait/);
 assert.match(turn, /if \(fallbackWaitApplied \|\| completedExplicitWait \|\| completedSceneTime\) \{[\s\S]*?sess\.bonusTimeMinutes = Math\.max\(0, \(sess\.bonusTimeMinutes \|\| 0\) - step\)/);

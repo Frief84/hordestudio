@@ -43,10 +43,11 @@ with tempfile.TemporaryDirectory(prefix="horde-binding-test-") as isolated_confi
         assert first["binding"]["turnId"] == second["binding"]["turnId"]
         assert first["draft"]["actions"][0]["action_id"] == first["draft"]["narrative"][0]["action_id"]
         body["draft"]["actions"][0]["action_id"] = "model_guess"
-        rejected = post(body)
-        assert not rejected["ok"]
-        assert any(error["reason"] == "engine_owned_binding_required" for error in rejected["errors"])
-        print("PASS real HTTP route: stable server IDs, structural binding, rejected model-supplied IDs")
+        repaired = post(body)
+        assert repaired["ok"]
+        assert repaired["draft"]["actions"][0]["action_id"] == first["draft"]["actions"][0]["action_id"]
+        assert any(item["type"] == "discard_engine_link" for item in repaired["binding"]["repairs"])
+        print("PASS real HTTP route: stable server IDs, structural binding, discarded model-supplied IDs")
     finally:
         server.shutdown()
         server.server_close()

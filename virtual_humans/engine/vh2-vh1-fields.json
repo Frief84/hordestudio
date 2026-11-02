@@ -165,6 +165,7 @@
     "videoResolution",
     "videoStyleRules",
     "voiceGender",
+    "voice_profile",
     "vulnerabilities",
     "webAccess"
   ],

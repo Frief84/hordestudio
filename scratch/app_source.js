@@ -321,6 +321,9 @@ function buildContext(vm, seeds, context = {}, options = {}) {
     context.HordeHumanPackage ||= require('../human-package.js');
     context.Blob ||= Blob;
     context.crypto ||= require('node:crypto').webcrypto;
+    context.structuredClone ||= structuredClone;
+    context.HordeWorldTurnContext ||= require('../worlds/turn-context.js');
+    context.HordeWorldModelClient ||= require('../worlds/model-client.js');
     context.VHWorldEngine ||= require('../virtual_humans/engine/vh-world-engine.js');
     context.VHActivityEngine ||= require('../virtual_humans/engine/vh-activity-engine.js');
     context.VHConversationEngine ||= require('../virtual_humans/engine/vh-conversation-engine.js');
