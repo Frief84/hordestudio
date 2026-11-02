@@ -22,7 +22,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const { app, functionSource, buildContext } = require('./app_source.js');
 
-const context = { console: { warn() {}, log() {} }, state: { worldInstances: {} } };
+const context = { saveState: async () => {}, saveWorldsState: async () => {}, showToast() {}, console: { warn() {}, log() {} }, state: { worldInstances: {} } };
 buildContext(vm, ['normalizeAuthoredWorld', 'normalizeWorldShops', 'normalizeWorldFactions',
     'normalizeWorldRelationships', 'calibrateStructuralFindings', 'estimateWorldPromptTokens',
     'relationshipKey', 'livingClamp', 'removeWorldLocationRecord'], context);

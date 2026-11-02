@@ -1,6 +1,7 @@
 [
   "age",
   "allowPhotos",
+  "photoBehaviorMode",
   "allowVideoClips",
   "allowVoiceNotes",
   "initiativeMode",

@@ -74,7 +74,7 @@ const root = path.resolve(__dirname, '..');
                 let proposal = structuredClone(draft);
                 if (phase === 'check') {
                     checkCall++;
-                    if (!body.tools) return new Response(JSON.stringify({choices:[{message:{content:sess.checkHistory.at(-1).narrativeOutcome}}]}),{headers:{'Content-Type':'application/json'}});
+                    if (!body.tools && sess.checkHistory?.length) return new Response(JSON.stringify({choices:[{message:{content:sess.checkHistory.at(-1).narrativeOutcome}}]}),{headers:{'Content-Type':'application/json'}});
                     proposal = { protocol:'scene_draft_v2', narrative:'The label reads Audit. You inspect the jammed drawer; the careful search is uncertain.',
                         actions:[{request:'What does the label say? ',kind:'question',status:'answered',response:'The label reads Audit.'},
                             {request:'I inspect the jammed drawer.',kind:'physical',status:'pending_check',response:'You inspect the jammed drawer; the careful search is uncertain.'}],
@@ -197,6 +197,7 @@ const root = path.resolve(__dirname, '..');
             const invalidArrival={calls:calls-arrivalStart,text:sess.history.at(-1)?.text,source:sess.history.at(-1)?.stateSource};
             let transport=null;
             if(provider==='openrouter') {
+                sess.sceneDraftJsonModels=[];state.globalSettings.toolShyModels=[];
                 phase='malformed_transport';const start=calls;const repair=await run();
                 phase='json_transport';const recovered=await run();
                 transport={repair,recovered,calls:calls-start};

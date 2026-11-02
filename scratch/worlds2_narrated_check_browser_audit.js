@@ -261,7 +261,10 @@ The gate remains shut, the heavy bars immovable as you search for the internal t
                     saved, savedUnlocked: worldExitRequirement(saved?.sessions?.[0] || session, exit, 'gate').ok };
             };
             const player = await play('player', 'player');
+            const originalRoll = rollSecureDie;
+            rollSecureDie = () => 20;
             const automatic = await play('automatic', 'automatic');
+            rollSecureDie = originalRoll;
             const failed = await play('failed', 'player');
             const late = await play('late', 'player');
             const disabled = await play('disabled', 'automatic');

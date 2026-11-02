@@ -10,9 +10,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link id="horde-fonts" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="preload" as="style">
     <link rel="icon" href="favicon.svg" type="image/svg+xml">
-    <link rel="stylesheet" href="style.css?v=20261025-p41">
-    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261009-chat-diagnostics">
-<link rel="stylesheet" href="horde-support.css?v=20261010-pip-rag">
+    <link rel="stylesheet" href="style.css?v=20261103-upstream-merge">
+    <link rel="stylesheet" href="virtual_humans/frontend/vh-workspace.css?v=20261103-upstream-merge">
+<link rel="stylesheet" href="horde-support.css?v=20261103-upstream-merge">
 </head>
 <body>
 <div id="app">
@@ -393,7 +393,7 @@
 
         <!-- ────────── PIP LOCAL GUIDE ────────── -->
         <section id="manual-view" class="view hidden"><div class="manual-shell">
-            <aside class="manual-sidebar"><span class="vh-eyebrow">HORDE STUDIO</span><h2>Illustrated manual</h2><p class="form-hint">Setup, examples and reference · v18.3.6</p>
+            <aside class="manual-sidebar"><span class="vh-eyebrow">HORDE STUDIO</span><h2>Illustrated manual</h2><p class="form-hint">Setup, examples and reference · v18.3.7</p>
                 <input id="manual-search" class="form-input" type="search" placeholder="Search all guide topics…" aria-label="Search the complete manual">
                 <div class="manual-tools"><button id="manual-index-btn" class="btn btn-ghost" type="button">A–Z index</button><button id="manual-print-btn" class="btn btn-ghost" type="button">Print manual</button></div>
                 <span id="manual-search-count" class="form-hint" aria-live="polite"></span><nav id="manual-toc" class="manual-toc" aria-label="Guide chapters and topics"></nav>
@@ -611,7 +611,8 @@
                         </div>
                         <div id="world-mobile-exits-list" class="world-mobile-exits" aria-label="Travel routes"></div>
                     </section>
-                    <div id="world-urgent-stakes" class="world-urgent-stakes hidden" role="status" aria-live="polite"></div>
+                    <div id="world-scene-record-summary" class="form-hint hidden" aria-live="polite"></div>
+<div id="world-urgent-stakes" class="world-urgent-stakes hidden" role="status" aria-live="polite"></div>
                     <div id="world-vector-fallback-banner" class="fallback-banner hidden">
                         <span class="banner-icon">⚠️</span>
                         <span class="banner-text">OpenRouter Embeddings API failed (or credit exhausted). Using primitive keyword-matching fallback for world narrative memory.</span>
@@ -866,6 +867,7 @@
                 <div class="studio-content-wrap">
                     <div id="tab-w-overview" class="studio-panel">
                         <div class="panel-header"><h2>Build your world</h2><p>Start with the essentials. Open advanced systems only when the world needs them.</p></div>
+                        <button type="button" class="btn btn-ghost" data-generate-world-structure>Generate World Structure</button>
                         <div class="form-body creator-overview-grid">
                             <button type="button" class="creator-overview-card primary" data-world-studio-target="w-basics"><span>01</span><strong>Identity &amp; opening</strong><small>Name the world, define its narrator and write the opening scene.</small></button>
                             <button type="button" class="creator-overview-card" data-world-studio-target="w-locations"><span>02</span><strong>Places</strong><small>Create locations, exits, homes and the physical shape of play.</small></button>
@@ -1222,6 +1224,9 @@
                                         <p class="form-hint">Current, adjacent and explicitly referenced places are always prioritized.</p>
                                     </div>
                                     <div>
+                                        <label class="form-label" for="w-kernel-scene-mode">Scene tracking</label>
+                                        <select id="w-kernel-scene-mode" class="form-select"><option value="strict" selected>Structured events (existing)</option><option value="linked">Linked actions (preview)</option><option value="ledger">Scene record + ledger (experimental)</option></select>
+                                        <p class="form-hint">Structured events is the default. Experimental scene record mode keeps failed readable replies as provisional story; saved state remains authoritative. Use Correct scene when needed.</p>
                                         <label class="form-label">Memory retrieval</label>
                                         <select id="w-kernel-memory-mode" class="form-select">
                                             <option value="ledger">Canonical ledger · no embedding calls</option>
@@ -3597,6 +3602,15 @@
                                     <div id="cs-image-request-preview" class="vh-image-request-preview">Request: model + prompt</div>
                                 </div>
                                 </div>
+                                <div class="form-section" id="cs-vh2-photo-limits" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+                                    <h3>VH2 photo behaviour &amp; daily limits</h3>
+                                    <p class="form-hint">Used by Virtual Humans 2.0 chat. Existing saved allowances are preserved until changed here. Limits reset at 00:00 UTC.</p>
+                                    <label class="form-label">Spontaneous photographs per day<input id="cs-vh2-photo-daily-limit" class="form-input" type="number" min="1" max="100" value="100"></label>
+                                    <label class="form-label">Explicitly requested photographs per day<input id="cs-vh2-explicit-photo-daily-limit" class="form-input" type="number" min="1" max="100" value="100"></label>
+                                    <label class="form-label">Photo behaviour<select id="cs-vh2-photo-behaviour" class="form-select"><option value="natural">Natural / Autonomous</option><option value="request_only">Request Only</option><option value="photo_friendly">Photo Friendly</option></select></label>
+                                    <p id="cs-vh2-photo-budget-status" class="form-hint" role="status">Loading saved VH2 photo allowances…</p>
+                                    <button id="cs-vh2-photo-settings-save" class="btn btn-ghost" type="button">Save VH2 photo settings</button>
+                                </div>
                                 <div id="cs-mcp-image-controls" class="vh-mcp-image-controls hidden">
                                     <div class="vh-mcp-tool-head">
                                         <div>
@@ -5405,60 +5419,62 @@
 
 <script src="boot-diagnostics.js"></script>
 <script src="presets.js"></script>
+<script src="assets/worlds/bundled-content.js?v=20261103-upstream-merge"></script>
 <script src="policy-panic-world.js"></script>
-    <script src="labs-needle.js?v=20260822-v161" data-horde-needle-adapter="true"></script>
-<script src="labs-embedded.js?v=20260810-pip-conversation-v2"></script>
-<script src="labs-core.js?v=20260822-v161"></script>
-<script src="labs-tasks.js?v=20260822-v161"></script>
-<script src="horde-handbook.js?v=20261010-rag"></script>
-<script src="horde-manual.js?v=20261010"></script>
-<script src="pip-knowledge.js?v=20261010-rag"></script>
-<script src="pip-assistant.js?v=20261010-rag"></script>
-<script src="labs-guide.js?v=20261010-rag"></script>
-    <script src="help-system.js?v=20261011-place-index-4"></script>
-<script src="labs-ui.js?v=20261010-pip"></script>
-<script src="rpg-mechanics.js?v=20260823-v166-rpg-release"></script>
-<script src="multiplayer-engine.js?v=20261010-world-lore-ai-4"></script>
-<script src="multiplayer.js?v=20261010-world-lore-ai-4"></script>
-<script src="video-worlds.js?v=20261010-world-lore-ai-4"></script>
-    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20260910-vh2-history"></script>
-    <script src="virtual_humans/engine/vh-activity-engine.js?v=20260912-consolidated-life"></script>
-    <script src="virtual_humans/engine/vh-world-engine.js?v=20260912-wardrobe-colors"></script>
-    <script src="virtual_humans/engine/vh-simulation-core.js?v=20260912-wardrobe-colors"></script>
-    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20260920-body-access"></script>
-    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20260920-body-access"></script>
-    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20260920-cognition"></script>
-    <script src="virtual_humans/engine/vh-mind-library.js?v=20260920-expanded-library"></script>
-    <script src="virtual_humans/engine/vh-mind-engine.js?v=20260920-expanded-library"></script>
-    <script src="virtual_humans/engine/vh-life-schema.js?v=20260913-v18-storage"></script>
-    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
-    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017-54voices"></script>
-    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017-54voices"></script>
-    <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-54voices"></script>
-    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
-    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
-    <script src="virtual_humans/frontend/vh-page-builder.js?v=20260925-v182"></script>
-    <script src="bundled-humans.js?v=20260913-v18-storage"></script>
-    <script src="human-package.js?v=20260913-v18-storage"></script>
-    <script src="large-archive.js?v=20261008-worlds-release"></script>
-    <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
-    <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
-    <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
-    <script src="worlds/working-state.js?v=20261018-server-bound-turns"></script>
-    <script src="worlds/effect-registry.js?v=20261030-p43h"></script>
-    <script src="worlds/universal-checks.js?v=20261025-p41"></script>
-    <script src="worlds/dynamic-object-discovery.js?v=20261030-p43h"></script>
-    <script src="worlds/linked-world-actions.js?v=20261030-p43h"></script>
-    <script src="worlds/perception.js?v=20261024-p27a"></script>
-    <script src="worlds/npc-goal-actions.js?v=20261030-p43h"></script>
-    <script src="worlds/scene-draft.js?v=20261018-server-bound-turns"></script>
-    <script src="worlds/turn-binding.js?v=20261030-p43h"></script>
-    <script src="worlds/turn-context.js?v=20261020-worlds-context-budget"></script>
-    <script src="worlds/horde-client.js?v=20261017-queue"></script>
-    <script src="worlds/world-time.js?v=20261020-world-time"></script>
-    <script src="worlds/background-sim.js?v=20261020-world-time"></script>
-    <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261030-p43h"></script>
+    <script src="labs-needle.js?v=20261103-upstream-merge" data-horde-needle-adapter="true"></script>
+<script src="labs-embedded.js?v=20261103-upstream-merge"></script>
+<script src="labs-core.js?v=20261103-upstream-merge"></script>
+<script src="labs-tasks.js?v=20261103-upstream-merge"></script>
+<script src="horde-handbook.js?v=20261103-upstream-merge"></script>
+<script src="horde-manual.js?v=20261103-upstream-merge"></script>
+<script src="pip-knowledge.js?v=20261103-upstream-merge"></script>
+<script src="pip-assistant.js?v=20261103-upstream-merge"></script>
+<script src="labs-guide.js?v=20261103-upstream-merge"></script>
+    <script src="help-system.js?v=20261103-upstream-merge"></script>
+<script src="labs-ui.js?v=20261103-upstream-merge"></script>
+<script src="rpg-mechanics.js?v=20261103-upstream-merge"></script>
+<script src="multiplayer-engine.js?v=20261103-upstream-merge"></script>
+<script src="multiplayer.js?v=20261103-upstream-merge"></script>
+<script src="video-worlds.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-conversation-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-activity-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-world-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-simulation-core.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-embodiment-library.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-embodiment-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-cognition-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-mind-library.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-mind-engine.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/engine/vh-life-schema.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/vh-workspace.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261103-upstream-merge"></script>
+    <script src="virtual_humans/frontend/vh-page-builder.js?v=20261103-upstream-merge"></script>
+    <script src="bundled-humans.js?v=20261103-upstream-merge"></script>
+    <script src="human-package.js?v=20261103-upstream-merge"></script>
+    <script src="large-archive.js?v=20261103-upstream-merge"></script>
+    <script src="assets/worlds/world-lore.js?v=20261103-upstream-merge"></script>
+    <script src="assets/worlds/world-lore-ui.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/model-client.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/working-state.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/effect-registry.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/universal-checks.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/dynamic-object-discovery.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/linked-world-actions.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/perception.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/npc-goal-actions.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/scene-ledger.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/scene-draft.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/turn-binding.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/turn-context.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/horde-client.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/world-time.js?v=20261103-upstream-merge"></script>
+    <script src="worlds/background-sim.js?v=20261103-upstream-merge"></script>
+    <script src="assets/worlds/map-editor.js?v=20261103-upstream-merge"></script>
+    <script src="app.js?v=20261103-upstream-merge"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

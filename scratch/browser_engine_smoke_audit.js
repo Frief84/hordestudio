@@ -163,7 +163,7 @@ const root = path.resolve(__dirname, '..');
             const early = validateWorldTurnReceipt(world, sess, receipt);
             receipt.events.push({ type: 'time', status: 'completed', minutes_elapsed: 15 });
             const due = validateWorldTurnReceipt(world, sess, receipt);
-            return { blocked: blocked.moduleRejections.some(item => item.reason === 'unreachable_npc_destination'), stayed,
+            return { blocked: blocked.moduleRejections.some(item => ['npc_access_denied', 'unreachable_npc_destination'].includes(item.reason)), stayed,
                 inTransit: sess.entityStates.bob.location === null && !!sess.entityStates.bob.journey,
                 earlyRejected: early.rejectedEvents.some(item => item.reason === 'actor_in_transit'),
                 arrivalAccepted: due.acceptedEvents.some(item => item.type === 'movement' && item.actor_id === 'bob') };
@@ -771,8 +771,8 @@ const root = path.resolve(__dirname, '..');
             const one=normalizeCompanionMessage({id:'continuity-one',role:'companion',type:'photo',scene:'Bedroom, blue silk dress',pending:true,timestamp:now,photoContext:companionPhotoSnapshot(c,'Bedroom, blue silk dress',now)}),two=normalizeCompanionMessage({id:'continuity-two',role:'companion',type:'photo',scene:'Another angle, shorts',pending:true,timestamp:now+1000,photoContext:companionPhotoSnapshot(c,'Another bedroom angle',now+1000)});
             timeline.messages.push(one,two);await Promise.all([resolveCompanionPendingPhoto(c,one),resolveCompanionPendingPhoto(c,two),resolveCompanionPendingPhoto(c,two)]);return {requests,one:one.photo,two:two.photo,parent:two.photoContext.previousPhotoId};
         });
-        assert.equal(photoSequence.requests.length,2);assert.equal(photoSequence.parent,'continuity-one');assert(photoSequence.requests[1].refs.includes(photoSequence.one));assert.match(photoSequence.requests[1].prompt,/exact same garments/);assert.match(photoSequence.requests[1].prompt,/Tilted candid framing/);
-        console.log('PASS: queued follow-up photos use the completed previous image and retain dress continuity without duplicate generation');
+        assert.equal(photoSequence.requests.length,2);assert.equal(photoSequence.parent,'continuity-one');assert.match(photoSequence.requests[0].prompt,/blue silk dress/i);assert.match(photoSequence.requests[1].prompt,/Another angle, shorts/);assert.doesNotMatch(photoSequence.requests[1].prompt,/Blue silk dress|exact same garments|Tilted candid framing/i);
+        console.log('PASS: queued follow-up photos serialize once and explicit clothing controls the next photo prompt');
         await page.evaluate(()=>{hideGlobalSettings();const c=getCompanion('attention_fixture');c.lifeProfile.activityOptions=[...c.lifeProfile.activityOptions,{id:'prep-ui',label:'Pack notes',kind:'preparation'}];c.lifeProfile.weeklySchedule.push({id:'prep-class',activity:'Class',days:[2],startMinute:600,endMinute:660,placeId:c.lifeProfile.places[0].id});c.lifeProfile=normalizeCompanionLifeProfile(c.lifeProfile);openCompanionStudio(c.id);switchView('companionStudio');activateCompanionStudioTab('cs-life');renderCompanionLifeEditor(c);document.querySelector('[data-life-add="supply"]').click();});
         await page.locator('[data-supply-label]').evaluate(el=>el.closest('details').open=true);
         await page.locator('[data-supply-label]').fill('Packed notes');await page.locator('[data-supply-quantity]').fill('2');

@@ -132,7 +132,7 @@ Object.assign(context, { livingClamp: require('../virtual_humans/engine/vh-simul
 vm.runInContext(source.slice(helperStart, helperEnd), context, { filename: 'living-world-helpers.js' });
 vm.runInContext(source.slice(actionsStart, actionsEnd), context, { filename: 'living-world-actions.js' });
 // Load the actual navigation dependencies instead of assuming schedules teleport.
-require('./app_source.js').buildContext(vm, ['worldForSession', 'findWorldTravelPath', 'getWorldPathTravelTime'], context);
+require('./app_source.js').buildContext(vm, ['worldForSession', 'findWorldTravelPath', 'getWorldPathTravelTime', 'normalizeWorldKernelConfig'], context);
 
 function makeWorld(locationCount = 3, npcCount = 3) {
     const locations = Array.from({ length: locationCount }, (_, index) => ({

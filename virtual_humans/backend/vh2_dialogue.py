@@ -10,6 +10,7 @@ import re
 import uuid
 from . import vh2_conversation
 from . import vh2_conversations
+from . import vh2_photo_intent
 from .vh2_provider import transport, parse_response, UnknownOutcome, RejectedOutput
 
 SCHEMA = '''
@@ -220,22 +221,55 @@ class DialogueQueue:
         from . import vh2_workers
         provider=None
         scope=state.get('integration',{}).get('providerScope')
+        provider_jobs={}
         if scope:
-            with self.service.connect() as media_db:provider=vh2_workers.current(media_db,scope)
+            with self.service.connect() as media_db:
+                provider=vh2_workers.current(media_db,scope)
+                provider_jobs={r['photoId']:r['status'] for r in media_db.execute("SELECT json_extract(snapshot,'$.photoId') AS photoId,status FROM vh2_provider_jobs WHERE world_id=? AND kind='image'",(world_id,)) if r['photoId']}
         image_config=json.loads(provider['config']) if provider else {}
         has_identity_reference=any(entry.get('role')=='identity' and entry.get('status')=='approved' and entry.get('assetId')
                                    for entry in c.get('vh2Assets',{}).get('entries',[]))
-        image_busy=any(photo.get('status') in ('captured','submitted') and photo.get('origin')!='autonomous'
-                       for photo in state.get('photos',[]))
-        photo_enabled=(c.get('allowPhotos') is not False and has_identity_reference and not image_busy and bool(provider)
-                       and image_config.get('enabled') is True
-                       and (image_config.get('provider') in ('magnific','higgsfield')
-                            or bool(provider.get('api_key'))))
+        active_status={'queued','submitted','rendered'}
+        image_busy=any(photo.get('origin')!='autonomous' and (
+            provider_jobs.get(photo.get('id')) in active_status or
+            (not provider_jobs.get(photo.get('id')) and photo.get('status') in ('captured','submitted')
+             and self.service.clock()-photo.get('submittedWallAt',photo.get('at',0))<15*60000))
+            for photo in state.get('photos',[]))
+        permitted=c.get('allowPhotos') is not False and has_identity_reference
+        provider_ready=bool(provider) and (image_config.get('provider') in ('magnific','higgsfield') or bool(provider.get('api_key')))
+        auto_remaining=explicit_remaining=None
+        if provider:
+            with self.service.connect() as media_db:
+                auto_remaining=vh2_workers.autonomous_budget(media_db,scope,image_config,self.service.clock())['remaining']
+                explicit_remaining=vh2_workers.explicit_budget(media_db,scope,image_config,self.service.clock())['remaining']
+        auto_reason=('Photo permission is disabled.' if c.get('allowPhotos') is False else 'Identity reference is missing.' if not has_identity_reference
+                     else 'An image is already in progress.' if image_busy else 'Life is paused.' if not state.get('running') or c.get('vh2AutonomyPaused')
+                     else 'Image provider is unavailable.' if not provider_ready else 'Daily automatic photo allowance is exhausted.' if not auto_remaining
+                     else 'Automatic image generation is off.' if not image_config.get('enabled') else '')
+        explicit_reason=('Photo permission is disabled.' if not permitted else 'Identity reference is missing.' if not has_identity_reference
+                         else 'An image is already in progress.' if image_busy else 'Image provider is unavailable.' if not provider_ready
+                         else 'Daily requested-photo allowance is exhausted.' if not explicit_remaining else '')
+        mode=c.get('photoBehaviorMode','natural')
+        user_text=' '.join(m['text'] for m in context['conversation'] if m['id'] in context['readyMessageIds'])
+        recent_photo=any(p.get('assetId') and self.service.clock()-p.get('deliveredAt',p.get('at',0))<90*60000 for p in state.get('photos',[]))
+        request_kind=vh2_photo_intent.classify(user_text,recent_photo)
+        is_call=(context.get('call') or {}).get('status')=='active'
+        explicit_photo=request_kind=='explicit' and not is_call
+        explicit_ready=permitted and provider_ready and not image_busy and bool(explicit_remaining) and not is_call
+        spontaneous_ready=(not auto_reason or auto_reason=='Life is paused.') and mode!='request_only'
+        photo_enabled=spontaneous_ready or (explicit_photo and explicit_ready)
         context['mediaActions']={'photo':{
             'enabled':photo_enabled,
+            'explicitRequest':explicit_photo,
+            'explicitAvailable':explicit_ready,
+            'explicitReason':explicit_reason,
+            'mode':mode,
+            'requestKind':request_kind,
+            'requestScene':vh2_photo_intent.scene_hint(user_text) if explicit_photo else None,
+            'spontaneousEnabled':spontaneous_ready,
+            'unavailableReason':explicit_reason if explicit_photo else auto_reason,
             'scope':'A photo action queues one real image job after this reply is accepted. The image arrives as a separate chat message only after the provider returns it. Never describe a photo as sent, attached, shown or already visible unless this response includes the action.',
-            **({'captureTypes':['front_camera_selfie','mirror_selfie'],'sceneLimit':600}
-               if photo_enabled else {'reason':'Photo sending is unavailable or automatic image generation is off. Do not claim to send an image.'})}}
+            'captureTypes':['front_camera_selfie','mirror_selfie','personal_photograph'],'sceneLimit':600}}
         context['conversationBrief']=vh2_conversation.brief(context)
         # An unread follow-up changes the response batch without leaking its text.
         pending=[m['id'] for m in state.get('communication',{}).get('messages',[]) if m.get('awaitingReply')]
@@ -260,10 +294,15 @@ class DialogueQueue:
             request['messages'][0]['content'] += ' This exchange is a phone call. Return reply as one string. Speak naturally in short spoken turns; no stage directions or written emoji/abbreviations read aloud. Current activity still governs availability. Never claim to see the caller or their surroundings without supplied evidence.'
         else:
             request['messages'][0]['content'] += ' For this text exchange, return only a JSON reply envelope. When the response contains independent short thoughts that would be sent as separate text messages, return a JSON reply array of 1–4 nonempty strings, one actual bubble per string. An answer followed by a separate reaction can be two texts even when each is only a fragment. Do not encode separate bubbles using single or double newlines inside one string. A string means one coherent message; keep genuine paragraphs within one message in that string. Do not split every sentence, inflate a short answer or add filler to reach a number of bubbles. All bubbles express one response to this pending batch; they are not a scripted future conversation.'
-            if photo_enabled:
-                request['messages'][0]['content'] += ' If this person chooses to take and send a photo now, include one optional photoAction object with exactly {"decision":"send","scene":"a concrete, physically possible description of the photograph","captureType":"front_camera_selfie" or "mirror_selfie"}. This is a costly real action, never required just because the player asks. The action queues the image; phrase the visible reply as an intention or brief lead-in, never as though the image is already attached, delivered or visible. Omit photoAction when declining, postponing or only discussing a photo.'
+            photo_policy=context['mediaActions']['photo']
+            if photo_policy['mode']=='photo_friendly':
+                request['messages'][0]['content'] += ' Photo Friendly mode: when spontaneousEnabled is true, a relevant occasional photo is welcome; do not force one into every reply or repeat pending jobs.'
+            if photo_policy['explicitRequest'] and photo_policy['explicitAvailable']:
+                request['messages'][0]['content'] += ' The player explicitly requested a photograph. The application will queue exactly one photo if the reply is valid. Include a photoAction with a concrete scene only to enrich the scene; the app will supply a safe fallback scene if omitted. Respond naturally in character, and do not say the photo is already delivered or visible.'
+            elif photo_enabled:
+                request['messages'][0]['content'] += ' If this person chooses to take and send a photo now, include one optional photoAction object with exactly {"decision":"send","scene":"a concrete, physically possible description of the photograph","captureType":"personal_photograph"}. Choose captureType personal_photograph, front_camera_selfie or mirror_selfie. The action queues the image; phrase the visible reply as an intention or brief lead-in, never as though the image is already attached, delivered or visible. Omit photoAction when declining, postponing or only discussing a photo.'
             else:
-                request['messages'][0]['content'] += ' Photo sending is unavailable for this turn. Do not include photoAction and do not say or imply that a photo was sent, attached or is visible.'
+                request['messages'][0]['content'] += ' Photo sending is unavailable for this turn ('+str(photo_policy.get('unavailableReason') or 'not enabled')+'). Do not include photoAction and do not say or imply that a photo was sent, attached or is visible. Reply conversationally and explain the limitation only if relevant.'
         return request,digest
 
     def queue(self,db,world_id,revision,state,body):
@@ -281,7 +320,7 @@ class DialogueQueue:
         if adapter=='chat_completions':
             recent=db.execute("SELECT status,reason,snapshot FROM dialogue_jobs WHERE world_id=? ORDER BY rowid DESC LIMIT 20",(world_id,)).fetchall()
             if any(row['status']=='failed' and row['reason']=='Malformed structured reply; no metadata was delivered.' and json.loads(row['snapshot'])['context']['readyMessageIds']==request['context']['readyMessageIds'] for row in recent):
-                request['messages'].append({'role':'system','content':'Output formatting recovery: return exactly one valid JSON object with only the key "reply" containing an array of 1 to 4 short text strings. No markdown fences, commentary, appraisals, commitments, conversationMove or photoAction. Do not claim a photo was sent, attached or shown in this recovery reply. Do not mention this formatting instruction in the reply.'})
+                request['messages'].append({'role':'system','content':'Output formatting recovery: return exactly one valid JSON object with only the key "reply" containing an array of 1 to 4 short text strings. No markdown fences, commentary, appraisals, commitments or conversationMove. An explicit photo request is handled separately by the application. Do not claim a photo was sent, attached or shown in this recovery reply. Do not mention this formatting instruction in the reply.'})
         if adapter=='chat_completions':request['provider']=self.service.dialogue_provider.freeze(db,state.get('integration',{}).get('providerScope'))
         # The immutable job also retains the full audit context. That record is
         # not sent to the provider and must not count the character's life twice.
@@ -455,7 +494,7 @@ class DialogueQueue:
                         if (not isinstance(photo_action,dict) or set(photo_action)!={'decision','scene','captureType'}
                             or photo_action.get('decision')!='send'
                             or not isinstance(photo_action.get('scene'),str) or not 1<=len(photo_action['scene'].strip())<=600
-                            or photo_action.get('captureType') not in ('front_camera_selfie','mirror_selfie')):raise ValueError()
+                            or photo_action.get('captureType') not in ('front_camera_selfie','mirror_selfie','personal_photograph')):raise ValueError()
                     if re.search(r'<(?:\|(?:channel|im_start|im_end)|/?(?:think|analysis|reasoning)\b)',output,re.I):raise ValueError()
                 except (ValueError,TypeError):
                     self.transition(db,job,'failed','Malformed structured reply; no metadata was delivered.');return False
@@ -470,30 +509,37 @@ class DialogueQueue:
             ready=request['context']['readyMessageIds']
             if digest!=job['context_digest'] or not ready:
                 self.transition(db,job,'superseded','Conversation, attention or situation changed during expression.');return False
-            if photo_action and (not request['context'].get('mediaActions',{}).get('photo',{}).get('enabled')
-                                 or (request['context'].get('call') or {}).get('status')=='active'):
-                self.transition(db,job,'failed','Photo action was unavailable; no partial reply was delivered.');return False
+            photo_policy=request['context'].get('mediaActions',{}).get('photo',{})
+            if photo_action and (not photo_policy.get('spontaneousEnabled') or (request['context'].get('call') or {}).get('status')=='active') and not photo_policy.get('explicitRequest'):
+                photo_action=None
+                db.execute("UPDATE dialogue_jobs SET reason=? WHERE id=?",('Photo action ignored: generation unavailable or disabled.',job['id']))
             if proposals or commitments:
                 after['truth']=s.kernel({'companion':after['truth']['companion'],'now':after['simAt'],'inspect':True,
                     'appraisal':{'proposals':proposals,'commitments':commitments,'personaId':after['communication'].get('personaId'),
                     'messages':[m for m in after['communication']['messages'] if m['id'] in ready]}})
             photo_id=None
-            if photo_action:
+            queue_explicit=photo_policy.get('explicitRequest') and photo_policy.get('explicitAvailable') and (request['context'].get('call') or {}).get('status')!='active'
+            if photo_action or queue_explicit:
                 # The capture, provider job and reply either all persist or none
                 # do. A provider/settings race must not leave text claiming an
                 # image is coming when no durable image job exists.
                 from . import vh2_media, vh2_workers
                 db.execute('SAVEPOINT dialogue_photo_action')
                 try:
+                    # For an explicit player request, use the player's scene text
+                    # verbatim after intent-prefix trimming. Model-authored photo
+                    # actions may summarize it and lose clothing or exclusions.
+                    scene=(photo_policy.get('requestScene') if queue_explicit else (photo_action or {}).get('scene','').strip()) or 'A casual front-camera selfie at the recorded location.'
+                    capture=vh2_photo_intent.capture_type(scene, None if queue_explicit else (photo_action or {}).get('captureType'))
                     revision,after,photo_id=vh2_media.command(s,db,job['world_id'],revision,after,{
-                        'type':'capture_photo','key':job['id']+':photo','scene':photo_action['scene'].strip(),
-                        'captureType':photo_action['captureType'],'destination':'private_chat','origin':'dialogue_action'})
+                        'type':'capture_photo','key':job['id']+':photo','scene':scene,
+                        'captureType':capture,'destination':'private_chat','origin':'dialogue_action'})
                     revision,after=vh2_workers.queue_image(s,db,job['world_id'],revision,after,photo_id,
-                                                          automatic=True,purpose='dialogue')
+                                                          automatic=not queue_explicit,purpose='dialogue',explicit_request=queue_explicit)
                     db.execute('RELEASE dialogue_photo_action')
                 except (ValueError,self.conflict):
                     db.execute('ROLLBACK TO dialogue_photo_action');db.execute('RELEASE dialogue_photo_action')
-                    self.transition(db,job,'failed','Photo action could not be queued; no partial reply was delivered.');return False
+                    self.transition(db,job,'failed','Photo could not be queued after settings changed; no misleading delivery promise was sent.');return False
             # One atomic provider result may be several authored text bubbles.
             # A call remains one spoken turn; no extra jobs, artificial waits or
             # repeated appraisals are introduced by a text burst.

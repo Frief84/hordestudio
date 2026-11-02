@@ -32,6 +32,8 @@ jobs:
       - name: Verify browser transactions and gameplay wiring
         run: |
           node scripts/check-worlds-browser.js
+          node scratch/vh2_photo_settings_browser_audit.js
+          node scratch/vh2_provider_settings_race_audit.js
           node scratch/chat_release_browser_audit.js
           node scratch/vh_release_remote_persona_browser_audit.js
           node scratch/browser_storage_transaction_audit.js

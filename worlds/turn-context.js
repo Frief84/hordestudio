@@ -10,11 +10,13 @@ function history(options) {
         // Failed UI notices and their abandoned requests are not story canon.
         // Keep the current action, but do not teach the narrator to roleplay
         // previous repair errors or answer an abandoned request again.
-        if (m.stateSource === 'frozen_no_receipt') continue;
+        if (m.stateSource === 'frozen_no_receipt' && !m.provisionalNarrative) continue;
         if (i !== options.start && m.role === 'user'
-            && options.history[i + 1]?.stateSource === 'frozen_no_receipt') continue;
+            && options.history[i + 1]?.stateSource === 'frozen_no_receipt'
+            && !options.history[i + 1]?.provisionalNarrative) continue;
         let content = options.text(m);
         if (!content) continue;
+        if (m.provisionalNarrative) content = '[PROVISIONAL STORY — NOT VERIFIED WORLD STATE. Use for conversational continuity only. Do not infer location, cast, inventory, checks, deadlines or NPC knowledge from it; the current authoritative state overrides conflicts.]\n' + content;
         const current = i === options.start && m.role === 'user';
         if (m.role === 'dm' && options.prepare) {
             const hasState = /<internal_states\b/i.test(content);

@@ -10,8 +10,8 @@ const WORLD_SHARD_FORMAT = 'gzip-json-v1';
 const SETTINGS_MIRROR_KEY = 'horde_settings_mirror_v1';
 // Bump this when publishing a GitHub Release. The checker accepts tags such as
 // v10.1.0, 10.1 or Horde-Studio-10.1.0.
-const HORDE_STUDIO_VERSION = '18.3.6';
-const HORDE_STUDIO_RELEASED_AT = '2026-10-09T18:47:15Z';
+const HORDE_STUDIO_VERSION = '18.3.7';
+const HORDE_STUDIO_RELEASED_AT = '2026-10-23T21:32:10Z';
 const HORDE_STUDIO_RELEASE_API = 'https://api.github.com/repos/ddkhan24/hordestudio/releases/latest';
 const HORDE_STUDIO_RELEASES_URL = 'https://github.com/ddkhan24/hordestudio/releases/latest';
 let worldMediaDirty = false;
@@ -3072,6 +3072,21 @@ async function loadState() {
         });
         if (changed) await saveState();
     }
+    // Content revisions change templates only, never saved session state. An
+    // exact old-value check keeps custom introductions, routines and exits.
+    if (globalThis.HordeBundledContent) {
+        let changed=false;
+        for (const world of state.worlds) {
+            const result=HordeBundledContent.update(world);
+            if (result.changed) {
+                normalizeAuthoredWorld(world);
+                changed=true;
+                if (result.skipped.length) console.info('Bundled world content: preserved edited records',world.id,result.skipped);
+            }
+        }
+        if(changed)await saveState();
+    }
+
 }
 
 let saveStateInFlight = null;
@@ -3610,23 +3625,28 @@ function createThronefallSandboxWorld() {
         schedule,
         ...extra
     });
+    for (const [fromId,toId,minutes] of [['vs_road','vs_manor',25],['vs_alder','vs_ruins',75],['vs_wolfscar','vs_ruins',130]]) {
+        const from=locations.find(place=>place.id===fromId),to=locations.find(place=>place.id===toId);
+        from.exits.push({text:`to ${to.name}`,targetLocationId:to.id,travelTime:minutes,isOneWay:false});
+    }
+
     const entities = [
         npc('vs_elin', 'Elin Reed', 'vs_field', '', 'A tenant farmer in a patched green kirtle, quick with figures and tired of pretending not to be.', 'Practical, dryly funny, stubborn about fairness. Knows every household debt in Dunmere.', 'Keep her family fed without surrendering next year’s seed grain.', [{ time: '05:30', locationId: 'vs_field', activity: 'Working the barley strips' }, { time: '12:00', locationId: 'vs_green', activity: 'Trading labor and news' }, { time: '20:00', locationId: 'vs_sheaf', activity: 'Stretching one cup of ale' }], { goalAutonomy: 'high', goalSteps: ['hid two sacks of seed grain from the reeve’s tally', 'organized three households to share an ox', 'asked the miller to verify the manor weights'] }),
-        npc('vs_reeve', 'Reeve Osric Pell', 'vs_green', 'fac_house_vale', 'Stagwatch’s village reeve, carrying a wax tablet and a cudgel polished by his thumb.', 'Exact, defensive, not needlessly cruel. Afraid missing rent will cost him his post and home.', 'Collect Stagwatch’s full rent before the audit riders arrive.', [{ time: '07:00', locationId: 'vs_green', activity: 'Hearing village business' }, { time: '14:00', locationId: 'vs_field', activity: 'Inspecting holdings' }, { time: '18:00', locationId: 'vs_manor', activity: 'Reporting the day’s tally' }], { goalSteps: ['recounted every tenant strip', 'posted the arrears list on the linden', 'requested two manor guards for rent day'] }),
+        npc('vs_reeve', 'Reeve Osric Pell', 'vs_manor', 'fac_house_vale', 'Stagwatch’s village reeve, carrying a wax tablet and a cudgel polished by his thumb.', 'Exact, defensive, not needlessly cruel. Afraid missing rent will cost him his post and home.', 'Collect Stagwatch’s full rent before the audit riders arrive.', [{ time: '07:00', locationId: 'vs_green', activity: 'Hearing village business' }, { time: '14:00', locationId: 'vs_field', activity: 'Inspecting holdings' }, { time: '18:00', locationId: 'vs_manor', activity: 'Reporting the day’s tally' }], { goalSteps: ['recounted every tenant strip', 'posted the arrears list on the linden', 'requested two manor guards for rent day'] }),
         npc('vs_lady_mara', 'Lady Mara Vale', 'vs_manor', 'fac_house_vale', 'The young holder of Stagwatch, newly returned from court with a scar under one glove.', 'Controlled, observant, more interested in competence than pedigree. Hates being pitied.', 'Make Stagwatch solvent without selling it to the guild banks.', [{ time: '07:00', locationId: 'vs_manor', activity: 'Reviewing petitions and accounts' }, { time: '13:00', locationId: 'vs_field', activity: 'Inspecting the demesne' }, { time: '19:00', locationId: 'vs_manor', activity: 'Dining with retainers' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['dismissed an expensive court falconer', 'offered timber rights to the Guild Compact', 'sent a sealed request to Crownfast'], secrets: [{ label: 'Mara’s claim', hint: 'Her mother’s signet stays on a chain beneath her glove.', truth: 'Mara has a plausible blood claim if the royal line fails, but pressing it would endanger everyone she protects.' }] }),
         npc('vs_rook', 'Rook Harrow', 'vs_blackbriar', 'fac_blackbriar', 'A former levy sergeant with a split nose and a courteous habit of offering choices before violence.', 'Patient, sardonic, keeps promises literally. Protects deserters but robs tax convoys without remorse.', 'Turn Blackbriar from hunted refugees into a power no lord can ignore.', [{ time: '06:00', locationId: 'vs_blackbriar', activity: 'Drilling sentries' }, { time: '13:00', locationId: 'vs_alder', activity: 'Meeting informants' }, { time: '22:00', locationId: 'vs_blackbriar', activity: 'Planning the next road strike' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['mapped the royal pay convoy route', 'made contact with angry Dunmere tenants', 'sent terms to a Fen smuggler'] }),
-        npc('vs_queen', 'Queen Aveline II', 'vs_council', 'fac_crown', 'A thirty-year-old monarch in mourning black, crowned six months and already short of money, heirs and unambiguous friends.', 'Formally calm, intellectually restless, remembers names. Capable of mercy and frightening arithmetic.', 'Keep the realm intact through the succession crisis without becoming a puppet.', [{ time: '06:30', locationId: 'vs_cathedral', activity: 'Private observance' }, { time: '09:00', locationId: 'vs_council', activity: 'Holding council' }, { time: '14:00', locationId: 'vs_keep', activity: 'Receiving petitions and envoys' }, { time: '21:00', locationId: 'vs_council', activity: 'Reading dispatches alone' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['ordered a true count of crown grain', 'summoned the March Warden to explain troop movements', 'opened quiet marriage talks with two rival courts'], secrets: [{ label: 'The queen’s physician', hint: 'The royal physician leaves by servants’ stairs and burns every scrap of paper.', truth: 'Aveline is pregnant, but the pregnancy is dangerous and only four people know.' }] }),
-        npc('vs_chancellor', 'Chancellor Tobran Vey', 'vs_council', 'fac_crown', 'A broad, soft-spoken jurist whose plain wool hides the best memory in Greyhaven.', 'Paternal in public, relentless in private. Believes stability justifies secrets but not cruelty.', 'Discover which great house is financing unrest before the next council vote.', [{ time: '07:00', locationId: 'vs_keep', activity: 'Reading reports' }, { time: '09:00', locationId: 'vs_council', activity: 'Directing royal business' }, { time: '17:00', locationId: 'vs_guild', activity: 'Sounding out guild masters' }], { isMajor: true, goalSteps: ['placed a false treasury figure in three separate reports', 'hired a Low Ward copyist as an informant', 'requested old succession law from Ironwood Abbey'] }),
+        npc('vs_queen', 'Queen Aveline II', 'vs_council', 'fac_crown', 'A thirty-year-old monarch in mourning black, crowned six months and already short of money, heirs and unambiguous friends.', 'Formally calm, intellectually restless, remembers names. Capable of mercy and frightening arithmetic.', 'Keep the realm intact through the succession crisis without becoming a puppet.', [{ time: '06:30', locationId: 'vs_cathedral', activity: 'Private observance' }, { time: '09:00', locationId: 'vs_council', activity: 'Holding council' }, { time: '14:00', locationId: 'vs_keep', activity: 'Receiving petitions and envoys' }, { time: '21:00', locationId: 'vs_council', activity: 'Reading dispatches alone' }], { playerOriginIds: ['origin_queen'], isMajor: true, goalAutonomy: 'high', goalSteps: ['ordered a true count of crown grain', 'summoned the March Warden to explain troop movements', 'opened quiet marriage talks with two rival courts'], secrets: [{ label: 'The queen’s physician', hint: 'The royal physician leaves by servants’ stairs and burns every scrap of paper.', truth: 'Aveline is pregnant, but the pregnancy is dangerous and only four people know.' }] }),
+        npc('vs_chancellor', 'Chancellor Tobran Vey', 'vs_guild', 'fac_crown', 'A broad, soft-spoken jurist whose plain wool hides the best memory in Greyhaven.', 'Paternal in public, relentless in private. Believes stability justifies secrets but not cruelty.', 'Discover which great house is financing unrest before the next council vote.', [{ time: '07:00', locationId: 'vs_keep', activity: 'Reading reports' }, { time: '09:00', locationId: 'vs_council', activity: 'Directing royal business' }, { time: '17:00', locationId: 'vs_guild', activity: 'Sounding out guild masters' }], { isMajor: true, goalSteps: ['placed a false treasury figure in three separate reports', 'hired a Low Ward copyist as an informant', 'requested old succession law from Ironwood Abbey'] }),
         npc('vs_ser_calder', 'Ser Calder Rusk', 'vs_yard', 'fac_crown', 'Captain of the royal household, a weathered knight whose left knee stiffens before rain.', 'Blunt, loyal to the office rather than the person, suspicious of ornamental courage.', 'Make the capital defensible with half the troops the council promises.', [{ time: '05:30', locationId: 'vs_yard', activity: 'Inspecting the watch' }, { time: '11:00', locationId: 'vs_grey_gate', activity: 'Reviewing gate security' }, { time: '18:00', locationId: 'vs_keep', activity: 'Reporting to the crown' }], { goalAutonomy: 'high', goalSteps: ['cancelled ceremonial drill for wall inspection', 'quietly doubled the queen’s night guard', 'tested how quickly the south gate can close'] }),
-        npc('vs_ysabet', 'Mistress Ysabet Coil', 'vs_guild', 'fac_guilds', 'Speaker of the Guild Compact, dressed in severe blue with ink permanently darkening two fingers.', 'Warm when bargaining, cold when agreed terms are broken. Sees trade as the realm’s circulatory system.', 'Exchange emergency crown credit for permanent guild seats on the council.', [{ time: '08:00', locationId: 'vs_guild', activity: 'Hearing masters’ petitions' }, { time: '13:00', locationId: 'vs_market', activity: 'Inspecting prices' }, { time: '16:00', locationId: 'vs_council', activity: 'Lobbying the royal council' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['froze three noble credit lines', 'bought grain futures before the crown report', 'drafted a charter for guild council seats'] }),
+        npc('vs_ysabet', 'Mistress Ysabet Coil', 'vs_council', 'fac_guilds', 'Speaker of the Guild Compact, dressed in severe blue with ink permanently darkening two fingers.', 'Warm when bargaining, cold when agreed terms are broken. Sees trade as the realm’s circulatory system.', 'Exchange emergency crown credit for permanent guild seats on the council.', [{ time: '08:00', locationId: 'vs_guild', activity: 'Hearing masters’ petitions' }, { time: '13:00', locationId: 'vs_market', activity: 'Inspecting prices' }, { time: '16:00', locationId: 'vs_council', activity: 'Lobbying the royal council' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['froze three noble credit lines', 'bought grain futures before the crown report', 'drafted a charter for guild council seats'] }),
         npc('vs_mother', 'Mother Hester', 'vs_cathedral', 'fac_church', 'The cathedral’s elderly canon, leaning on a hawthorn staff and missing nothing.', 'Kind without softness, asks questions that make liars revise themselves.', 'Prevent the succession dispute from becoming a holy war.', [{ time: '05:00', locationId: 'vs_cathedral', activity: 'Leading dawn offices' }, { time: '10:00', locationId: 'vs_highward', activity: 'Visiting households' }, { time: '18:00', locationId: 'vs_cathedral', activity: 'Hearing confessions' }], { isMajor: true, goalSteps: ['requested every claimant’s baptismal record', 'sent neutral mediators to Whitebridge', 'refused a noble request for public endorsement'] }),
-        npc('vs_wina', 'Warden Wina Ash', 'vs_whitebridge', 'fac_march', 'March warden in scaled armor, sun-browned and visibly short of sleep.', 'Direct, decisive, contemptuous of court delay. Protects the border first and explains later.', 'Secure Whitebridge and force the crown to fund the eastern defense.', [{ time: '05:00', locationId: 'vs_marchcamp', activity: 'Inspecting the lines' }, { time: '11:00', locationId: 'vs_whitebridge', activity: 'Hearing scouts and merchants' }, { time: '20:00', locationId: 'vs_marchcamp', activity: 'Planning patrols' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['called up two hundred village levies', 'seized merchant wagons for army supply', 'sent a furious dispatch to Crownfast'] }),
+        npc('vs_wina', 'Warden Wina Ash', 'vs_marchcamp', 'fac_march', 'March warden in scaled armor, sun-browned and visibly short of sleep.', 'Direct, decisive, contemptuous of court delay. Protects the border first and explains later.', 'Secure Whitebridge and force the crown to fund the eastern defense.', [{ time: '05:00', locationId: 'vs_marchcamp', activity: 'Inspecting the lines' }, { time: '11:00', locationId: 'vs_whitebridge', activity: 'Hearing scouts and merchants' }, { time: '20:00', locationId: 'vs_marchcamp', activity: 'Planning patrols' }], { isMajor: true, goalAutonomy: 'high', goalSteps: ['called up two hundred village levies', 'seized merchant wagons for army supply', 'sent a furious dispatch to Crownfast'] }),
         npc('vs_brother', 'Brother Cadoc', 'vs_abbey', 'fac_church', 'An archivist with a narrow face, inked cuffs and the nervous courtesy of a man guarding explosive paper.', 'Pedantic until frightened, then unexpectedly brave. Reveres evidence more than rank.', 'Catalogue the rediscovered land grants before anyone steals them.', [{ time: '06:00', locationId: 'vs_abbey', activity: 'Copying charters' }, { time: '12:00', locationId: 'vs_abbey', activity: 'Teaching novices' }, { time: '22:00', locationId: 'vs_abbey', activity: 'Checking archive locks' }], { goalSteps: ['found a grant bearing a disputed royal seal', 'made a hidden duplicate of the claimant register', 'noticed a folio missing after a noble visitor'] }),
         npc('vs_jarl', 'Jarl Signe Frost', 'vs_frosthold', 'fac_north', 'Leader of the northern clans, wearing seal fur over mail and a silver oath-ring.', 'Dry, deliberate, unimpressed by southern ceremony. Loyalty must be renewed through action.', 'Win recognition of northern law before committing warriors to the queen.', [{ time: '06:00', locationId: 'vs_frosthold', activity: 'Training with the household' }, { time: '11:00', locationId: 'vs_frosthold', activity: 'Hearing clan disputes' }, { time: '18:00', locationId: 'vs_frosthold', activity: 'Feasting with captains' }], { isMajor: true, goalSteps: ['called a winter thing', 'withheld three hundred spears from royal muster', 'offered safe passage to a royal envoy'] }),
         npc('vs_nessa', 'Nessa Pike', 'vs_mirecross', 'fac_fen', 'A reed-boat captain with bright scarves, quick hands and three different customs permits.', 'Charming, irreverent, loyal to people rather than institutions.', 'Unite the Fen crews before guild ships take the smuggling routes.', [{ time: '06:00', locationId: 'vs_mirecross', activity: 'Loading a reed boat' }, { time: '13:00', locationId: 'vs_fen', activity: 'Moving cargo along hidden cuts' }, { time: '21:00', locationId: 'vs_mirecross', activity: 'Trading news and favors' }], { goalAutonomy: 'high', goalSteps: ['bought the loyalty of two toll keepers', 'moved fever medicine without paying duty', 'called a meeting of rival boat families'] }),
         npc('vs_admiral', 'Admiral Corren Vale', 'vs_saltmere', 'fac_house_vale', 'Lady Mara’s uncle, a magnificent older privateer with a velvet eye patch and creditors in four kingdoms.', 'Grandiose, genuinely brave, addicted to expensive solutions.', 'Use the succession crisis to make House Vale indispensable at sea.', [{ time: '07:00', locationId: 'vs_saltmere', activity: 'Inspecting ships' }, { time: '12:00', locationId: 'vs_guild', activity: 'Negotiating credit' }, { time: '19:00', locationId: 'vs_saltmere', activity: 'Entertaining captains' }], { isMajor: true, goalSteps: ['commissioned two privateers on borrowed coin', 'offered convoy protection to the Guild Compact', 'sent Mara a letter urging her to prepare her claim'] }),
         npc('vs_tamsin', 'Tamsin Quill', 'vs_lowward', '', 'A sixteen-year-old printer’s apprentice with inked thumbs and an appetite for dangerous truths.', 'Fast-talking, idealistic, brave in crowds and frightened alone.', 'Print something powerful people cannot make disappear.', [{ time: '07:00', locationId: 'vs_guild', activity: 'Setting type at the print shop' }, { time: '16:00', locationId: 'vs_market', activity: 'Selling broadsheets' }, { time: '21:00', locationId: 'vs_lowward', activity: 'Meeting sources' }], { goalSteps: ['printed the grain price beside the crown’s official figure', 'interviewed discharged March levies', 'received an anonymous copy of a council memorandum'] }),
-        npc('vs_hound', 'Hound', 'vs_road', '', 'A scarred sellsword with a plain sword, no heraldry and the watchfulness of someone accustomed to ambush.', 'Few words, professional boundaries, unexpectedly gentle with animals.', 'Find steady work without swearing another oath that can be abused.', [{ time: '07:00', locationId: 'vs_road', activity: 'Walking with merchant traffic' }, { time: '18:00', locationId: 'vs_sheaf', activity: 'Looking for paid work' }], { goalPool: [{ goal: 'Learn who betrayed the old border company', steps: ['asked after surviving members of the company', 'found the company roll scratched out of a muster book', 'recognized a familiar seal on a guild contract'] }] })
+        npc('vs_hound', 'Hound', 'vs_sheaf', '', 'A scarred sellsword with a plain sword, no heraldry and the watchfulness of someone accustomed to ambush.', 'Few words, professional boundaries, unexpectedly gentle with animals.', 'Find steady work without swearing another oath that can be abused.', [{ time: '07:00', locationId: 'vs_road', activity: 'Walking with merchant traffic' }, { time: '18:00', locationId: 'vs_sheaf', activity: 'Looking for paid work' }], { goalPool: [{ goal: 'Learn who betrayed the old border company', steps: ['asked after surviving members of the company', 'found the company roll scratched out of a muster book', 'recognized a familiar seal on a guild contract'] }] })
     ];
 
     const factions = [
@@ -3644,14 +3664,14 @@ function createThronefallSandboxWorld() {
         { id: 'origin_peasant', icon: '🌾', name: 'Tenant of Dunmere', role: 'tenant farmer', socialRank: 'peasant', description: 'Begin at first light in a wet field, owing rent and labor but knowing every person and path in the vale.', startLocationId: 'vs_field', outfit: 'mud-stained wool, patched boots and a faded hood', inventory: ['sickle', 'twine', 'heel of bread'], statOverrides: { gold: 1, hp: 14, renown: 0 }, obligations: ['Three labor days owed to Stagwatch', 'Rent due after harvest', 'Family and neighbors depend on the crop'], privileges: ['Customary right to gather fallen wood', 'A vote in village moot on common matters'], legalStatus: 'bound tenant', intro: 'Dawn finds you ankle-deep in the east barley strip, where last night’s rain has laid half the young crop flat. The reeve’s tally stick waits on the boundary stone. So does a black feather—the sign Blackbriar uses when it wants a private word. Behind you, Dunmere’s rent bell begins to ring.' },
         { id: 'origin_outlaw', icon: '🏹', name: 'Blackbriar Outlaw', role: 'bandit and fugitive', socialRank: 'outlaw', description: 'Begin wanted in a forest camp where stolen food, desperate families and ambitious killers share one fire.', startLocationId: 'vs_blackbriar', factionId: 'fac_blackbriar', factionReputation: 35, outfit: 'weathered leathers under a stolen russet cloak', inventory: ['hunting bow', '12 arrows', 'long knife', '2 days rations'], statOverrides: { gold: 4, hp: 18, renown: 8 }, obligations: ['Take a watch shift', 'Share a fifth of any score with the camp'], privileges: ['Shelter and intelligence from Blackbriar allies', 'A voice in the camp council'], legalStatus: 'wanted for outlawry', intro: 'Someone has dragged a bound royal courier into Blackbriar before breakfast. Half the camp wants his pay chest. Rook Harrow wants to know why the courier was riding alone—and why the sealed letter in his boot names you.' },
         { id: 'origin_hedgeknight', icon: '🛡️', name: 'Landless Knight', role: 'hedge knight', socialRank: 'lesser nobility', description: 'Begin with a horse, armor, an honorable name and no money to maintain any of them.', startLocationId: 'vs_road', outfit: 'travel-stained mail beneath a faded surcoat with unrecognized arms', inventory: ['arming sword', 'mail shirt', 'shield', 'riding horse', 'bedroll'], statOverrides: { gold: 9, hp: 24, renown: 12 }, obligations: ['Honor sworn hospitality', 'Answer a lawful royal summons or openly refuse it'], privileges: ['Right to bear arms and issue a formal challenge', 'Can seek noble hospitality for three nights'], legalStatus: 'free knight', intro: 'Your horse throws a shoe beside the Old King’s Road milestone at the exact moment three riders appear behind you wearing no colors. Ahead, a royal recruiting sergeant is nailing a call to arms over a reward notice bearing a very good likeness of one of those riders.' },
-        { id: 'origin_guard', icon: '⚔️', name: 'Royal Household Guard', role: 'household guard', socialRank: 'royal retainer', description: 'Begin inside Crownfast, close enough to power to see fear beneath ceremony.', startLocationId: 'vs_yard', factionId: 'fac_crown', factionReputation: 28, outfit: 'blue-black royal livery over a polished brigandine', inventory: ['spear', 'short sword', 'brigandine', 'royal badge'], statOverrides: { gold: 16, hp: 22, renown: 10 }, obligations: ['Obey lawful orders from the household captain', 'Protect the sovereign and keep palace confidence'], privileges: ['Access to Crownfast public and service areas', 'Authority over city watch during a palace emergency'], legalStatus: 'sworn royal retainer', intro: 'The queen’s door is open. It is never open. Ser Calder stands in the corridor with blood on one cuff and orders you to close the stair, admit no councillor, and tell no one what you heard from inside.' },
-        { id: 'origin_guild', icon: '⚖️', name: 'Guild Merchant', role: 'licensed merchant', socialRank: 'chartered citizen', description: 'Begin with credit, contracts and a cargo whose price could decide whether a district eats.', startLocationId: 'vs_guild', factionId: 'fac_guilds', factionReputation: 25, outfit: 'well-cut blue wool, ledger satchel and guild seal', inventory: ['guild seal', 'account ledger', 'warehouse key', 'sample case'], statOverrides: { gold: 85, hp: 15, renown: 14 }, obligations: ['Honor guild judgments', 'Pay Compact dues', 'Deliver contracted grain or face ruin'], privileges: ['Trade under guild protection', 'Access to guild credit and arbitration'], holdings: ['A rented Low Ward warehouse', 'A one-third share in a river barge'], legalStatus: 'chartered merchant', intro: 'Your warehouse key turns, but the door opens from inside. Forty sacks of contracted grain are gone. In their place sits a royal treasury chest, sealed and very much not yours, while the guild bell summons every master to an emergency vote.' },
+        { id: 'origin_guard', icon: '⚔️', name: 'Royal Household Guard', role: 'household guard', socialRank: 'royal retainer', description: 'Begin inside Crownfast, close enough to power to see fear beneath ceremony.', startLocationId: 'vs_yard', factionId: 'fac_crown', factionReputation: 28, outfit: 'blue-black royal livery over a polished brigandine', inventory: ['spear', 'short sword', 'brigandine', 'royal badge'], statOverrides: { gold: 16, hp: 22, renown: 10 }, obligations: ['Obey lawful orders from the household captain', 'Protect the sovereign and keep palace confidence'], privileges: ['Access to Crownfast public and service areas', 'Authority over city watch during a palace emergency'], legalStatus: 'sworn royal retainer', intro: 'In Crownfast Yard, Ser Calder intercepts you beside the well. Blood has dried along one cuff. He lowers his voice: “The queen’s door was standing open. It never stands open. I need the inner stair guarded before the councillors arrive.” The keep entrance is behind him. He waits for your answer.' },
+        { id: 'origin_guild', icon: '⚖️', name: 'Guild Merchant', role: 'licensed merchant', socialRank: 'chartered citizen', description: 'Begin with credit, contracts and a cargo whose price could decide whether a district eats.', startLocationId: 'vs_guild', factionId: 'fac_guilds', factionReputation: 25, outfit: 'well-cut blue wool, ledger satchel and guild seal', inventory: ['guild seal', 'account ledger', 'warehouse key', 'sample case'], statOverrides: { gold: 85, hp: 15, renown: 14 }, obligations: ['Honor guild judgments', 'Pay Compact dues', 'Deliver contracted grain or face ruin'], privileges: ['Trade under guild protection', 'Access to guild credit and arbitration'], holdings: ['A rented Low Ward warehouse', 'A one-third share in a river barge'], legalStatus: 'chartered merchant', intro: 'A folded warehouse report has been pushed beneath your counting-house door on Guildhall Row. Forty sacks of contracted grain are missing from your Low Ward store. The night watch has sketched the royal seal stamped on a chest left in their place. Outside, the guild bell begins calling the masters to an emergency vote. Your warehouse key is still on its hook.' },
         { id: 'origin_cleric', icon: '🕯️', name: 'Priory Healer', role: 'lay healer', socialRank: 'church servant', description: 'Begin in sanctuary with medical knowledge, vows of aid and fugitives whose stories do not agree.', startLocationId: 'vs_priory', factionId: 'fac_church', factionReputation: 22, outfit: 'undyed wool, waxed apron and Saint Orra’s reed badge', inventory: ['healer kit', 'fever tincture', 'prayer cord'], statOverrides: { gold: 3, hp: 15, renown: 6 }, obligations: ['Treat the sick before asking payment', 'Protect sanctuary until dawn'], privileges: ['Claim temporary sanctuary under church law', 'Travel on church roads without common tolls'], legalStatus: 'church protected', intro: 'Three patients arrive before dawn: a feverish child, a customs officer with an arrow in his back, and the masked archer who shot him. Priory law protects them both until sunrise. Outside, mounted officers demand the door.' },
         { id: 'origin_smuggler', icon: '🛶', name: 'Fen Boat Runner', role: 'smuggler and boat captain', socialRank: 'free commoner', description: 'Begin on hidden waterways with contraband, cousins at every toll and debts that cannot be settled in coin.', startLocationId: 'vs_mirecross', factionId: 'fac_fen', factionReputation: 30, outfit: 'oilskin coat, bright scarf and soft marsh boots', inventory: ['reed boat', 'pole', 'concealed crossbow', 'false customs papers', 'medicine crate'], statOverrides: { gold: 22, hp: 17, renown: 9 }, obligations: ['Carry one Saint Orra mercy cargo when called', 'Repay Nessa Pike a dangerous favor'], privileges: ['Safe moorings among allied boat families', 'Knowledge of untolled fen routes'], legalStatus: 'suspected smuggler', intro: 'The tide uncovers a body beneath your boat landing, dressed in guild blue and holding your genuine customs permit. Across the channel a crown patrol is already turning toward Mirecross.' },
         { id: 'origin_soldier', icon: '🏕️', name: 'March Levy', role: 'pressed levy soldier', socialRank: 'common soldier', description: 'Begin cold, underpaid and armed at the edge of a war whose causes are being argued far away.', startLocationId: 'vs_marchcamp', factionId: 'fac_march', factionReputation: 15, outfit: 'padded jack, kettle helm and muddy village boots', inventory: ['spear', 'kettle helm', 'blanket', '3 days rations'], statOverrides: { gold: 2, hp: 19, renown: 3 }, obligations: ['Serve until legally discharged', 'Keep watch and remain with the levy banner'], privileges: ['Army rations and camp shelter', 'Share of lawful battlefield salvage'], legalStatus: 'conscripted levy', intro: 'The dawn muster calls one hundred and ninety-eight names. Two hundred answered yesterday. Your file leader quietly shows you blood beneath the supply wagon and asks whether you want the officers to find it first.' },
-        { id: 'origin_noble', icon: '🦌', name: 'Heir of Stagwatch', role: 'landed noble', socialRank: 'minor nobility', title: 'Heir of Stagwatch', description: 'Begin responsible for a struggling estate, its tenants, its debts and a dangerous blood claim.', startLocationId: 'vs_manor', factionId: 'fac_house_vale', factionReputation: 32, outfit: 'dark riding clothes bearing the silver stag of House Vale', inventory: ['signet ring', 'riding sword', 'estate account book', 'warhorse'], statOverrides: { gold: 42, hp: 19, renown: 25 }, obligations: ['Protect Stagwatch tenants', 'Maintain the manor garrison', 'Answer House Vale’s family council'], privileges: ['Hold manor court', 'Collect customary rents', 'Command six household retainers'], holdings: ['Stagwatch Manor in expectation', 'Rights in Dunmere mill and woodland'], legalStatus: 'noble in good standing', intro: 'Breakfast is interrupted by three arrivals: a guild banker with the estate debt, the reeve with news that tenants hid seed grain, and a royal herald carrying a summons addressed not to Lady Mara—but to you.' },
-        { id: 'origin_prince', icon: '♞', name: 'Royal Prince', role: 'prince of the blood', socialRank: 'royalty', title: 'Prince of Greyhaven', description: 'Begin close to succession, surrounded by affection, surveillance and people who need your future.', startLocationId: 'vs_highward', factionId: 'fac_crown', factionReputation: 38, outfit: 'court black with a narrow silver circlet and a concealed mail shirt', inventory: ['royal signet', 'ceremonial sword', 'personal letters', 'purse of gold'], statOverrides: { gold: 120, hp: 20, renown: 48 }, obligations: ['Attend royal council when summoned', 'Preserve the dignity and continuity of the crown'], privileges: ['Audience with the queen', 'Royal household and guard retinue', 'Issue limited warrants in the sovereign’s name'], holdings: ['Townhouse in the High Ward', 'Income from three crown manors'], legalStatus: 'royal blood', intro: 'A servant wakes you before the bells with news that the queen is ill. On your writing desk lies a succession oath in the Chancellor’s hand, unsigned, and beneath it a second note offering enough soldiers to make the signature unnecessary.' },
-        { id: 'origin_queen', icon: '♛', name: 'Sovereign of the Realm', role: 'reigning monarch', socialRank: 'sovereign', title: 'Queen of Greyhaven', description: 'Begin on the throne with law, armies and wealth that are all less absolute than they look.', startLocationId: 'vs_council', factionId: 'fac_crown', factionReputation: 55, outfit: 'mourning-black velvet, the narrow state crown and a hidden protective charm', inventory: ['Great Seal of the Realm', 'state papers', 'ceremonial sword', 'royal treasury keys'], statOverrides: { gold: 500, hp: 18, renown: 75 }, obligations: ['Hear petitions and render justice', 'Defend the realm', 'Maintain the crown’s oaths, household and solvency'], privileges: ['Issue decrees, pardons, warrants and commissions', 'Command royal forces subject to loyalty and supply', 'Summon council, levy and high court'], holdings: ['Crownfast Keep', 'Royal demesne', 'Crown roads, customs and wardships'], legalStatus: 'the sovereign', intro: 'The council rises when you enter, but no one meets your eyes. On the table: an empty treasury report, a border demand for troops, a guild ultimatum over grain, and a sealed physician’s note marked for your hand alone. Outside, petitioners chant for bread.' },
+        { id: 'origin_noble', icon: '🦌', name: 'Heir of Stagwatch', role: 'landed noble', socialRank: 'minor nobility', title: 'Heir of Stagwatch', description: 'Begin responsible for a struggling estate, its tenants, its debts and a dangerous blood claim.', startLocationId: 'vs_manor', factionId: 'fac_house_vale', factionReputation: 32, outfit: 'dark riding clothes bearing the silver stag of House Vale', inventory: ['signet ring', 'riding sword', 'estate account book', 'warhorse'], statOverrides: { gold: 42, hp: 19, renown: 25 }, obligations: ['Protect Stagwatch tenants', 'Maintain the manor garrison', 'Answer House Vale’s family council'], privileges: ['Hold manor court', 'Collect customary rents', 'Command six household retainers'], holdings: ['Stagwatch Manor in expectation', 'Rights in Dunmere mill and woodland'], legalStatus: 'noble in good standing', intro: 'At Stagwatch Manor, your breakfast tray arrives with three unopened documents: a guild demand for the estate debt, a report from the reeve about concealed seed grain, and a royal summons addressed to you rather than Lady Mara. Rain taps against the windows. You can hear the household beginning its morning beyond the hall.' },
+        { id: 'origin_prince', icon: '♞', name: 'Royal Prince', role: 'prince of the blood', socialRank: 'royalty', title: 'Prince of Greyhaven', description: 'Begin close to succession, surrounded by affection, surveillance and people who need your future.', startLocationId: 'vs_highward', factionId: 'fac_crown', factionReputation: 38, outfit: 'court black with a narrow silver circlet and a concealed mail shirt', inventory: ['royal signet', 'ceremonial sword', 'personal letters', 'purse of gold'], statOverrides: { gold: 120, hp: 20, renown: 48 }, obligations: ['Attend royal council when summoned', 'Preserve the dignity and continuity of the crown'], privileges: ['Audience with the queen', 'Royal household and guard retinue', 'Issue limited warrants in the sovereign’s name'], holdings: ['Townhouse in the High Ward', 'Income from three crown manors'], legalStatus: 'royal blood', intro: 'Outside your townhouse in the High Ward, the first courtyard bell catches you with two letters in your hand. One bears the royal household seal and says the queen is ill. The other contains an unsigned succession oath in the Chancellor’s hand—and a note offering soldiers enough to make the signature unnecessary. Crownfast lies uphill. Neither letter explains who brought the other.' },
+        { id: 'origin_queen', icon: '♛', name: 'Sovereign of the Realm', role: 'reigning monarch', socialRank: 'sovereign', title: 'Queen of Greyhaven', description: 'Begin on the throne with law, armies and wealth that are all less absolute than they look.', startLocationId: 'vs_council', factionId: 'fac_crown', factionReputation: 55, outfit: 'mourning-black velvet, the narrow state crown and a hidden protective charm', inventory: ['Great Seal of the Realm', 'state papers', 'ceremonial sword', 'royal treasury keys'], statOverrides: { gold: 500, hp: 18, renown: 75 }, obligations: ['Hear petitions and render justice', 'Defend the realm', 'Maintain the crown’s oaths, household and solvency'], privileges: ['Issue decrees, pardons, warrants and commissions', 'Command royal forces subject to loyalty and supply', 'Summon council, levy and high court'], holdings: ['Crownfast Keep', 'Royal demesne', 'Crown roads, customs and wardships'], legalStatus: 'the sovereign', intro: 'The Royal Council Chamber is quiet before the morning session. The sovereign’s seal rests beside your hand. On the table lie an empty treasury report, a border demand for troops, a guild ultimatum over grain, and a sealed physician’s note. From beyond the keep walls comes the uneven rhythm of petitioners calling for bread.' },
         { id: 'origin_wanderer', icon: '🧭', name: 'Unknown Wanderer', role: 'traveler of uncertain purpose', socialRank: 'unrecorded', description: 'Begin with almost nothing and no fixed identity. The world will decide who you are by what you do.', startLocationId: 'vs_road', outfit: 'plain travel-worn wool and a weathered cloak', inventory: ['walking staff', 'bedroll', 'flint', '2 days rations'], statOverrides: { gold: 5, hp: 16, renown: 0 }, obligations: [], privileges: [], legalStatus: 'free but unvouched', intro: 'Rain follows you to a four-way milestone where a corpse hangs in a gibbet and someone has left a fresh loaf beneath it. The north road leads to the capital, east to war, south to the fen and west to a village ringing its rent bell. Hoofbeats approach from behind.' }
     ];
 
@@ -3918,6 +3938,25 @@ function createBellwether2005World() {
         entities.push({ id:`bw_worker_${i+1}`, name, type:'npc', startLocation:workplace, description:`${name} works at ${byId.get(workplace)?.name || 'a Bellwether workplace'} and is known for ${['trading shifts','remembering regular customers','having a second job','knowing the unofficial rules','bringing elaborate lunches','being first to hear staffing rumors'][i%6]}.`, persona:`${['Outgoing but overscheduled','Quiet, capable and observant','Friendly with a competitive streak','Sarcastic, dependable and tired','Optimistic until management enters the room','Private but unexpectedly generous'][i%6]}.`, goal:['get enough hours without losing every weekend','move into a better apartment','turn a hobby into paid work','repair a friendship damaged by workplace gossip','earn trust for a promotion','save for a reliable used car'][i%6], goalAutonomy:'medium', goalSteps:['changed one shift or expense to make progress','confided in a coworker','encountered a workplace complication'], schedule:[{time:'09:00',locationId:workplace,activity:'working the day shift',days:['Monday','Tuesday','Wednesday']},{time:'14:00',locationId:workplace,activity:'working the later shift',days:['Thursday','Friday']},{time:'12:00',locationId:i%2?'bw_mall':'bw_park',activity:'off work and out in town',days:['weekend']}] });
     }
 
+    // Specialists need an overnight place too; a final cafe/council/park
+    // appointment must not keep them there until the following morning.
+    const residentialStreets=locations.filter(place=>place.mapType==='route' && /Maple|Oak|Cedar|Lakeview|Westgate/.test(place.region));
+    entities.filter(person=>!person.homeLocation).forEach((person,index)=>{
+        if(person.id==='bw_core_mayor')person.playerOriginIds=['bw_origin_mayor'];
+        const street=residentialStreets[index%residentialStreets.length];
+        const homeId=`bw_residence_${person.id}`,homeName=`${person.name}'s Home`;
+        add(homeId,homeName,street.region,'building',`A private home off ${street.name}. Shoes by the door, a landline and a crowded paper calendar mark the part of ${person.name}'s life that continues after work.`,{parentLocationId:street.id});
+        connect(street.id,homeId,2);
+        person.homeLocation=homeId;person.startLocation=homeId;
+        const rest=[{time:'00:00',locationId:homeId,activity:'at home overnight'},
+            ...(person.id.startsWith('bw_worker_')?[
+                {time:'18:00',locationId:homeId,activity:'home after the day shift',days:['Monday','Tuesday','Wednesday']},
+                {time:'22:00',locationId:homeId,activity:'home after the late shift',days:['Thursday','Friday']}
+            ]:[{time:'21:00',locationId:homeId,activity:'home after the day’s obligations',days:['weekday']}]),
+            {time:'20:00',locationId:homeId,activity:'at home for the evening',days:['weekend']}];
+        person.schedule=[...rest,...person.schedule];
+    });
+
     const factions = [
         { id:'bw_town', name:'Town Government', description:'Mayor, council, departments and employees balancing services, taxes, development and public patience.', influence:72,reputation:14,resources:68,goal:'Approve a sustainable 2006 budget without closing services',territory:['bw_crossroads','bw_townhall','bw_council','bw_library','bw_park','bw_pool'],relations:[{factionId:'bw_business',score:18},{factionId:'bw_media',score:-12},{factionId:'bw_safety',score:28}],goalPool:['Decide the Route 17 development proposal','Modernize town records and public access'] },
         { id:'bw_schools', name:'Bellwether School District', description:'Schools, board, teachers, coaches, students and families fighting over what education should protect.', influence:67,reputation:31,resources:55,goal:'Close a budget gap without cutting essential programs',territory:['bw_school_high','bw_school_middle','bw_school_elementary'],relations:[{factionId:'bw_town',score:22},{factionId:'bw_teens',score:8}],goalPool:['Renegotiate bus and athletics contracts','Pass the spring operating levy'] },
@@ -3934,21 +3973,21 @@ function createBellwether2005World() {
     ];
 
     const startingLives = [
-        {id:'bw_origin_newkid',icon:'🎒',name:'The New Kid',role:'high-school junior',socialRank:'student',description:'Your family moved to Bellwether yesterday. Nobody knows your history, and you do not yet know the map of theirs.',startLocationId:'bw_school_high_main_office',outfit:'new jeans, layered T-shirts and a backpack packed too carefully',inventory:['school schedule','house key','CD player','burned mix CD'],statOverrides:{cash:28,energy:82,stress:38,reputation:0},obligations:['Attend school','Follow household rules and curfew'],privileges:['A clean social slate','Access to Bellwether High'],legalStatus:'minor student',intro:'The guidance counselor mispronounces your last name over the intercom before first period. By lunch, three different people have invited you to three mutually incompatible tables—and somebody has written your old hometown beneath your locker number.'},
-        {id:'bw_origin_localteen',icon:'📱',name:'Bellwether Lifer',role:'high-school senior',socialRank:'student',description:'You know every shortcut and everybody knows a version of you, including several versions you would like retired.',startLocationId:'bw_school_high_student_parking_lot',factionId:'bw_teens',factionReputation:24,outfit:'hoodie, faded band shirt and carefully casual sneakers',inventory:['flip phone','car keys to a shared 1994 sedan','CD wallet','school ID'],statOverrides:{cash:46,energy:70,stress:44,reputation:22},obligations:['Graduate','Keep the shared car fueled','Be home by the negotiated curfew'],privileges:['Deep local knowledge','An established friend network'],legalStatus:'licensed minor',intro:'Your car starts on the fourth try in the student lot. The morning announcement says the senior prank caused “significant plumbing consequences.” Your phone shows six missed calls, and the assistant principal is walking directly toward you.'},
-        {id:'bw_origin_middle',icon:'🛹',name:'Middle-School Wildcard',role:'eighth-grade student',socialRank:'student',description:'Your world is school, home, bikes, friends, older siblings and freedoms measured in blocks and minutes.',startLocationId:'bw_school_middle_bus_loop',outfit:'cargo pants, zip hoodie and scuffed skate shoes',inventory:['bike lock key','handheld game','lunch money','spiral notebook'],statOverrides:{cash:12,energy:92,stress:31,reputation:8},obligations:['Attend school','Stay within family rules','Do not miss the bus again'],privileges:['Adults routinely underestimate what you notice'],legalStatus:'minor student',intro:'The bus pulls away with your science project still on it. Your best friend swears they can catch it by cutting through Briar Creek Woods. First bell is in twenty-two minutes, and the vice principal is already standing at the entrance.'},
-        {id:'bw_origin_parent',icon:'🚙',name:'Suburban Parent',role:'working parent',socialRank:'resident',description:'A household, a job, a car, school logistics and thirty-seven small promises all compete for the same Tuesday.',startLocationId:homeIds[0],outfit:'office-casual clothes with a coffee stain discovered too late',inventory:['minivan keys','wallet','flip phone','paper day planner','grocery coupons'],statOverrides:{cash:260,energy:58,stress:62,reputation:14},obligations:['Pay household bills','Care for family','Meet work and school commitments'],privileges:['A home, car and established community ties'],holdings:['Family home with mortgage','Used minivan'],legalStatus:'adult resident',intro:'At 7:14 Monday morning, the minivan will not start, one child says today is definitely picture day, your boss has left two voicemails, and the answering machine contains a message from Town Hall about “your fence situation.”'},
-        {id:'bw_origin_single',icon:'🧾',name:'Starting Over at Westgate',role:'single parent and new tenant',socialRank:'resident',description:'You have an apartment, a child, two jobs between you and disaster, and no time for the town’s assumptions.',startLocationId:'bw_apartments',outfit:'work clothes under a practical coat',inventory:['apartment keys','bus pass','prepaid cell phone','folder of bills'],statOverrides:{cash:84,energy:46,stress:74,reputation:0},obligations:['Pay rent','Arrange childcare','Keep two work schedules functioning'],privileges:['Tenant protections','A close apartment community if you earn its trust'],legalStatus:'adult tenant',intro:'The radiator has stopped again. Your child’s school calls at the same moment the diner asks whether you can cover a shift, while a bright orange notice appears under the apartment door announcing a rent increase next month.'},
-        {id:'bw_origin_teacher',icon:'📝',name:'First-Year Teacher',role:'public-school teacher',socialRank:'professional',description:'You have one classroom, one contract year and roughly one hundred people evaluating your choices.',startLocationId:'bw_school_high_south_hall',factionId:'bw_schools',factionReputation:12,outfit:'carefully professional clothes and shoes already regretted',inventory:['grade book','classroom keys','red pens','staff handbook'],statOverrides:{cash:118,energy:68,stress:57,reputation:5},obligations:['Teach assigned classes','Supervise students','Follow district policy and contract'],privileges:['Staff access','Professional discretion inside the classroom'],legalStatus:'district employee',intro:'A parent is waiting outside your classroom before the first bell. Inside, someone has replaced every desk with a folding chair from the auditorium, and the principal’s memo says today’s unannounced observation will occur “at any time.”'},
-        {id:'bw_origin_mall',icon:'💿',name:'Mall Employee',role:'music-store clerk',socialRank:'hourly worker',description:'Your shifts, friends, romantic complications and entire social map overlap beneath one fluorescent roof.',startLocationId:'bw_mall_music',factionId:'bw_mall_faction',factionReputation:8,outfit:'store polo over a band shirt management has not noticed',inventory:['store keys','name tag','flip phone','employee discount card'],statOverrides:{cash:64,energy:66,stress:42,reputation:10},obligations:['Work assigned shifts','Protect store inventory','Find somebody to cover before calling out'],privileges:['Mall employee corridors','Store discount','Informal access to the youth scene'],legalStatus:'adult employee',intro:'The opening shipment contains two hundred copies of the wrong album. Your manager is stuck in traffic, a local band has arrived expecting the in-store performance nobody booked, and mall security wants to discuss footage from last night.'},
-        {id:'bw_origin_owner',icon:'🔑',name:'Small Business Owner',role:'downtown shop owner',socialRank:'business owner',description:'You have keys, payroll, regulars, debt and the freedom to work every hour the business is open.',startLocationId:'bw_coffee',factionId:'bw_merchants',factionReputation:22,outfit:'rolled sleeves, apron and comfortable shoes',inventory:['shop keys','cashbox key','supplier invoices','pager'],statOverrides:{cash:620,energy:52,stress:63,reputation:28},obligations:['Make payroll','Pay rent and suppliers','Meet health and licensing rules'],privileges:['Control your business premises','Vote in the merchants association'],holdings:['The Daily Grind business and equipment'],legalStatus:'licensed proprietor',intro:'The espresso machine makes a noise like a lawn mower and dies during the morning rush. At the same moment, a developer offers to buy your lease, and the health inspector joins the line.'},
-        {id:'bw_origin_reporter',icon:'📰',name:'Local Reporter',role:'newspaper reporter',socialRank:'local professional',description:'You can ask nearly anyone a question, but publishing the answer may cost access, advertising or friendships.',startLocationId:'bw_paper',factionId:'bw_media',factionReputation:20,outfit:'creased shirt, practical jacket and ink on one cuff',inventory:['reporter notebook','microcassette recorder','35mm camera','press badge'],statOverrides:{cash:92,energy:72,stress:48,reputation:18},obligations:['Verify before publishing','Protect confidential sources','Meet the Beacon deadline'],privileges:['Press access','A reason to ask unwelcome questions'],legalStatus:'working press',intro:'An envelope on your desk contains copies of a development contract dated three weeks before the public bidding process. The editor needs a zoning story by noon. The bank president is already calling to ask what you are working on.'},
-        {id:'bw_origin_officer',icon:'🚓',name:'Night-Shift Officer',role:'patrol officer',socialRank:'public employee',description:'You have authority, a radio, a partner and a town where every call may involve somebody you know.',startLocationId:'bw_police',factionId:'bw_safety',factionReputation:18,outfit:'Bellwether patrol uniform, duty belt and rain jacket',inventory:['patrol radio','badge','flashlight','notebook','patrol car keys'],statOverrides:{cash:142,energy:48,stress:54,reputation:12},obligations:['Respond to calls lawfully','Document enforcement actions','Protect people in custody and the public'],privileges:['Police authority within jurisdiction','Access to dispatch and incident records'],legalStatus:'sworn officer',intro:'Dispatch sends you to the mall for a “fountain-related disturbance” and then quietly adds that the mayor’s son is involved. Your partner recognizes the address on a second pending call and asks you to take the long route.'},
-        {id:'bw_origin_mayor',icon:'🏛️',name:'Mayor of Bellwether',role:'elected mayor',socialRank:'local executive',description:'You can set agendas and influence departments, but every promise has a budget, a constituency and a camera.',startLocationId:'bw_council',factionId:'bw_town',factionReputation:40,title:'Mayor of Bellwether',outfit:'navy suit, town pin and shoes chosen for standing through meetings',inventory:['town hall keys','official pager','briefing binder','campaign donor list'],statOverrides:{cash:310,energy:61,stress:69,reputation:46},obligations:['Execute town policy','Present a balanced budget','Remain accountable to residents and council'],privileges:['Set executive priorities','Direct department heads within law','Public platform and official access'],legalStatus:'elected official',intro:'The council chamber microphones are live ten minutes early. Through them, half the town hears two council members arguing that your development deal is already fixed. Your assistant whispers that the state auditor has arrived without an appointment.'},
-        {id:'bw_origin_retired',icon:'☕',name:'Retired Local Fixture',role:'retired resident',socialRank:'elder resident',description:'You have time, history, skills and connections spanning people who no longer speak to each other.',startLocationId:'bw_diner',factionId:'bw_oldguard',factionReputation:36,outfit:'windbreaker, comfortable shoes and a cap from a long-closed business',inventory:['old station wagon keys','address book','garage tools','diner loyalty card'],statOverrides:{cash:190,energy:57,stress:22,reputation:42},obligations:['Keep a few promises made decades ago'],privileges:['Long local memory','Trust across several generations','Time to notice what busy people miss'],holdings:['Paid-off modest home','Crowded garage workshop'],legalStatus:'adult resident',intro:'The diner waitress brings your usual before you order and slides a sealed letter beneath the coffee. It is addressed in the handwriting of a friend who died eight years ago. Across the counter, the new reporter is asking about the old factory fire.'},
-        {id:'bw_origin_doctor',icon:'🩺',name:'Emergency Doctor',role:'emergency physician',socialRank:'medical professional',description:'You carry expertise and responsibility inside a hospital woven tightly into the town outside it.',startLocationId:'bw_er',factionId:'bw_health',factionReputation:28,outfit:'scrubs beneath a white coat, running shoes and a clipped pager',inventory:['hospital badge','pager','stethoscope','car keys'],statOverrides:{cash:480,energy:43,stress:72,reputation:31},obligations:['Treat patients ethically','Protect confidentiality','Respond to emergencies while on duty'],privileges:['Clinical authority','Hospital access','Professional standing'],legalStatus:'licensed physician',intro:'Three ambulances arrive within six minutes: a factory injury, a school-bus crash with no serious wounds, and the bank president complaining of chest pain while insisting his name stay off the board. Pediatrics has no overnight coverage.'},
-        {id:'bw_origin_unemployed',icon:'📼',name:'Back Home Again',role:'unemployed adult living with family',socialRank:'resident',description:'You returned to your childhood room with boxes, a résumé and a town determined to remember you at seventeen.',startLocationId:homeIds[1],outfit:'old jeans and a college sweatshirt that invites questions',inventory:['used car keys','résumé folder','desktop computer','box of old yearbooks'],statOverrides:{cash:37,energy:64,stress:68,reputation:6},obligations:['Contribute at home','Search for work','Explain the plan repeatedly'],privileges:['Family shelter','Old friendships that may or may not still fit'],legalStatus:'adult resident',intro:'Your mother has circled three jobs in the Beacon and scheduled you for lunch with someone who “knows people.” Before you can object, your old best friend leaves a message asking whether you still have the key to the water tower fence.'},
-        {id:'bw_origin_richkid',icon:'🏡',name:'Lakeview Golden Child',role:'college-bound senior',socialRank:'affluent student',description:'You have money, access and expectations high enough to make every mistake public.',startLocationId:homeIds[homeIds.length-1],factionId:'bw_hoa',factionReputation:18,outfit:'expensive casual clothes chosen to appear effortless',inventory:['new flip phone','SUV keys','credit card for emergencies','college application folder'],statOverrides:{cash:420,energy:74,stress:58,reputation:38},obligations:['Protect the family name','Maintain grades and admissions prospects','Follow household image rules'],privileges:['Car access','Money and social reach','Lakeview facilities'],legalStatus:'licensed minor',intro:'A photo from Saturday’s lake party is circulating at school on printed computer paper. You are not doing anything illegal in it—but somebody important is visible behind you, and your parent wants every copy gone before lunch.'}
+        {id:'bw_origin_newkid',icon:'🎒',name:'The New Kid',role:'high-school junior',socialRank:'student',description:'Your family moved to Bellwether yesterday. Nobody knows your history, and you do not yet know the map of theirs.',startLocationId:'bw_school_high_main_office',outfit:'new jeans, layered T-shirts and a backpack packed too carefully',inventory:['school schedule','house key','CD player','burned mix CD'],statOverrides:{cash:28,energy:82,stress:38,reputation:0},obligations:['Attend school','Follow household rules and curfew'],privileges:['A clean social slate','Access to Bellwether High'],legalStatus:'minor student',intro:'The Bellwether High main office smells of warm toner and floor polish. Your enrollment folder is open on the counter, your surname crossed out and rewritten in the wrong spelling. A locker assignment is clipped to your timetable. Beneath the printed number, someone has penciled the name of your old hometown. You have not told anyone here about it.'},
+        {id:'bw_origin_localteen',icon:'📱',name:'Bellwether Lifer',role:'high-school senior',socialRank:'student',description:'You know every shortcut and everybody knows a version of you, including several versions you would like retired.',startLocationId:'bw_school_high_student_parking_lot',factionId:'bw_teens',factionReputation:24,outfit:'hoodie, faded band shirt and carefully casual sneakers',inventory:['flip phone','car keys to a shared 1994 sedan','CD wallet','school ID'],statOverrides:{cash:46,energy:70,stress:44,reputation:22},obligations:['Graduate','Keep the shared car fueled','Be home by the negotiated curfew'],privileges:['Deep local knowledge','An established friend network'],legalStatus:'licensed minor',intro:'In the high-school student parking lot, your shared sedan has finally stopped coughing. Six missed calls fill the flip phone’s tiny screen. A pink office slip is caught beneath the wiper: PLEASE REPORT BEFORE FIRST PERIOD. From the building’s loudspeaker comes an announcement about “significant plumbing consequences.” Nobody has said your name yet.'},
+        {id:'bw_origin_middle',icon:'🛹',name:'Middle-School Wildcard',role:'eighth-grade student',socialRank:'student',description:'Your world is school, home, bikes, friends, older siblings and freedoms measured in blocks and minutes.',startLocationId:'bw_school_middle_bus_loop',outfit:'cargo pants, zip hoodie and scuffed skate shoes',inventory:['bike lock key','handheld game','lunch money','spiral notebook'],statOverrides:{cash:12,energy:92,stress:31,reputation:8},obligations:['Attend school','Stay within family rules','Do not miss the bus again'],privileges:['Adults routinely underestimate what you notice'],legalStatus:'minor student',intro:'At the middle-school bus loop, the bus disappears around the corner with your science project still aboard. A text from your best friend suggests the path through Briar Creek Woods. The school doors are open behind you. Your empty hands feel conspicuous among the other project boxes.'},
+        {id:'bw_origin_parent',icon:'🚙',name:'Suburban Parent',role:'working parent',socialRank:'resident',description:'A household, a job, a car, school logistics and thirty-seven small promises all compete for the same Monday.',startLocationId:homeIds[0],outfit:'office-casual clothes with a coffee stain discovered too late',inventory:['minivan keys','wallet','flip phone','paper day planner','grocery coupons'],statOverrides:{cash:260,energy:58,stress:62,reputation:14},obligations:['Pay household bills','Care for family','Meet work and school commitments'],privileges:['A home, car and established community ties'],holdings:['Family home with mortgage','Used minivan'],legalStatus:'adult resident',intro:'Monday morning at home: the minivan will not start, a school reminder insists today is picture day, and your boss has left two voicemails. The answering machine’s final message is from Town Hall about “your fence situation.” The kitchen clock says seven. Your keys are on the table beside the permission slip you meant to sign last night.'},
+        {id:'bw_origin_single',icon:'🧾',name:'Starting Over at Westgate',role:'single parent and new tenant',socialRank:'resident',description:'You have an apartment, a child, two jobs between you and disaster, and no time for the town’s assumptions.',startLocationId:'bw_apartments',outfit:'work clothes under a practical coat',inventory:['apartment keys','bus pass','prepaid cell phone','folder of bills'],statOverrides:{cash:84,energy:46,stress:74,reputation:0},obligations:['Pay rent','Arrange childcare','Keep two work schedules functioning'],privileges:['Tenant protections','A close apartment community if you earn its trust'],legalStatus:'adult tenant',intro:'At Westgate Apartments, the radiator has stopped again. The answering machine holds a message from your child’s school and another from the diner asking whether you can cover a shift. A bright orange notice has been pushed under the door: the rent goes up next month. You are still in the apartment corridor, with your keys and work bag.'},
+        {id:'bw_origin_teacher',icon:'📝',name:'First-Year Teacher',role:'public-school teacher',socialRank:'professional',description:'You have one classroom, one contract year and roughly one hundred people evaluating your choices.',startLocationId:'bw_school_high_south_hall',factionId:'bw_schools',factionReputation:12,outfit:'carefully professional clothes and shoes already regretted',inventory:['grade book','classroom keys','red pens','staff handbook'],statOverrides:{cash:118,energy:68,stress:57,reputation:5},obligations:['Teach assigned classes','Supervise students','Follow district policy and contract'],privileges:['Staff access','Professional discretion inside the classroom'],legalStatus:'district employee',intro:'In Bellwether High’s south hall, a folded parent note waits beneath your classroom number. Through the open doorway you can see rows of folding chairs where desks should be. The principal’s memo in your hand promises an unannounced observation “at any time today.” Somewhere farther down the hall, a chair leg scrapes the floor.'},
+        {id:'bw_origin_mall',icon:'💿',name:'Mall Employee',role:'music-store clerk',socialRank:'hourly worker',description:'Your shifts, friends, romantic complications and entire social map overlap beneath one fluorescent roof.',startLocationId:'bw_mall_music',factionId:'bw_mall_faction',factionReputation:8,outfit:'store polo over a band shirt management has not noticed',inventory:['store keys','name tag','flip phone','employee discount card'],statOverrides:{cash:64,energy:66,stress:42,reputation:10},obligations:['Work assigned shifts','Protect store inventory','Find somebody to cover before calling out'],privileges:['Mall employee corridors','Store discount','Informal access to the youth scene'],legalStatus:'adult employee',intro:'Behind Sound Circuit’s counter, the opening shipment is stacked around your ankles: two hundred copies of the wrong album. The shop’s fax machine has printed a local band’s confirmation for an in-store show nobody entered in the diary. A message from mall security asks you to collect last night’s incident report before opening.'},
+        {id:'bw_origin_owner',icon:'🔑',name:'Small Business Owner',role:'downtown shop owner',socialRank:'business owner',description:'You have keys, payroll, regulars, debt and the freedom to work every hour the business is open.',startLocationId:'bw_coffee',factionId:'bw_merchants',factionReputation:22,outfit:'rolled sleeves, apron and comfortable shoes',inventory:['shop keys','cashbox key','supplier invoices','pager'],statOverrides:{cash:620,energy:52,stress:63,reputation:28},obligations:['Make payroll','Pay rent and suppliers','Meet health and licensing rules'],privileges:['Control your business premises','Vote in the merchants association'],holdings:['The Daily Grind business and equipment'],legalStatus:'licensed proprietor',intro:'At the coffee shop, the espresso machine makes a sound like a lawn mower and falls silent. The first cups are already lined up on the counter. Beneath the till sits a developer’s offer to buy your lease; taped beside it is today’s inspection notice. The handwritten specials board still promises the best coffee in Bellwether.'},
+        {id:'bw_origin_reporter',icon:'📰',name:'Local Reporter',role:'newspaper reporter',socialRank:'local professional',description:'You can ask nearly anyone a question, but publishing the answer may cost access, advertising or friendships.',startLocationId:'bw_paper',factionId:'bw_media',factionReputation:20,outfit:'creased shirt, practical jacket and ink on one cuff',inventory:['reporter notebook','microcassette recorder','35mm camera','press badge'],statOverrides:{cash:92,energy:72,stress:48,reputation:18},obligations:['Verify before publishing','Protect confidential sources','Meet the Beacon deadline'],privileges:['Press access','A reason to ask unwelcome questions'],legalStatus:'working press',intro:'At the Beacon office, an envelope on your desk contains a development contract dated three weeks before public bidding opened. An editorial note asks for the zoning story by noon. The bank’s number is blinking on the answering machine. A corner of the final contract page has been cut away.'},
+        {id:'bw_origin_officer',icon:'🚓',name:'Night-Shift Officer',role:'patrol officer',socialRank:'public employee',description:'You have authority, a radio, a partner and a town where every call may involve somebody you know.',startLocationId:'bw_police',factionId:'bw_safety',factionReputation:18,outfit:'Bellwether patrol uniform, duty belt and rain jacket',inventory:['patrol radio','badge','flashlight','notebook','patrol car keys'],statOverrides:{cash:142,energy:48,stress:54,reputation:12},obligations:['Respond to calls lawfully','Document enforcement actions','Protect people in custody and the public'],privileges:['Police authority within jurisdiction','Access to dispatch and incident records'],legalStatus:'sworn officer',intro:'At the police station, the end-of-shift board lists a “fountain-related disturbance” at the mall. A second line adds the mayor’s son’s name. Beside it is another pending address, underlined twice, with a handwritten request to speak privately before taking the call. Your radio is still on the desk.'},
+        {id:'bw_origin_mayor',icon:'🏛️',name:'Mayor of Bellwether',role:'elected mayor',socialRank:'local executive',description:'You can set agendas and influence departments, but every promise has a budget, a constituency and a camera.',startLocationId:'bw_council',factionId:'bw_town',factionReputation:40,title:'Mayor of Bellwether',outfit:'navy suit, town pin and shoes chosen for standing through meetings',inventory:['town hall keys','official pager','briefing binder','campaign donor list'],statOverrides:{cash:310,energy:61,stress:69,reputation:46},obligations:['Execute town policy','Present a balanced budget','Remain accountable to residents and council'],privileges:['Set executive priorities','Direct department heads within law','Public platform and official access'],legalStatus:'elected official',intro:'In the council chamber, the microphone at your seat is unexpectedly live. A thin red lamp glows beneath the empty public benches. Someone has left two contradictory versions of the development vote on the table, along with a note from the clerk: STATE AUDIT REQUEST—PLEASE CALL. The morning meeting has not begun.'},
+        {id:'bw_origin_retired',icon:'☕',name:'Retired Local Fixture',role:'retired resident',socialRank:'elder resident',description:'You have time, history, skills and connections spanning people who no longer speak to each other.',startLocationId:'bw_diner',factionId:'bw_oldguard',factionReputation:36,outfit:'windbreaker, comfortable shoes and a cap from a long-closed business',inventory:['old station wagon keys','address book','garage tools','diner loyalty card'],statOverrides:{cash:190,energy:57,stress:22,reputation:42},obligations:['Keep a few promises made decades ago'],privileges:['Long local memory','Trust across several generations','Time to notice what busy people miss'],holdings:['Paid-off modest home','Crowded garage workshop'],legalStatus:'adult resident',intro:'At your usual diner booth, a sealed letter lies beneath the coffee cup. The envelope carries the handwriting of a friend who died eight years ago. Beside it is a Beacon clipping about the old factory fire. The reverse has one fresh pencil mark: a question mark beside your name.'},
+        {id:'bw_origin_doctor',icon:'🩺',name:'Emergency Doctor',role:'emergency physician',socialRank:'medical professional',description:'You carry expertise and responsibility inside a hospital woven tightly into the town outside it.',startLocationId:'bw_er',factionId:'bw_health',factionReputation:28,outfit:'scrubs beneath a white coat, running shoes and a clipped pager',inventory:['hospital badge','pager','stethoscope','car keys'],statOverrides:{cash:480,energy:43,stress:72,reputation:31},obligations:['Treat patients ethically','Protect confidentiality','Respond to emergencies while on duty'],privileges:['Clinical authority','Hospital access','Professional standing'],legalStatus:'licensed physician',intro:'In the emergency department, the incoming radio lists three arrivals within six minutes: a factory injury, a school-bus collision with no serious injuries reported, and the bank president with chest pain. The first bay is ready; the second still has yesterday’s faulty monitor. Your handover sheet is blank where the overnight shortages should be recorded.'},
+        {id:'bw_origin_unemployed',icon:'📼',name:'Back Home Again',role:'unemployed adult living with family',socialRank:'resident',description:'You returned to your childhood room with boxes, a résumé and a town determined to remember you at seventeen.',startLocationId:homeIds[1],outfit:'old jeans and a college sweatshirt that invites questions',inventory:['used car keys','résumé folder','desktop computer','box of old yearbooks'],statOverrides:{cash:37,energy:64,stress:68,reputation:6},obligations:['Contribute at home','Search for work','Explain the plan repeatedly'],privileges:['Family shelter','Old friendships that may or may not still fit'],legalStatus:'adult resident',intro:'Back at the family house, three jobs are circled in the Beacon on the kitchen table. Your mother has left a note about lunch with someone who “knows people.” On the answering machine, an old friend asks whether you still have the key to the water-tower fence. They do not say why they need it.'},
+        {id:'bw_origin_richkid',icon:'🏡',name:'Lakeview Golden Child',role:'college-bound senior',socialRank:'affluent student',description:'You have money, access and expectations high enough to make every mistake public.',startLocationId:homeIds[homeIds.length-1],factionId:'bw_hoa',factionReputation:18,outfit:'expensive casual clothes chosen to appear effortless',inventory:['new flip phone','SUV keys','credit card for emergencies','college application folder'],statOverrides:{cash:420,energy:74,stress:58,reputation:38},obligations:['Protect the family name','Maintain grades and admissions prospects','Follow household image rules'],privileges:['Car access','Money and social reach','Lakeview facilities'],legalStatus:'licensed minor',intro:'At home in Lakeview, a photocopied image from Saturday’s lake party lies across your college application folder. You are not doing anything illegal in it, but someone important is visible behind you. A note in your parent’s handwriting says: GET EVERY COPY BACK BEFORE LUNCH. The paper has already been folded into quarters by somebody else.'}
     ];
 
     const scheduledEvents = [
@@ -4038,7 +4077,7 @@ const STARTER_WORLDS = [
         maxTokens: 2048,
         contextSize: 32768,
         startLocationId: 'loc_square',
-        intro: 'The caravan pays you off at the crossroads milestone — eleven days guarding wool wagons for nine silver and a blister — and rolls on south toward Karsholm without you. You walk north into Emberwick under a dawn the color of forge-light.\n\nThe village should be waking. Instead it stands still in the square: forty-odd souls in mourning grey around a coffin on trestles, while a young priestess in dawn-gold vestments speaks the rites. The chapel bell tolls for the dead. You count the strokes the way every child of the Vale learns to — twelve, one for each god-hour.\n\nIt strikes a thirteenth time. Every head in the square lifts at once.\n\nIn the hush that follows, details find you. The mine on the hill above town — the Ironvein, whose ore pays for every roof here — has no smoke, no cart-rattle, no sound at all. At the square\'s edge a plump man in merchant\'s velvet is not mourning in the least; he is making small notes in a grain ledger, thumbing it from the wrong edge. And on the chapel steps a stable-child is staring not at the coffin but at you, with the fierce relief of someone who has been waiting for anyone at all to arrive.\n\nThe coffin holds Reeve Harlan Mosse, dead three nights past of what the village is calling a fall. The mine has been silent for nine days. The Gilded Griffin\'s door stands open behind you, and the smell of bread and beeswax drifts across the square like the last normal thing in the world.\n\nWhat do you do?',
+        intro: 'The caravan pays you off at the crossroads milestone — eleven days guarding wool wagons for nine silver and a blister — and rolls on south toward Karsholm without you. You walk north into Emberwick under a dawn the color of forge-light.\n\nThe village should be waking. Instead it stands still in the square: forty-odd souls in mourning grey around a coffin on trestles, while a young priestess in dawn-gold vestments speaks the rites. The chapel bell tolls for the dead. You count the strokes the way every child of the Vale learns to — twelve, one for each god-hour.\n\nIt strikes a thirteenth time. Every head in the square lifts at once.\n\nIn the hush that follows, details find you. The mine on the hill above town — the Ironvein, whose ore pays for every roof here — has no smoke, no cart-rattle, no sound at all. At the square\'s edge a plump man in merchant\'s velvet is not mourning in the least; he is making small notes in a grain ledger, thumbing it from the wrong edge. And on the chapel steps a stable-child is staring not at the coffin but at you, with the fierce relief of someone who has been waiting for anyone at all to arrive.\n\nThe card beside the coffin reads REEVE HARLAN MOSSE. A notice on the fountain asks for witnesses to a fall three nights ago. Below it, an older chalk mark counts nine days without a delivery from the mine. The Gilded Griffin\'s door stands open behind you, and the smell of bread and beeswax drifts across the square like the last normal thing in the world.\n\nWhat do you do?',
         locations: [
             { id: 'loc_crossroads', name: 'The King\'s Crossroads', region: 'The Vale of Aldenmere', mapType: 'outdoor', description: 'A weathered milestone where four roads meet under a gallows-bare oak. The king it names has been dead two hundred years, but carters still touch the stone for luck.', exits: [ { text: 'north to Emberwick Village Square', travelTime: 30 }, { text: 'east to Whisperwood Edge', travelTime: 45 }, { text: 'south to Karsholm Northgate', travelTime: 150 }, { text: 'west to Lake Morrow Shore', travelTime: 90 } ] },
             { id: 'loc_square', name: 'Emberwick Village Square', region: 'Emberwick', mapType: 'area', description: 'Cobbles worn smooth by ore-carts, a dry fountain crowned with a rusted sun, and every window watching. The Gilded Griffin, the chapel, and the forge face each other across it like old friends keeping secrets.', exits: [ 'to The Gilded Griffin Taproom', 'to Dawnmother Chapel', 'to Ironvein Forge', { text: 'north to The Mine Road', travelTime: 15 }, { text: 'south to The King\'s Crossroads', travelTime: 30 } ] },
@@ -4066,9 +4105,9 @@ const STARTER_WORLDS = [
         ],
         entities: [
             { id: 'ent_maera', name: 'Maera Thistledown', type: 'npc', startLocation: 'loc_griffin_tap', description: 'The Gilded Griffin\'s innkeeper: silver-braided, broad-shouldered, flour on her forearms and an old fencer\'s balance in her step.', persona: 'Warm, unhurried, watches doors. Deflects questions about her past with food. Protects Emberwick like a veteran holding a bridge — because she is one.', goal: 'Keep Emberwick safe while quietly learning what has disturbed the mine.', goalSteps: ['took the old longsword down from the hearth and oiled it for the first time in years', 'asked two carters, quietly, whether the south road is still safe after dark', 'was seen carrying a lantern down to the cellar long after the taproom emptied', 'pried up the third flagstone in the cellar and sat a long while with what was under it', 'began turning travellers away from the mine road, and will not say why'], goalPool: [{ goal: 'Stand watch over Emberwick the way the Last Company once would have', steps: ['cleared thirty years of dust off the cellar\'s hidden weapon rack', 'began walking the village bounds at dusk with the old longsword on her hip', 'started teaching Pip to hold a knife properly, calling it kitchen work', 'drew up a watch rota and bullied four villagers into keeping it'] }], goalAutonomy: 'high', schedule: [ { time: '06:00', locationId: 'loc_griffin_tap', activity: 'Baking and opening the taproom' }, { time: '14:00', locationId: 'loc_square', activity: 'Market errands and quiet headcounts' }, { time: '17:00', locationId: 'loc_griffin_tap', activity: 'Working the evening crowd' }, { time: '23:00', locationId: 'loc_griffin_cellar', activity: 'Sitting alone with an old sword' } ], secrets: [ { label: 'The Lark of the Last Company', hint: 'She never speaks of her adventuring days, and she oils a longsword she claims she cannot swing.', truth: 'Thirty years ago her company — the Last Company — opened the Deepgate. Her captain, Ser Kaelen, fell, and something wearing his armor walked out. She and Brannoc\'s father sealed the gate and swore never to speak of it. Her map of the lower galleries lies under the cellar\'s third flagstone.' } ] },
-            { id: 'ent_rowena', name: 'Sister Rowena', type: 'npc', startLocation: 'loc_chapel', description: 'A young priestess of the Dawnmother with steady hands and sleepless eyes, gold vestments carefully mended.', persona: 'Gentle, precise, immovable on matters of the dead. Her serenity is practiced like a sword-form; she is frightened and will not show it.', goal: 'Determine why the funeral rites failed without causing panic in Emberwick.', goalSteps: ['had the chapel\'s oldest rite-books brought up from the locked cabinet', 'was seen scraping at the ceiling plaster where a thirteenth god-hour would go', 'quietly bought every blessed iron nail the forge had in stock', 'wrote a letter to the Dawnmother\'s seat in Karsholm and did not send it', 'stopped ringing the evening bell altogether'], goalPool: [{ goal: 'Ready the chapel to shelter Emberwick if the dead come calling', steps: ['consecrated the chapel threshold stone by stone through an entire night', 'hammered blessed nails into every window frame and doorway of the chapel', 'moved bedding and stores into the crypt, of all places', 'finally sent the letter to the Dawnmother\'s seat in Karsholm'] }], goalAutonomy: 'medium', schedule: [ { time: '05:00', locationId: 'loc_chapel', activity: 'Dawn service' }, { time: '12:00', locationId: 'loc_square', activity: 'Alms and visiting the sick' }, { time: '19:00', locationId: 'loc_chapel', activity: 'Vespers' }, { time: '22:00', locationId: 'loc_crypt', activity: 'Studying the reeve\'s body by candlelight' } ], secrets: [ { label: 'The Thirteenth Bell', hint: 'She rang the funeral bell herself, and a priestess does not miscount the god-hours.', truth: 'The reeve\'s wound was bloodless and rimmed with frost — a grave-cold blade. The Dawnmother\'s rites would not settle him; he sat up on the slab and spoke one word, "Vane," before she pinned him with a blessed nail. She has told no one.' } ] },
+            { id: 'ent_rowena', name: 'Sister Rowena', type: 'npc', startLocation: 'loc_square', description: 'A young priestess of the Dawnmother with steady hands and sleepless eyes, gold vestments carefully mended.', persona: 'Gentle, precise, immovable on matters of the dead. Her serenity is practiced like a sword-form; she is frightened and will not show it.', goal: 'Determine why the funeral rites failed without causing panic in Emberwick.', goalSteps: ['had the chapel\'s oldest rite-books brought up from the locked cabinet', 'was seen scraping at the ceiling plaster where a thirteenth god-hour would go', 'quietly bought every blessed iron nail the forge had in stock', 'wrote a letter to the Dawnmother\'s seat in Karsholm and did not send it', 'stopped ringing the evening bell altogether'], goalPool: [{ goal: 'Ready the chapel to shelter Emberwick if the dead come calling', steps: ['consecrated the chapel threshold stone by stone through an entire night', 'hammered blessed nails into every window frame and doorway of the chapel', 'moved bedding and stores into the crypt, of all places', 'finally sent the letter to the Dawnmother\'s seat in Karsholm'] }], goalAutonomy: 'medium', schedule: [ { time: '07:00', locationId: 'loc_square', activity: 'Morning rites and village business' }, { time: '05:00', locationId: 'loc_chapel', activity: 'Dawn service' }, { time: '12:00', locationId: 'loc_square', activity: 'Alms and visiting the sick' }, { time: '19:00', locationId: 'loc_chapel', activity: 'Vespers' }, { time: '22:00', locationId: 'loc_crypt', activity: 'Studying the reeve\'s body by candlelight' } ], secrets: [ { label: 'The Thirteenth Bell', hint: 'She rang the funeral bell herself, and a priestess does not miscount the god-hours.', truth: 'The reeve\'s wound was bloodless and rimmed with frost — a grave-cold blade. The Dawnmother\'s rites would not settle him; he sat up on the slab and spoke one word, "Vane," before she pinned him with a blessed nail. She has told no one.' } ] },
             { id: 'ent_brannoc', name: 'Brannoc Ironvein', type: 'npc', startLocation: 'loc_forge', description: 'A mountain of a smith with singed eyebrows and an ancient signet on a cord around his neck.', persona: 'Slow to speak, honest to a fault, undercharges his neighbors. Goes quiet and busy whenever the mine or his family history is raised.', goal: 'Protect his neighbors and decide how much of his family history to reveal.', goalSteps: ['worked past midnight filling orders nobody had placed', 'took the old signet off its cord, set it on the anvil, and looked at it a long while', 'reached up into the forge chimney and brought down something wrapped in oilcloth', 'asked Maera, of all people, what his father did the year the mine was sealed', 'started forging something that is not a horseshoe and will not say what'], goalPool: [{ goal: 'Forge what his blood remembers and be ready to open what is sealed', steps: ['read his grandmother\'s journal cover to cover by forge-light', 'began forging to an old pattern drawn in the journal\'s margins', 'quenched a blade in consecrated water begged from Sister Rowena', 'hung the new-forged key-blade above the door where the horseshoes used to be'] }], goalAutonomy: 'medium', schedule: [ { time: '07:00', locationId: 'loc_forge', activity: 'Hammer-work' }, { time: '13:00', locationId: 'loc_square', activity: 'Lunch on the fountain rim' }, { time: '14:00', locationId: 'loc_forge', activity: 'Afternoon commissions' }, { time: '21:00', locationId: 'loc_griffin_tap', activity: 'One ale, rarely two' } ], secrets: [ { label: 'The Quartermaster\'s Seal', hint: 'The signet he stamps his best work with is far older than any smith\'s mark.', truth: 'His line served King Aldric as royal quartermasters. The Vault of Embers answers to Ironvein blood and will open for no one else. His grandmother\'s journal, hidden in the forge chimney, records exactly where the Ember Shard was laid — and why the family never went back.' } ] },
-            { id: 'ent_quill', name: 'Silas Quill', type: 'npc', startLocation: 'loc_griffin_tap', description: 'A plump, friendly merchant in expensive velvet, always mid-smile, always buying the next round.', persona: 'Charm as a working tool. Never lies when a half-truth will serve; genuinely likes people and robs them anyway. If cornered, he buys; if bought, he betrays.', goal: 'Expand his leverage over Emberwick while keeping everyone friendly.', goalSteps: ['bought the mill\'s outstanding debt at a generous price, and made sure the miller heard how generous', 'stood a round for the whole taproom on the night of the funeral', 'was seen at the fountain after dark with his hand behind a loose brick', 'sent a rider south with a sealed packet and paid him extra not to open it', 'began quietly asking which families in Emberwick carry Ironvein blood'], goalPool: [{ goal: 'Deliver his ledger of Emberwick to Karsholm and collect his price', steps: ['called in three small debts sharply, out of character for him', 'booked passage south with a carter and paid double for silence', 'was seen burning papers behind the Griffin\'s stable at first light', 'left a sealed letter addressed to Maera behind the bar, to be opened if he does not return'] }], goalAutonomy: 'high', schedule: [ { time: '08:00', locationId: 'loc_griffin_tap', activity: 'Holding court over breakfast' }, { time: '11:00', locationId: 'loc_square', activity: 'Buying debts with sympathy and silver' }, { time: '16:00', locationId: 'loc_mine_gate', activity: 'Paying his "surveyors"' }, { time: '20:00', locationId: 'loc_griffin_tap', activity: 'Rounds for the house' } ], secrets: [ { label: 'The Ledger Written Backward', hint: 'His grain ledger is thumbed from the wrong edge, and he has never once sold any grain.', truth: 'He is a factor of the Red Ledger. The book is a coded manifest of every debt in Emberwick — he has quietly bought the mine, the mill, and the Griffin\'s mortgage. His standing orders, signed M.V., are to have the mine surveyed and any shard-bearing stone crated for Karsholm. His true second ledger sits behind a loose brick by the square\'s fountain.' } ] },
+            { id: 'ent_quill', name: 'Silas Quill', type: 'npc', startLocation: 'loc_square', description: 'A plump, friendly merchant in expensive velvet, always mid-smile, always buying the next round.', persona: 'Charm as a working tool. Never lies when a half-truth will serve; genuinely likes people and robs them anyway. If cornered, he buys; if bought, he betrays.', goal: 'Expand his leverage over Emberwick while keeping everyone friendly.', goalSteps: ['bought the mill\'s outstanding debt at a generous price, and made sure the miller heard how generous', 'stood a round for the whole taproom on the night of the funeral', 'was seen at the fountain after dark with his hand behind a loose brick', 'sent a rider south with a sealed packet and paid him extra not to open it', 'began quietly asking which families in Emberwick carry Ironvein blood'], goalPool: [{ goal: 'Deliver his ledger of Emberwick to Karsholm and collect his price', steps: ['called in three small debts sharply, out of character for him', 'booked passage south with a carter and paid double for silence', 'was seen burning papers behind the Griffin\'s stable at first light', 'left a sealed letter addressed to Maera behind the bar, to be opened if he does not return'] }], goalAutonomy: 'high', schedule: [ { time: '06:30', locationId: 'loc_square', activity: 'Watching the morning gathering and taking notes' }, { time: '08:00', locationId: 'loc_griffin_tap', activity: 'Holding court over breakfast' }, { time: '11:00', locationId: 'loc_square', activity: 'Buying debts with sympathy and silver' }, { time: '16:00', locationId: 'loc_mine_gate', activity: 'Paying his "surveyors"' }, { time: '20:00', locationId: 'loc_griffin_tap', activity: 'Rounds for the house' } ], secrets: [ { label: 'The Ledger Written Backward', hint: 'His grain ledger is thumbed from the wrong edge, and he has never once sold any grain.', truth: 'He is a factor of the Red Ledger. The book is a coded manifest of every debt in Emberwick — he has quietly bought the mine, the mill, and the Griffin\'s mortgage. His standing orders, signed M.V., are to have the mine surveyed and any shard-bearing stone crated for Karsholm. His true second ledger sits behind a loose brick by the square\'s fountain.' } ] },
             { id: 'ent_odo', name: 'Foreman Odo', type: 'npc', startLocation: 'loc_griffin_tap', description: 'The mine\'s foreman: rock-dust in every crease, hands that will not stay still, wax crumbs in his ears.', persona: 'Guilt-wrecked and monosyllabic when sober. Kindness and patience open him faster than coin; loud noises close him for the day.', goal: 'Find the courage to tell someone what happened at the mine.', goalSteps: ['started drinking at the Griffin before the forge fire was even lit', 'walked up the mine road as far as the gate, stood there an hour, and came back down', 'was heard humming something in the taproom that nobody could place', 'asked Sister Rowena whether the dead can sing', 'took the wax out of his ears and went up the mine road alone'], goalPool: [{ goal: 'Lead someone he trusts down to the singing before it stops', steps: ['sobered up three days running for the first time since the collapse', 'recovered his foreman\'s lamp and mended its shutter', 'chalked the safe path through the upper galleries from memory, on the taproom table', 'stood at the mine gate at midnight, listening, and did not run'] }], goalAutonomy: 'low', schedule: [ { time: '09:00', locationId: 'loc_griffin_tap', activity: 'Drinking breakfast' }, { time: '15:00', locationId: 'loc_mine_gate', activity: 'Standing at the gate, not going in' }, { time: '18:00', locationId: 'loc_griffin_tap', activity: 'Drinking supper' } ], secrets: [ { label: 'What the Mine Said', hint: 'He drinks until his hands stop shaking, and he sleeps with wax in his ears.', truth: 'Three nights after the collapse he heard the twelve missing miners from the airshaft — twelve voices in perfect unison, sharing one throat\'s worth of breath. They were singing a coronation hymn that has not been sung in the Vale for two hundred years. It is getting louder.' } ] },
             { id: 'ent_pip', name: 'Pip', type: 'npc', startLocation: 'loc_square', description: 'A quick, small stable-hand of maybe eleven winters, all elbows and vigilance.', persona: 'Talks fast, trusts slow, prices information in copper and honey-bread. Sees everything in Emberwick and forgets none of it.', goal: 'Learn who is moving through Emberwick and sell the truth to someone trustworthy.', goalSteps: ['started keeping a tally of every horse that comes up the south road', 'was caught on the Griffin\'s roof at dusk and would not say why', 'followed Silas Quill to the fountain and hid behind the water trough', 'began asking, very casually, what a stranger\'s silence is worth', 'packed a small bundle and hid it in the stable straw, ready to run'], goalPool: [{ goal: 'Sell what Pip knows to the right buyer without getting caught', steps: ['made two copies of everything, in a child\'s careful cipher', 'hid one copy somewhere in the chapel during evening service', 'tested the waters by selling Maera a small, true, harmless secret', 'started watching the south road for a buyer worth the big one'] }], goalAutonomy: 'high', schedule: [ { time: '06:00', locationId: 'loc_square', activity: 'Stable chores' }, { time: '10:00', locationId: 'loc_mine_road', activity: 'Spying on the surveyors' }, { time: '17:00', locationId: 'loc_griffin_tap', activity: 'Supper earned with errands' }, { time: '21:00', locationId: 'loc_square', activity: 'Hayloft, one eye open' } ], secrets: [ { label: 'Small Witness', hint: 'Pip sees everyone come and go, and nobody ever sees Pip.', truth: 'At dusk on the day the reeve died, Pip saw Silas Quill hand a purse to a rider at the crossroads — and saw under the rider\'s hood: a man with candle-pale skin, covered in tattooed writing. Pip also knows about Quill\'s loose brick by the fountain.' } ] },
             { id: 'ent_grizzel', name: 'Grizzel of the Broken Warren', type: 'npc', startLocation: 'loc_whisper_edge', description: 'A grey-muzzled redcap matriarch in a patched war-bonnet, leaning on a spear cut down to a walking stick.', persona: 'Blunt, proud, done running. Bargains hard and keeps every bargain to the letter. Will not set foot underground unless the player has earned her whole trust.', schedule: [ { time: '08:00', locationId: 'loc_whisper_edge', activity: 'Foraging lines and watch rotations' }, { time: '20:00', locationId: 'loc_whisper_edge', activity: 'Campfire, telling the young ones the old roads' } ], secrets: [ { label: 'Why the Warren Ran', hint: 'Her raiders steal bread and nails, never gold — and they refuse to go underground.', truth: 'Her warren lived the deep roads below Ironvein for nine generations. When the mine broke the Deepgate\'s seal, the Hollow Knights came through the dark and took her people\'s names — those taken now stand guard in the Barrow, answering to numbers. She fled with the young. She can draw the deep roads from memory: a back way into both the Vault of Embers and the Sunken Barrow.' } ] },
@@ -11316,6 +11355,13 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
                 }
                 return;
             }
+            // Reporting the actor at their existing mapped place is not travel.
+            // Providers often emit this redundant event even on a greeting.
+            const actualPlace = projectedLocations.get(actorId);
+            if (actualPlace === toLoc.id && (!fromLoc || fromLoc.id === actualPlace)) {
+                informationalEvents.push(movement);
+                return;
+            }
             if (actorId === 'player') {
                 const alreadyCommitted = !!committedDestination && toLoc.id === committedDestination;
                 const playerIntentMatch = !!context.playerMovementAuthorized
@@ -11439,7 +11485,12 @@ function validateWorldTurnReceipt(world, sess, rawReceipt, context = {}) {
             return;
         }
         if (type === 'outfit') {
-            const outfit = String(event.outfit || event.current_outfit || event.value || '').trim().slice(0, 240);
+            const suppliedOutfit = String(event.outfit || event.current_outfit || event.value || '').trim();
+            // An empty model echo may refer to an outfit already committed by
+            // deterministic player intent. Reuse only that exact known state.
+            const outfit = (suppliedOutfit || (actorId === 'player'
+                && context.precommittedOutfit === sess.outfit ? context.precommittedOutfit : '') || '')
+                .slice(0, 240);
             if (!outfit) {
                 reject(index, event, 'missing_outfit');
                 return;
@@ -12007,6 +12058,7 @@ function commitWorldTurnReceipt(world, sess, rawReceipt, context = {}, source = 
         }
     }
     const previousLocation = sess.playerLocation;
+    if (normalizeWorldKernelConfig(world).sceneLedger && sess.sceneRecord && Number(validation.legacyArgs.time_skip_minutes) > 0) sess.sceneRecord.hold_scene = false;
     const actionResult = processStructuredActions(validation.legacyArgs, world, sess, {
         deferFeedback: context.deferFeedback === true,
         relationshipEvents: validation.acceptedEvents.filter(event => event.type === 'relationship'),
@@ -12305,8 +12357,67 @@ function stripWorldCheckScaffolding(text) {
     return `${visible ? `${visible}\n\n` : ''}A check is ready. Use the 🎲 Check button to roll before continuing.`;
 }
 
-function worldUnverifiedTurnNotice() {
-    return 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.';
+// Compatibility for providers that answer a non-mechanical turn in prose.
+// No state is extracted from text: compile an empty-effects draft, then run
+// the same narrative/state, deadline and action validation as a normal draft.
+function worldConversationDraft(input, narrative, command = null, world = null, sess = null) {
+    const request = String(input || '').trim();
+    const visible = String(narrative || '').trim();
+    if (!hasReadableWorldNarrative(visible) || /<world_turn_receipt>|^[\s]*[\[{]/i.test(visible)) return null;
+    // This adapter has no mechanical payload. Do not label a plain-text
+    // gain, purchase, consumption or changed map position a no-change scene.
+    const account = stripSpokenDialogue(visible);
+    if (/\b(?:you|we)\s+(?:have\s+)?(?:receive[ds]?|(?:take|took)(?!\s+(?:in\b|(?:a\s+|one\s+)?(?:look|breath|moment|step)\b))|pocket(?:ed)?|collect(?:ed)?|gain(?:ed)?|acquire[ds]?|buy|bought|sell|sold|pay|paid|consume[ds]?|drink|drank|eat|ate|equip(?:ped)?)\b|\byour\s+(?:inventory|balance|health|hit points)\s+(?:now|increases?|decreases?)\b/i.test(account)) return null;
+    if (world && sess) {
+        const current = getLocationRef(worldForSession(world,sess),sess.playerLocation);
+        const other = sessionLocations(world,sess).some(place => {
+            if (place.id === sess.playerLocation || place.id === current?.parentLocationId) return false;
+            const name = String(place.name || '').trim();
+            if (name.length < 4) return false;
+            const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return new RegExp(`\\byou(?:'re| are)\\s+(?:now\\s+)?(?:in|at|inside)\\s+(?:the\\s+)?${escaped}\\b`, 'i').test(account);
+        });
+        if (other) return null;
+    }
+    let kind = null;
+    if (['init', 'look', 'continue'].includes(command)) kind = 'command';
+    else if (request.length <= 600 && !/[;\n]|\b(?:and then|then I|then we)\b/i.test(request)) {
+        if (/^(?:(?:I|we)\s+)?(?:look around|look about|observe the surroundings|listen|examine the surroundings)[.!? ]*$/i.test(request)) kind = 'observation';
+        else if (/^(?:hello|hi|hey|good morning|good evening)[.!? ]*$/i.test(request)) kind = 'speech';
+        else if (/^(?:what|who|where|when|why|how)\b/i.test(request)
+            && !/\b(?:take|give|buy|sell|consume|drink|eat|attack|hit|unlock|open|close|move|go|walk|run|follow|travel|wait|roll|check|heal|pick up)\b/i.test(request)) kind = 'question';
+    }
+    if (!kind) return null;
+    return { protocol: 'scene_draft_v2', narrative: [{id:'conversation',text:visible}],
+        actions: kind === 'command' ? [] : [{request,kind,status:kind === 'question' ? 'answered' : 'resolved',response_id:'conversation'}],
+        events:[],effects:{},speech:[],commitments:[] };
+}
+
+function worldProvisionalNarrative(text, proposal = null) {
+    // Extract only explicitly authored prose. Never display a receipt/schema
+    // as fiction or derive mechanical operations from its wording.
+    const raw = proposal?.protocol === 'scene_draft_v2' ? proposal.narrative : null;
+    const candidate = Array.isArray(raw)
+        ? raw.map(p => typeof p?.text === 'string' ? p.text : '').filter(Boolean).join('\n\n')
+        : typeof raw === 'string' ? raw : text;
+    const visible = String(stripWorldLedgerDirective(scrubNarrativeArtifacts(candidate || '')) || '').trim();
+    return hasReadableWorldNarrative(visible) ? visible : '';
+}
+
+function worldUnverifiedTurnNotice(rejections = []) {
+    const notice = 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.';
+    const failures = Array.isArray(rejections) ? rejections.filter(item =>
+        item && typeof item.reason === 'string' && item.reason.trim()) : [];
+    const specific = failures.filter(item => item.reason !== 'missing_mandatory_receipt');
+    const reasons = [...new Set((specific.length ? specific : failures)
+        .map(item => item.reason.trim().slice(0, 120)))].slice(0, 3);
+    if (!reasons.length) return notice;
+    // Show validator codes, never rejected model prose, private prompts or keys.
+    // Codes remain searchable and distinguish transport errors from state conflicts.
+    const transport = reasons.some(reason => /protocol|transport|tool_arguments|missing_mandatory_receipt|missing_ending_scene/.test(reason));
+    return `${notice}\n\nVerification reason: ${reasons.join(', ')}.${transport
+        ? ' The model did not supply the required valid scene response. Check the selected World model/provider and include this reason when reporting the problem.'
+        : ' The proposed scene failed validation. Include this reason when reporting the problem; repeated rerolls may repeat the same failure.'}`;
 }
 
 function parseExplicitWorldWaitMinutes(input, currentTotalMinutes = null) {
@@ -14315,9 +14426,11 @@ function setupGlobalSettings() {
         if (invalidatedEmbeddings) {
             showToast(`Embedding model changed · ${invalidatedEmbeddings} memories will re-index safely`, 'info');
         }
-        state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
-            document.getElementById('global-local-tts-url').value, 'http://127.0.0.1:8000/v1');
-        state.globalSettings.localTtsApiKey = document.getElementById('global-local-tts-key').value.trim().slice(0, 500);
+        const localTtsUrl = document.getElementById('global-local-tts-url');
+        const localTtsKey = document.getElementById('global-local-tts-key');
+        if (localTtsUrl) state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
+            localTtsUrl.value, 'http://127.0.0.1:8000/v1');
+        if (localTtsKey) state.globalSettings.localTtsApiKey = localTtsKey.value.trim().slice(0, 500);
         state.globalSettings.mcpBridgeUrl = normalizeMcpBridgeUrl(
             document.getElementById('global-mcp-bridge-url').value
         );
@@ -15337,8 +15450,10 @@ function showGlobalSettings() {
         document.getElementById('global-embedding-url').value = state.globalSettings.embeddingBaseUrl || '';
         document.getElementById('global-embedding-key').value = state.globalSettings.embeddingApiKey || '';
         document.getElementById('global-embedding-model').value = state.globalSettings.embeddingModel || '';
-        document.getElementById('global-local-tts-url').value = state.globalSettings.localTtsBaseUrl || 'http://127.0.0.1:8000/v1';
-        document.getElementById('global-local-tts-key').value = state.globalSettings.localTtsApiKey || '';
+        const localTtsUrl = document.getElementById('global-local-tts-url');
+        const localTtsKey = document.getElementById('global-local-tts-key');
+        if (localTtsUrl) localTtsUrl.value = state.globalSettings.localTtsBaseUrl || 'http://127.0.0.1:8000/v1';
+        if (localTtsKey) localTtsKey.value = state.globalSettings.localTtsApiKey || '';
         document.getElementById('global-mcp-bridge-url').value = state.globalSettings.mcpBridgeUrl || HORDE_MCP_BRIDGE_DEFAULT;
         document.getElementById('global-companion-always-on').checked = state.globalSettings.companionAlwaysOnEnabled === true;
         document.getElementById('global-always-on-messages').checked = state.globalSettings.companionAlwaysOnMessages !== false;
@@ -17028,6 +17143,7 @@ function openWorldStudio(worldId = null) {
     document.getElementById('w-kernel-enabled').checked = kernelConfig.enabled;
     document.getElementById('w-kernel-location-limit').value = kernelConfig.sceneLocationLimit;
     document.getElementById('w-kernel-memory-mode').value = kernelConfig.memoryMode;
+    document.getElementById('w-kernel-scene-mode').value = kernelConfig.sceneLedger ? 'ledger' : kernelConfig.sceneDraftProtocol === 'scene_draft_v3' ? 'linked' : 'strict';
     document.getElementById('w-kernel-repair-mode').value = kernelConfig.repairMode;
     document.getElementById('w-kernel-compact-tools').checked = kernelConfig.compactTools;
 
@@ -17115,6 +17231,8 @@ async function saveWorld() {
         enabled: document.getElementById('w-kernel-enabled').checked,
         sceneLocationLimit: document.getElementById('w-kernel-location-limit').value,
         memoryMode: document.getElementById('w-kernel-memory-mode').value,
+        sceneLedger: document.getElementById('w-kernel-scene-mode').value === 'ledger',
+        sceneDraftProtocol: document.getElementById('w-kernel-scene-mode').value === 'linked' ? 'scene_draft_v3' : 'scene_draft_v2',
         repairMode: document.getElementById('w-kernel-repair-mode').value,
         compactTools: document.getElementById('w-kernel-compact-tools').checked,
         effectMode: w.kernel?.effectMode
@@ -17705,9 +17823,11 @@ function resolveWorldMovementTarget(world, fromLocationId, targetPhrase, allowPr
             .map(exit => resolveWorldExitTarget(world, exit)).filter(Boolean));
         if (authoredDirectTarget) return authoredDirectTarget;
         const authoredGlobalTarget = findFuzzyLocation(targetPhrase, world.locations);
-        if (authoredGlobalTarget && authoredGlobalTarget.id !== from.id
-            && findWorldTravelPath(world, from.id, authoredGlobalTarget.id, { session })) {
-            return authoredGlobalTarget;
+        if (authoredGlobalTarget && authoredGlobalTarget.id !== from.id) {
+            // A named destination with no valid route must not become a
+            // different room through the generic place-kind fallback.
+            return findWorldTravelPath(world, from.id, authoredGlobalTarget.id, { session })
+                ? authoredGlobalTarget : null;
         }
     }
 
@@ -18577,7 +18697,9 @@ function upgradeWorldSchemaData(sourceWorld, { source = 'manual' } = {}) {
 
 function upgradeBundledWorldDefinition(world) {
     try {
-        return upgradeWorldSchemaData(world, { source: 'bundled' }).world;
+        const upgraded=upgradeWorldSchemaData(world, { source: 'bundled' }).world;
+        globalThis.HordeBundledContent?.update(upgraded);
+        return upgraded;
     } catch (error) {
         console.error(`Bundled world “${world?.name || 'Untitled'}” could not be upgraded:`, error);
         return world;
@@ -23832,6 +23954,11 @@ async function correctWorldState(world, sess, correction) {
             oldMinute: oldTime, minute: correction.minute, reason, turn: sess.turnCount,
             version: sess.worldStateVersion
         }].slice(-50);
+        if (normalizeWorldKernelConfig(world).sceneLedger) {
+            const frame=buildWorldSceneFrame(world,sess);
+            const groups=sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [];
+            sess.sceneRecord={...HordeWorldSceneLedger.record(frame,groups,sess.worldStateVersion,sess.stateCorrections.at(-1).id),hold_scene:true};
+        }
         bumpMemoryEpoch(sess);
         sess._worldEpoch = (sess._worldEpoch || 0) + 1;
         await saveWorldsState({ worldId: world.id });
@@ -24912,7 +25039,15 @@ function renderWorldHistoryDirectory(world, sess) {
             const calls = Number(message.callAudit?.foregroundTotal) || 0;
             const elapsedMs = Number(message.turnDurationMs) || 0;
             meta.textContent = `${visibleChanges.length ? visibleChanges.join(' · ') + ' · ' : ''}${status}${calls ? ` · ${calls} foreground model call${calls === 1 ? '' : 's'}` : ''}${elapsedMs ? ` · ${(elapsedMs / 1000).toFixed(1)}s` : ''}`;
-            card.append(title, detail, meta);
+            if (message.sceneRecord) {
+                const sceneLine=document.createElement('span');
+                sceneLine.className='world-insight-meta';
+                const record=message.sceneRecord;
+                const names=(Array.isArray(record.present_character_ids) ? record.present_character_ids : []).map(id=>sessionNpcs(world,sess).find(n=>n.id===id)?.name || id);
+                names.push(...HordeWorldSceneLedger.groups(record.groups).map(g=>`${g.label} (${g.count})`));
+                sceneLine.textContent=`Recorded cast: ${names.join(', ') || 'No other participants recorded'} · revision ${record.revision}`;
+                card.append(title,detail,sceneLine,meta);
+            } else card.append(title, detail, meta);
             card.onclick = () => jumpToWorldMessage(message.id);
             list.appendChild(card);
         });
@@ -26339,7 +26474,7 @@ function worldReceiptRepairOutputLimit(configuredLimit, providerLimit = 0, conte
     const contextCap = Number.isFinite(contextTokens)
         ? Math.max(0, contextTokens - promptTokens - Math.max(1000, Math.ceil(contextTokens * 0.01)))
         : Infinity;
-    return Math.max(1, Math.floor(Math.min(desired, providerCap, contextCap)));
+    return Math.max(0, Math.floor(Math.min(desired, providerCap, contextCap)));
 }
 
 function normalizeWorldDiceConfig(world) {
@@ -28647,6 +28782,17 @@ function renderWorldPlayState() {
     if (!sourceWorld || !inst || !sourceSess) return;
     const { world, sess } = worldPlayReadProjection(sourceWorld, sourceSess);
     const ruleModules = normalizeWorldGameRules(world).modules;
+    const sceneSummary=document.getElementById('world-scene-record-summary');
+    if (sceneSummary) {
+        const enabled=normalizeWorldKernelConfig(world).sceneLedger;
+        const frame=buildWorldSceneFrame(world,sess);
+        const groups=sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [];
+        const labels=frame.present_character_ids.map(id=>sessionNpcs(world,sess).find(n=>n.id===id)?.name || id);
+        labels.push(...groups.map(g=>`${g.label} (${g.count})`));
+        const place=sessionLocations(world,sess).find(l=>l.id===frame.player_location_id)?.name || frame.player_location_id;
+        sceneSummary.textContent=`Scene record · ${place} · ${labels.join(', ') || 'No other participants recorded'}`;
+        sceneSummary.classList.toggle('hidden',!enabled);
+    }
 
     const urgentStakes = document.getElementById('world-urgent-stakes');
     if (urgentStakes) {
@@ -29890,11 +30036,17 @@ function appendWorldMessageUI(msg, index = null) {
     }
     if (msg.command) metaParts.push(`⚙️ ${escapeHTML(msg.command)}`);
     if (versions.length > 1) metaParts.push(`🔄 take ${currentVersionIdx + 1}/${versions.length}`);
+    if (msg.sceneRecord) {
+        const count=Array.isArray(msg.sceneRecord.present_character_ids) ? msg.sceneRecord.present_character_ids.length : 0;
+        const groups=HordeWorldSceneLedger.groups(msg.sceneRecord.groups);
+        metaParts.push(`Scene record · ${count} named participant${count === 1 ? '' : 's'}${groups.length ? ' · ' + groups.map(g=>`${escapeHTML(g.label)} (${g.count})`).join(', ') : ''}`);
+    }
     if (msg.ledgerEntry) metaParts.push(`📜 ${escapeHTML(msg.ledgerEntry)}`);
     // Whether this turn's world state actually landed, and how. Without this a
     // model that narrates changes but never records them fails invisibly.
     if (msg.role === 'dm' && msg.stateSource) {
         metaParts.push(msg.stateSource === 'tool_call' ? '⚙️ canonical turn committed'
+            : msg.stateSource === 'conversation_scene' ? '⚙️ unchanged scene validated by engine'
             : msg.stateSource === 'inline_rescue' ? '⚙️ tagged turn receipt recovered'
             : msg.stateSource === 'receipt_repair' ? '🩹 missing receipt repaired'
             : msg.stateSource === 'frozen_no_receipt' ? '🧊 unverified reply discarded — receipt missing'
@@ -29992,6 +30144,8 @@ function appendWorldMessageUI(msg, index = null) {
         </div>
     `;
 
+    const provisionalCorrection = div.querySelector('.world-provisional-correct');
+    if (provisionalCorrection) provisionalCorrection.onclick = openWorldStateCorrection;
     if (index !== null) {
         const editBtn = div.querySelector('.msg-edit-btn');
         const delBtn = div.querySelector('.msg-del-btn');
@@ -30296,7 +30450,7 @@ function attemptWorldStateMutation(world, sess, apply, accepts = () => true) {
 }
 
 const WORLD_TAKE_METADATA_FIELDS = [
-    'location', 'witnesses', 'worldAudit', 'narrativeAuditWarnings',
+    'location', 'sceneRecord', 'witnesses', 'worldAudit', 'narrativeAuditWarnings', 'provisionalNarrative',
     'missingPlace', 'stateSource', 'stateFallbackArmed', 'ledgerStatus',
     'narratedMove', 'narratedPresence', 'narratedOutfit', 'visibleRelationshipChanges', 'turnChanges', 'sceneMemory',
     'speechAttributions', 'checkResults'
@@ -31484,7 +31638,8 @@ async function executeWorldTurn(commandOrReroll = null) {
             // Receipt repair is a non-streaming request. A provider can send
             // HTTP 200 and then leave its JSON body open forever; the model
             // client enforces this independently of the turn's idle timer.
-            timeoutMs: isLocalProvider() ? localGenerationIdleTimeoutMs() : 45000,
+            timeoutMs: kind === 'receiptRepair' && normalizeWorldKernelConfig(world).sceneLedger
+                ? 10000 : isLocalProvider() ? localGenerationIdleTimeoutMs() : 45000,
             onSettled: detail => recordWorldCall(kind, body.model, detail.status,
                 startedAt, detail.usage, detail.outcome, detail.providerTiming)
         });
@@ -32017,6 +32172,8 @@ async function executeWorldTurn(commandOrReroll = null) {
     const persona = getTimelinePersona(sess);
     let personaContext = persona ? `\n\n[PLAYER PERSONA — AUTHORITATIVE PLAYER IDENTITY]\n${personaPromptText(persona)}` : "";
     const playerIdentity = isPlainObject(sess.playerIdentity) ? sess.playerIdentity : {};
+    const originActor = (world.entities || []).find(entity => entity.type === 'npc'
+        && Array.isArray(entity.playerOriginIds) && entity.playerOriginIds.includes(sess.originId));
     const configuredPlayerName = String(playerIdentity.personaName || persona?.name || '').trim();
     const playerName = /^(?:player character|pc)$/i.test(configuredPlayerName)
         ? '' : configuredPlayerName;
@@ -32036,6 +32193,7 @@ async function executeWorldTurn(commandOrReroll = null) {
     });
     const capabilityLines = [
         playerIdentity.role ? `Starting role: ${playerIdentity.role}` : '',
+        originActor ? `Role embodiment: the authored ${originActor.name} role represents the player in this session. Use the player’s chosen name and pronouns. Do not introduce this role as an additional NPC; player events use actor_id \"player\".` : '',
         playerIdentity.socialRank ? `Social rank: ${playerIdentity.socialRank}` : '',
         playerIdentity.publicIdentity ? `Public identity: ${playerIdentity.publicIdentity}` : '',
         playerIdentity.reputation ? `Reputation: ${playerIdentity.reputation}` : '',
@@ -32207,6 +32365,7 @@ ${memoryContext}
 CURRENT WORLD STATE:
 Location: ${locName} (id: "${sess.playerLocation}")
 Canonical Scene Frame (authoritative): ${JSON.stringify(canonicalSceneFrame)}
+${normalizeWorldKernelConfig(world).sceneLedger ? `Anonymous scene groups (established, not named NPCs): ${JSON.stringify(sess.sceneRecord?.location_id === sess.playerLocation ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [])}` : ''}
 Recent Committed/Tracked Events: ${recentCanonicalEvents.length ? JSON.stringify(recentCanonicalEvents) : 'None yet'}
 Time: ${exactTimeStr} (${period}, ${weekdayName}, Day ${days})
 Weather: ${weather} — weave it into descriptions where natural; it may subtly affect NPC moods and outdoor scenes.
@@ -32358,7 +32517,9 @@ ${modularMandate}
 14. If the player supplies a die result while checks are enabled, adjudicate that existing roll rather than rolling again.${directorNotesRequired ? `
 15. DIRECTOR MODE (ACTIVE PRESET — REQUIRED): Follow the active plot-tracking module and append exactly one <details><summary>Plot Momentum</summary>...</details> block after the narrative and any [MEMORY] line. It must be the final element of every response. Do not omit it when tools are used.` : ''}`;
 
-        const sceneDrafts = normalizeWorldKernelConfig(world).sceneDrafts
+        const sceneLedger = normalizeWorldKernelConfig(world).enabled
+            && normalizeWorldKernelConfig(world).sceneLedger && typeof HordeWorldSceneLedger !== 'undefined';
+        const sceneDrafts = (sceneLedger || normalizeWorldKernelConfig(world).sceneDrafts)
             && typeof HordeWorldSceneDraft !== 'undefined';
         const sceneProtocol = normalizeWorldKernelConfig(world).sceneDraftProtocol;
         const compactSceneRules = sceneDrafts && sceneProtocol === 'scene_draft_v3'
@@ -33187,6 +33348,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             draftInstruction = draftInstruction.replace('\nCurrent day:', compactRules + '\nCurrent day:');
         }
         if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
+        if (linkedWorldTurn) draftInstruction = draftInstruction.replace('Pending checks never release another action;',
+            'Use status pending_check only with exactly one valid action_effects.checks entry. Ordinary gestures, showing an already held item, and conversation need no check: use resolved or answered when the passage shows they happened. Showing an item leaves it with its holder; do not invent a transfer or possession event unless the player actually gives it away. A clothing change from a known outfit needs an exact resulting outfit_set and no invented garments. Pending checks never release another action;');
         if (serverBoundTurns) draftInstruction = `[SERVER-BOUND SCENE DRAFT]\nReturn protocol:"scene_draft_v3" and actions. Interpret the whole player message. Put the NPC/world response inside each action.response, not in a separate passage table. Use effects:[] for dialogue or gestures with no lasting change. Use kind gesture for a nonpersistent bodily expression, never for travel, item transfers, door changes or lasting conditions. Each real change must use a supported typed effect and match the prose. For compound actions, keep their order and cover every request; depends_on uses an earlier zero-based action_index and succeeded/failed/blocked. A single player attempt has one actual outcome in this draft; possible alternatives are not additional completed actions. If a registered check is required, propose one pending_check action with its checks effect and stop before its outcome. An NPC's answer belongs in the action response or a justified world reaction. Preserve successful earlier steps when later steps fail; stop before a pending check result. Do not narrate an unrequested player decision. Autonomous NPC reactions and movements use reactions, with their own actual effects and events; never attribute an NPC action to the player. Use only known actors, items, routes and capabilities or their explicit introduction operations. No generated action or passage IDs. Keep prose concise and character-appropriate. Quests and timed obligations require actual player authorization and supporting evidence; ordinary dialogue never requires them.\n${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.`;
         if (linkedWorldTurn) draftInstruction += '\nSTATE/OUTCOME/EFFECT CONTRACT: state_conditions[].fact is only one registered read-only name: actor_at, has_item, interactable_state, condition, relation. Put an exact subject_id, operator and value in separate fields. Never put a sentence, an intended action, consent, resistance or success in fact. For a requested companion, guide, pull or push, let the NPC agree, refuse or resist in the response. An attempt that does not move anyone uses status attempted, no actor_move and no completed movement event; narrate the concrete reaction. Only a completed mapped move uses actor_move with a matching completed movement event for each moved actor. Use companion_ids for a joint move and only after the NPC actually comes along. A new ongoing follower relation needs its supported status effect and escort event. Do not infer arrival from an invitation or from a started journey. Keep actions and reactions concise; cover compound requests with ordered contiguous request excerpts.';
         if (linkedWorldTurn) draftInstruction += '\nATTEMPT AND REACTION: The player input states an attempt or request, never guarantees its outcome. state_conditions test facts that already exist before an action; do not use them to express a hoped-for result or an NPC decision made in this turn. In particular, picking up an item must not require has_item for the item being picked up; a completed pickup uses item_transfer and a matching completed inventory event, while a failed pickup has neither transfer nor success claim. Ordinary scenery may exist without a registered item record: a chair can be bumped into or stumbled over without creating or transferring an item. For a completed momentary physical occurrence with no lasting change, use a completed player interaction event linked to its response passage; do not add item_transfer or invent a registered object. Put an NPC reply in the linked passage or a separate reaction. For a physical attempt involving an NPC, describe the NPC\'s specific observed response when the scene supports one, such as stepping away, bracing, stumbling, resisting or cooperating; vary it with that NPC\'s character and circumstances. Do not merely repeat the player\'s intended action, and do not invent consent or refusal to satisfy a validator. An unsuccessful physical attempt uses status attempted, no lasting effect and no completed player interaction or state event. A completed local interaction needs a witnessed interaction event; a lasting change needs its validated effect and matching completed event. Do not assert an arrival, restraint or condition that the selected outcome did not commit.';
@@ -33297,7 +33460,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         // Introduce micro-jitter for rerolls to prevent exact caching
         if (isReroll) {
             temp = Math.min(2.0, temp + (Math.random() * 0.05));
-            requestBody.seed = Math.floor(Math.random() * 1000000);
+            if (supported.includes('seed')) requestBody.seed = Math.floor(Math.random() * 1000000);
         }
 
         addParam('temperature', temp);
@@ -33670,6 +33833,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             playerStartLocationId: receiptPlayerStart,
             specialCommand: !resolveFirst,
             precommittedAction: !!committedMovement || !!committedDoor || !!committedOutfit,
+            precommittedOutfit: committedOutfit?.to || '',
             precommittedArrival: command === 'look'
                 && turnSnapshot?.receiptCheckpoint?.tail?.audit?.source === 'engine_travel'
                 ? (() => {
@@ -33771,12 +33935,26 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     detail: 'World state changed while this scene was being generated. Retry against the current state.' }];
                 return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } }, actionResult: {} };
             }
+            const ledgerProposal = draft && sceneLedger ? HordeWorldSceneLedger.prepare(draft, {
+                input: latestActionText || '', location: sess.playerLocation,
+                groups: sess.sceneRecord?.location_id === sess.playerLocation
+                    ? HordeWorldSceneLedger.groups(sess.sceneRecord.groups) : [],
+                locations: (receiptView.locations || []).map(location => location.id),
+                actors: sessionNpcs(world, sess).map(npc => ({ id: npc.id,
+                    location: sess.entityStates?.[npc.id]?.location,
+                    active: isNpcActive(sess.entityStates?.[npc.id]) }))
+            }) : null;
+            if (ledgerProposal && !ledgerProposal.ok) {
+                rejectedReceiptProposal = modelProposal;
+                receiptValidationFeedback = ledgerProposal.errors;
+                return { accepted: false, committed: { audit: { rejected: ledgerProposal.errors } }, actionResult: {} };
+            }
             const compileStarted = performance.now();
-            const compiled = draft ? HordeWorldSceneDraft.compile(draft, {
+            const compiled = draft ? HordeWorldSceneDraft.compile(ledgerProposal?.draft || draft, {
                 input: latestActionText || '', location: sess.playerLocation, playerStart: receiptPlayerStart,
                 actors: sessionNpcs(world, sess).map(npc => ({ id: npc.id, name: npc.name })),
                 inventory: sess.inventory || [],
-                present: buildWorldSceneFrame(world, sess).present_character_ids,
+                present: ledgerProposal?.scene.present_character_ids || buildWorldSceneFrame(world, sess).present_character_ids,
                 locations: (receiptView.locations || []).map(location => location.id),
                 commitments: sess.scheduledEvents || [], now: getWorldTimeData(world, sess).currentTotalMinutes,
                 capability: worldEffectCapability,
@@ -34236,6 +34414,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             const beforeScene = compiled ? captureWorldTurnState(world, sess).session : null;
             const validationStarted = performance.now();
             const attempt = attemptWorldStateMutation(world, sess, () => {
+                if (ledgerProposal) sess.sceneRecord = { ...ledgerProposal.scene,
+                    status: 'proposed', hold_scene: !(Number(compiled.receipt.state_updates.time_skip_minutes) > 0
+                        || compiled.receipt.events.some(event => event.type === 'time' && event.status === 'completed')) };
                 const typedArgs = normalizeUnambiguousWorldEventTypes(
                     canonicalizeWorldCheckNarrativeOutcomes(compiled?.receipt || args));
                 const knowledgeSafeReceipt = worldWithoutUnprovenNpcObservations(world, sess,
@@ -34311,6 +34492,13 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         committed.audit.unaddressed_player_request = compiled.unaddressedRequest;
                 }
                 if (knowledgeSafeReceipt.dropped) committed.audit.knowledgeDrops = knowledgeSafeReceipt.dropped;
+                if (ledgerProposal) {
+                    const frame = buildWorldSceneFrame(world,sess);
+                    if (frame.player_location_id !== ledgerProposal.scene.location_id
+                        || ledgerProposal.scene.present_character_ids.some(id => !frame.present_character_ids.includes(id)))
+                        committed.audit.rejected.push({type:'scene_record',reason:'uncommitted_ending_scene',detail:'The proposed location or cast could not be established.'});
+                    sess.sceneRecord = { ...HordeWorldSceneLedger.record(frame,ledgerProposal.scene.groups,sess.worldStateVersion,committed.validation.receipt.turn_id), hold_scene:sess.sceneRecord.hold_scene };
+                }
                 const actionResult = committed.actionResult || {};
                 const resultTree = [];
                 const collectResult = (result, depth = 0) => {
@@ -34583,6 +34771,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         // Providers that print the mandatory receipt instead of calling the
         // tool still pass through the same validator and reducer.
         let inlineStateApplied = false;
+        let conversationReceiptApplied = false;
         if (!successfulStateCall && !earlyDraftFailure) {
             const inlineReceipt = sceneDrafts && sceneProtocol === 'scene_draft_v3'
                 ? HordeWorldSceneDraft.decode(fullText)
@@ -34615,6 +34804,23 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     if (error?.code === 'WORLD_TURN_PERSISTENCE_FAILED') throw error;
                     if (linkedWorldTurn && error?.code !== 'WORLD_RECEIPT_REJECTED') throw error;
                     console.error('Horde Engine: inline turn receipt failed validation', error);
+                }
+            }
+        }
+
+        // A tool-shy provider's ordinary observation/question can be a valid
+        // unchanged scene. Let the engine supply its empty receipt; never do
+        // this for rejected proposals, physical actions, pending dice or V3.
+        if (sceneDrafts && !sceneLedger && !linkedWorldTurn && !successfulStateCall && !inlineStateApplied
+            && !stateCallSeen && !rejectedReceiptProposal && !rejectedCheckProposal && !narratedCheckRequired
+            && !committedMovement && !committedDoor && !committedOutfit && !sess.pendingCheck && !sess.pendingChecks?.length) {
+            const conversation = worldConversationDraft(submittedInput || userInput, fullText, command, world, sess);
+            if (conversation) {
+                const candidate = await commitReceiptCandidate(conversation, 'conversation_scene');
+                if (candidate.accepted) {
+                    inlineStateApplied = true;
+                    conversationReceiptApplied = true;
+                    if (turnCallAudit?.metrics) turnCallAudit.metrics.conversationReceipt = true;
                 }
             }
         }
@@ -34904,6 +35110,12 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 if (plainSceneRepair && !localSchemaRepair) repairBody.messages.push({role:'system',content:
                     'The provider function-call channel failed. Do not use it again. Return only a valid JSON object matching this schema, no tags or function tokens: '
                     + JSON.stringify(worldStateTool.function.parameters)});
+                if (repairingScene && !rejectedReceiptProposal && repairNarrative.trim()) {
+                    repairBody.messages.push({role:'system',content:
+                        'The model supplied prose without a scene draft. This is the uncommitted candidate, not established history: '
+                        + JSON.stringify(repairNarrative.slice(0, 16000))
+                        + '\nConvert it into the requested scene draft. Preserve a valid response to the player; revise contradictions against the authoritative scene. Never claim a mutation merely to legitimize the prose. Return JSON only when JSON transport is requested.'});
+                }
                 if (turnProvider === 'openrouter' && !plainSceneRepair) {
                     repairBody.tools = [JSON.parse(JSON.stringify(repairingScene ? worldStateTool : legacyWorldTool))];
                     repairBody.tool_choice = { type: 'function', function: { name: 'commit_world_turn' } };
@@ -35040,7 +35252,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 if (linkedWorldTurn) throw repairError;
                 // A user Stop still cancels the turn. An idle timeout during
                 // receipt repair must instead reach the canonical no-op
-                // fallback below, discarding the unverified prose and
+                // fallback below, preserving eligible provisional story and
                 // releasing the send/Stop button.
                 if (repairError?.name === 'AbortError' && !generationTimedOut) throw repairError;
                 receiptRepairTimedOut = generationTimedOut || repairError?.code === 'WORLD_MODEL_TIMEOUT';
@@ -35150,7 +35362,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             freezeUnverifiedWorldTurn('Unverified narrative discarded; only an explicit player wait may advance time.');
         }
         sess.lastTurnStateSource = successfulStateCall ? 'tool_call'
-            : inlineStateApplied ? 'inline_rescue'
+            : conversationReceiptApplied ? 'conversation_scene' : inlineStateApplied ? 'inline_rescue'
                 : repairedReceiptApplied ? 'receipt_repair'
                     : frozenReceiptApplied ? 'frozen_no_receipt' : 'none';
 
@@ -35564,9 +35776,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             }
         }
 
-        // Streaming prose was provisional. Never persist it (or send it back
-        // as context) when the mandatory receipt failed. Likewise, a provider
-        // pseudo-tool payload is not a readable scene even if it is nonempty.
+        // Failed state proposals never become canon. Scene-record mode can keep
+        // explicit prose in a marked provisional conversation channel; strict
+        // mode retains its failure boundary. Never display tool payloads.
+        let provisionalNarrative = false;
         if (frozenReceiptApplied) {
             const verificationReason = receiptValidationFeedback[0]?.reason;
             const unsupportedEventRejection = receiptValidationFeedback.find(item => item?.reason === 'unsupported_event_type');
@@ -35767,6 +35980,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             cleanText = cleanText.replace(/\[Loc:.*?\]\s*/gi, '').replace(/\[DISTANT EVENT.*?\]:\s*/gi, '').trim();
             // Scrub tool/engine artifacts models emit as plain text (JSON payloads, tool-call wrappers)
             cleanText = scrubNarrativeArtifacts(cleanText);
+            // Presentation filters must not alter the text used to audit
+            // claims against the committed world state.
+            const auditText = cleanText;
             // The failure notice is app-owned safety copy, not model prose.
             if (!frozenReceiptApplied && !narrativeConflict) {
                 if (state.globalSettings.slopStripper) cleanText = stripSlop(cleanText);
@@ -35782,13 +35998,13 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             const startOutfit = turnSnapshot?.session?.outfit;
             const outfitChangedThisTurn = startOutfit !== undefined && sess.outfit !== startOutfit;
             const narratedLocationCandidate = shouldAuditNarratedWorldLocation(command, turnSnapshot, movedThisTurn)
-                ? detectNarratedLocation(world, sess, cleanText) : null;
+                ? detectNarratedLocation(world, sess, auditText) : null;
             const narratedPresenceCandidates = command !== 'init'
-                ? detectNarratedPresence(world, sess, cleanText) : [];
+                ? detectNarratedPresence(world, sess, auditText) : [];
             const narratedDepartureCandidates = command !== 'init'
-                ? detectNarratedDepartures(world, sess, cleanText) : [];
+                ? detectNarratedDepartures(world, sess, auditText) : [];
             const narratedOutfitCandidate = (command !== 'init' && !outfitChangedThisTurn)
-                ? detectNarratedOutfit(cleanText) : null;
+                ? detectNarratedOutfit(auditText) : null;
             const audit = sess.lastTurnAudit;
             if (audit) {
                 if (narratedLocationCandidate && narratedLocationCandidate.id !== sess.playerLocation) {
@@ -35831,6 +36047,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 throw new Error('The narrator supplied no safe scene continuation. No narrator response was saved.');
             const dmMsg = addWorldMessage('dm', cleanText, {
                 location: sess.playerLocation,
+                provisionalNarrative: provisionalNarrative || undefined,
                 narrativeAuditWarnings: audit?.rejected?.filter(item => item.type === 'narrative').length || undefined,
                 worldAudit: audit ? {
                     turn: audit.turn,
@@ -35877,6 +36094,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             dmMsg.visibleRelationshipChanges = worldRelationshipEvidenceLabels(world,
                 worldWitnessedRelationshipEventsForMessage(sess, dmMsg));
             if (acceptedSceneDraft && !narrativeConflict && !frozenReceiptApplied) {
+                if (sceneLedger) dmMsg.sceneRecord = safeJsonClone(sess.sceneRecord);
                 dmMsg.sceneMemory = HordeWorldTurnContext.sceneMemory(acceptedSceneDraft,
                     acceptedTurnReceipt?.turn_id, sess.playerLocation, sess.turnCount);
             }
@@ -36165,7 +36383,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 const guidance = worldTurnUsesLocalProvider
                         ? `Generation received no data for ${seconds}s and was stopped. Increase or disable the local timeout in Settings → AI & Models.`
                         : `Hosted model sent no data for ${seconds}s and was stopped. Check the provider status or retry.`;
-                showToast(prefix + guidance, 'error');
+                showWorldTurnError(prefix + guidance);
             } else {
                 showToast(movementPreserved ? 'Movement saved; DM generation stopped.'
                     : doorPreserved ? 'Door opening saved; DM generation stopped.'
@@ -36640,7 +36858,8 @@ function detectPlayerOutfitIntent(input) {
         const item = normalizeOutfitItem(remove[1]);
         if (item) return { mode: 'remove', item };
     }
-    if (/\bI\b[^.!?]{0,25}\b(?:strip|stripped|undress|undressed|get|got)\b[^.!?]{0,20}\b(?:naked|undressed|bare|out of my clothes)\b/i.test(prose)) {
+    if (/\bI\s+(?:undress|strip)(?:\s+(?:completely|fully|entirely))?\s*(?:[.!?;]|$|and\b)/i.test(prose)
+        || /\bI\b[^.!?]{0,25}\b(?:strip|stripped|undress|undressed|get|got)\b[^.!?]{0,20}\b(?:naked|undressed|bare|out of my clothes)\b/i.test(prose)) {
         return { mode: 'clear', item: '' };
     }
     return null;
@@ -36650,6 +36869,8 @@ function applyPlayerOutfitIntent(sess, input) {
     const intent = detectPlayerOutfitIntent(input);
     if (!intent) return null;
     const previous = String(sess.outfit || '').trim();
+    // Removing one named garment does not reveal the rest of an unknown outfit.
+    if (intent.mode === 'remove' && !previous) return null;
     let next = previous;
     if (intent.mode === 'replace') {
         next = intent.item;
@@ -36818,6 +37039,7 @@ function rollForScenePopulation(locationId, persist = true) {
 // them; other timelines never see them. Template NPCs and locations (without
 // sessionOrigin) are shared; story-born people and places stay in their timeline.
 function isVisibleToSession(item, sess) {
+    if (item.type === 'npc' && sess?.originId && Array.isArray(item.playerOriginIds) && item.playerOriginIds.includes(sess.originId)) return false;
     return !item.sessionOrigin || (!!sess && item.sessionOrigin === sess.id);
 }
 function sessionNpcs(world, sess) {
@@ -41429,55 +41651,6 @@ function runLivingWorldTick(world, sess, options = {}) {
         }
     });
 
-    // Relationship drift: people who share a room do not come out of fifty
-    // turns together unchanged. Familiarity mostly warms, friction sometimes
-    // cools, and standing hostility festers. The DM's authored labels are never
-    // overwritten — drift only owns relationships it created (autoManaged).
-    // Rooms containing the player are skipped: on-screen bonds are played out,
-    // not simulated.
-    let relationshipCount = 0;
-    if (!clockCatchUpOnly && modules.relationships) {
-        npcIndex.forEach((npcIds, locationId) => {
-            if (npcIds.length < 2 || locationId === sess.playerLocation) return;
-            for (let a = 0; a < npcIds.length - 1; a++) {
-                for (let b = a + 1; b < npcIds.length; b++) {
-                    const key = relationshipKey(npcIds[a], npcIds[b]);
-                    if (stableWorldRoll(`${sess.id}|drift|${key}|${turn}`) >= 0.1) continue;
-                    const rel = sess.npcRelationships[key]
-                        || (sess.npcRelationships[key] = {
-                            score: 0, label: '', reason: '', lastChangedTurn: 0, autoManaged: true
-                        });
-                    const previousScore = rel.score || 0;
-                    const warm = stableWorldRoll(`${sess.id}|driftdir|${key}|${turn}`) < 0.75;
-                    // Hostile pairs read every gesture badly: their drift inverts.
-                    const delta = previousScore <= -15 ? (warm ? -1 : 1) : (warm ? 1 : -1);
-                    rel.score = livingClamp(previousScore + delta, -100, 100);
-                    rel.lastChangedTurn = turn;
-                    relationshipCount++;
-                    if (rel.autoManaged) {
-                        rel.label = rel.score >= 50 ? 'close' : rel.score >= 20 ? 'friendly'
-                            : rel.score <= -50 ? 'bitter enemies' : rel.score <= -20 ? 'strained'
-                            : 'acquaintances';
-                        if (!rel.reason) {
-                            const room = world.locations.find(item => item.id === locationId);
-                            rel.reason = `time shared at ${room ? room.name : 'the same place'}`;
-                        }
-                    }
-                    if (Math.floor(previousScore / 25) !== Math.floor(rel.score / 25)) {
-                        const nameA = world.entities.find(item => item.id === npcIds[a])?.name || npcIds[a];
-                        const nameB = world.entities.find(item => item.id === npcIds[b])?.name || npcIds[b];
-                        addWorldNews(sess, rel.score > previousScore
-                            ? `${nameA} and ${nameB} have grown noticeably closer.`
-                            : `Relations between ${nameA} and ${nameB} have soured.`, {
-                            id: `news_rel_${key}_${turn}`, locationId, type: 'npc_goal', playerVisible: false,
-                            knownBy: [npcIds[a], npcIds[b]]
-                        });
-                    }
-                }
-            }
-        });
-    }
-
     sess.factions.forEach(faction => {
         if (clockCatchUpOnly) return;   // faction drift is per turn, not per clock jump
         if (faction.status !== 'active' || !faction.goal || faction.goalProgress >= 100) return;
@@ -41555,6 +41728,55 @@ function runLivingWorldTick(world, sess, options = {}) {
                 if (minute === targetNpcMinute) break;
             }
         } finally { sess.worldClock = savedClock; }
+    }
+
+    // Relationship drift: people who share a room do not come out of fifty
+    // turns together unchanged. Familiarity mostly warms, friction sometimes
+    // cools, and standing hostility festers. The DM's authored labels are never
+    // overwritten — drift only owns relationships it created (autoManaged).
+    // Rooms containing the player are skipped: on-screen bonds are played out,
+    // not simulated.
+    let relationshipCount = 0;
+    if (!clockCatchUpOnly && modules.relationships) {
+        npcIndex.forEach((npcIds, locationId) => {
+            if (npcIds.length < 2 || locationId === sess.playerLocation) return;
+            for (let a = 0; a < npcIds.length - 1; a++) {
+                for (let b = a + 1; b < npcIds.length; b++) {
+                    const key = relationshipKey(npcIds[a], npcIds[b]);
+                    if (stableWorldRoll(`${sess.id}|drift|${key}|${turn}`) >= 0.1) continue;
+                    const rel = sess.npcRelationships[key]
+                        || (sess.npcRelationships[key] = {
+                            score: 0, label: '', reason: '', lastChangedTurn: 0, autoManaged: true
+                        });
+                    const previousScore = rel.score || 0;
+                    const warm = stableWorldRoll(`${sess.id}|driftdir|${key}|${turn}`) < 0.75;
+                    // Hostile pairs read every gesture badly: their drift inverts.
+                    const delta = previousScore <= -15 ? (warm ? -1 : 1) : (warm ? 1 : -1);
+                    rel.score = livingClamp(previousScore + delta, -100, 100);
+                    rel.lastChangedTurn = turn;
+                    relationshipCount++;
+                    if (rel.autoManaged) {
+                        rel.label = rel.score >= 50 ? 'close' : rel.score >= 20 ? 'friendly'
+                            : rel.score <= -50 ? 'bitter enemies' : rel.score <= -20 ? 'strained'
+                            : 'acquaintances';
+                        if (!rel.reason) {
+                            const room = world.locations.find(item => item.id === locationId);
+                            rel.reason = `time shared at ${room ? room.name : 'the same place'}`;
+                        }
+                    }
+                    if (Math.floor(previousScore / 25) !== Math.floor(rel.score / 25)) {
+                        const nameA = world.entities.find(item => item.id === npcIds[a])?.name || npcIds[a];
+                        const nameB = world.entities.find(item => item.id === npcIds[b])?.name || npcIds[b];
+                        addWorldNews(sess, rel.score > previousScore
+                            ? `${nameA} and ${nameB} have grown noticeably closer.`
+                            : `Relations between ${nameA} and ${nameB} have soured.`, {
+                            id: `news_rel_${key}_${turn}`, locationId, type: 'npc_goal', playerVisible: false,
+                            knownBy: [npcIds[a], npcIds[b]]
+                        });
+                    }
+                }
+            }
+        });
     }
 
     // Powers with a shared border and no shared cause drift apart; powers with a
@@ -42345,6 +42567,17 @@ function syncNPCSchedules(world, sess) {
     runLivingWorldTick(world, sess, { clockOnly: true });
     const schedulesEnabled = normalizeWorldGameRules(world).modules.schedules;
     normalizeLivingWorldState(world, sess);
+    // Preserve the authored/current scene before the first timetable tick.
+    // Previously the hold existed only after an accepted model reply, so the
+    // opening cast could enter transit before the model could establish it.
+    if (normalizeWorldKernelConfig(world).enabled && normalizeWorldKernelConfig(world).sceneLedger
+        && !sess.sceneRecord && typeof HordeWorldSceneLedger !== 'undefined') {
+        sess.sceneRecord = {
+            ...HordeWorldSceneLedger.record(buildWorldSceneFrame(world, sess), [],
+                sess.worldStateVersion || 0, 'initial_scene'),
+            hold_scene: true
+        };
+    }
     const time = getWorldTimeData(world, sess);
     const currentTimeStr = `${time.hours24.toString().padStart(2, '0')}:${time.mins.toString().padStart(2, '0')}`;
     let moveCount = 0;
@@ -42399,7 +42632,10 @@ function syncNPCSchedules(world, sess) {
 
             // ARBITRATION: the narrative outranks the timetable. If the DM moved
             // this NPC recently, the schedule may not teleport them away.
-            if (entState.followingPlayer === true || isNpcPinned(sess, entState)) return;
+            if (entState.followingPlayer === true || isNpcPinned(sess, entState)
+                || (normalizeWorldKernelConfig(world).sceneLedger && sess.sceneRecord?.hold_scene
+                    && sess.sceneRecord.location_id === sess.playerLocation
+                    && sess.sceneRecord.present_character_ids?.includes(ent.id))) return;
 
             const loc = getLocationRef(worldForSession(world, sess), activeBlock.locationId);
             if (loc) activeCount++;
@@ -53824,7 +54060,7 @@ function applyCompanionImageParameters(body, companion, capabilities, endpoint) 
 
 const COMPANION_PHOTO_CAPTURE_TYPES = Object.freeze([
     'auto', 'front_camera_selfie', 'mirror_selfie', 'group_selfie',
-    'timer_or_propped', 'taken_by_someone'
+    'timer_or_propped', 'taken_by_someone', 'personal_photograph'
 ]);
 
 function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(), options = {}) {
@@ -53854,6 +54090,20 @@ function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(
     const plausiblePhotographer = namedPhotographer || withNames[0]
         || (socialSituation ? 'someone already there' : '');
     const canUseOtherPhotographer = policy !== 'self_capture' && !!plausiblePhotographer;
+
+    // A written scene is authoritative over the simulated schedule. A full-body
+    // request can be an ordinary personal photograph; do not invent phone gear
+    // simply to explain how it was captured.
+    if ((requestedType === 'auto' || requestedType === 'personal_photograph') && !frontRequested && !mirrorRequested && !timerRequested && !groupRequested
+        && !(otherPhotographerRequested && policy !== 'auto' && policy !== 'self_capture')) {
+        return {
+            type: 'personal_photograph',
+            reason: 'No capture device or photographer was requested; use natural personal-photo framing.',
+            photographer: '', situation,
+            label: 'Personal photograph',
+            instruction: 'A natural personal photograph with a plausible camera viewpoint. The phone, camera, tripod, selfie stick and photographer stay outside the frame. Follow the requested framing; do not force selfie distance.'
+        };
+    }
 
     const plan = (type, reason, photographer = '') => {
         const details = {
@@ -53927,7 +54177,7 @@ function companionPhotoCapturePlan(companion, sceneDescription, atMs = Date.now(
 function companionPhotoLocationReference(companion, scene, options = {}) {
     if(options.includeReference===false||options.locationReferenceOnly)return null;
     const locations=[...(companion.lifeProfile?.places||[]),...(companion.photoLocations||[])].filter(p=>p.photo&&!p.referenceDisabled);
-    if(options.photoLocationId)return locations.find(p=>p.id===options.photoLocationId)||null;
+    if(options.photoLocationId&&!companionPhotoHasExplicitSetting(scene))return locations.find(p=>p.id===options.photoLocationId)||null;
     const present=options.photoContext||(!options.historicalPhoto?companionSituationAt(companion,Number(options.atMs)||Date.now()):{});
     const words=' '+String(scene||'').toLowerCase().replace(/[^a-z0-9]+/g,' ')+' ';
     const matches=locations.filter(p=>{
@@ -53935,11 +54185,18 @@ function companionPhotoLocationReference(companion, scene, options = {}) {
         return [p.label,p.referenceRole,...String(p.referenceAliases||'').split(',')].filter(Boolean).some(label=>{const text=String(label).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();return text&&words.includes(' '+text+' ');});
     });
     if(matches.length===1)return matches[0];
+    if(companionPhotoHasExplicitSetting(scene))return null;
     return locations.find(p=>p.id===present.placeId)||null;
 }
 function companionPhotoSnapshot(companion,scene,atMs){
     const situation=companionSituationAt(companion,atMs),room=companionPhotoLocationReference(companion,scene,{atMs});
     return {atMs,placeId:situation.placeId||'',placeLabel:situation.placeLabel||companion.currentLocationDetail||'',outfit:situation.outfit||companion.currentOutfit||'',roomId:room?.id||'',garmentIds:[...(companion.lifeRuntime?.world?.outfit?.ids||[])],environment:situation.environment||{},withNames:situation.withNames||[],scene:String(scene||''),style:companion.photoStyle,direction:companion.photoDirection||'',personality:companion.personality||''};
+}
+function companionPhotoHasExplicitSetting(scene){
+    return /\b(?:in|at|inside|outside|near|by|on)\s+(?:(?:the|a|an|my|your|her|his)\s+)?(?:living room|bedroom|kitchen|bathroom|office|studio|garden|park|beach|street|caf[eé]|store|shop|car|train|bus|hotel|apartment|home|room|bed|sofa|couch|porch|yard|balcony|classroom|restaurant)\b/i.test(String(scene||''));
+}
+function companionPhotoHasExplicitClothing(scene){
+    return /\b(?:wear(?:ing)?|dressed? in|outfit|clothes|clothing|garments?|topless|shirtless|braless|nude|naked|bare(?:\s+(?:chest|breasts?|upper\s+body))?|bra|bralette|camisole|tank\s+top|crop\s+top|t-?shirt|shirt|blouse|sweater|hoodie|jacket|coat|dress|skirt|shorts|pants|jeans|leggings|underwear|lingerie)\b/i.test(String(scene||''));
 }
 function companionPhotoPrevious(messages,context,minutes=90,allowSameTime=false){
     if(minutes<=0||!context.placeId&&!context.placeLabel)return null;
@@ -53951,10 +54208,12 @@ function companionPhotoReferences(companion,scene,options={}){
     if(Array.isArray(options.resolvedReferences))return options.resolvedReferences;
     if(options.photoContext?.assetStudy)return [...new Set((options.bibleReferences||[]).filter(Boolean))];
     if(options.photoContext?.referenceStudy)return [...new Set([companion.basePhoto,...(options.bibleReferences||[])].filter(Boolean))];
+    const explicitClothing=companionPhotoHasExplicitClothing(scene),explicitSetting=companionPhotoHasExplicitSetting(scene);
     const room=companionPhotoLocationReference(companion,scene,{...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
     const ids=options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[];
-    const garments=companion.lifeProfile?.world?.closet.mode==='items'&&!options.historicalPhoto?ids.map(id=>companion.lifeProfile.world.items.find(i=>i.id===id)?.photo).filter(Boolean):[];
-    return [...new Set([companion.basePhoto,options.previousPhoto?.photo,room?.photo,...garments,...(options.bibleReferences||[])].filter(Boolean))];
+    const garments=!explicitClothing&&companion.lifeProfile?.world?.closet.mode==='items'&&!options.historicalPhoto?ids.map(id=>companion.lifeProfile.world.items.find(i=>i.id===id)?.photo).filter(Boolean):[];
+    const bibleReferences=(options.bibleReferences||[]).filter((_,i)=>{const role=options.photoContext?.bibleRoles?.[i];return (!explicitClothing||role?.role!=='garment')&&(!explicitSetting||!['place','zone'].includes(role?.role)||String(scene).toLowerCase().includes(String(role?.label||'').toLowerCase()));});
+    return [...new Set([companion.basePhoto,explicitClothing||explicitSetting?null:options.previousPhoto?.photo,room?.photo,...garments,...bibleReferences].filter(Boolean))];
 }
 
 function companionPhotoReferenceSources(companion,scene,options={},references=companionPhotoReferences(companion,scene,options)){
@@ -54145,15 +54404,16 @@ function renderCompanionPhotoLocations(companion) {
 }
 
 function companionPhotoReferenceGuide(companion,scene,options={}){
+ const explicitClothing=companionPhotoHasExplicitClothing(scene);
  const refs=Array.isArray(options.attachedReferences)?options.attachedReferences:companionPhotoReferences(companion,scene,{...options,resolvedReferences:undefined});if(!refs.length)return '';
  const jobs=new Map(),add=(ref,job)=>{const index=refs.indexOf(ref);if(index<0)return;const list=jobs.get(index)||[];if(!list.includes(job))list.push(job);jobs.set(index,list);};
  add(companion.basePhoto,'Main person: preserve facial identity and body proportions; clothing and background come from the requested moment.');
- add(options.previousPhoto?.photo,'Previous moment: preserve exact outfit, surroundings and lighting; change only the requested gesture or framing.');
+ if(!explicitClothing&&!companionPhotoHasExplicitSetting(scene))add(options.previousPhoto?.photo,'Previous moment: preserve exact outfit, surroundings and lighting; change only the requested gesture or framing.');
  const place=companionPhotoLocationReference(companion,scene,{...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
  add(place?.photo,'Environment: '+(place?.label||'saved place')+'. Preserve layout and materials; do not borrow a person from this image.');
- if(companion.lifeProfile?.world?.closet?.mode==='items'&&!options.historicalPhoto)for(const id of options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[]){const item=companion.lifeProfile.world.items.find(i=>i.id===id);add(item?.photo,'Clothing: '+(item?.name||'selected garment')+'. Preserve fabric, color and cut; ignore the model wearing it.');}
+ if(!explicitClothing&&companion.lifeProfile?.world?.closet?.mode==='items'&&!options.historicalPhoto)for(const id of options.photoContext?.garmentIds||companion.lifeRuntime?.world?.outfit?.ids||[]){const item=companion.lifeProfile.world.items.find(i=>i.id===id);add(item?.photo,'Clothing: '+(item?.name||'selected garment')+'. Preserve fabric, color and cut; ignore the model wearing it.');}
  const instructions={identity:'identity and proportions only; ignore reference-sheet layout and sample clothes',person:'this supporting person’s identity only; do not merge faces',zone:'room layout and permanent fixtures only',place:'environment layout and materials only',garment:'selected clothing details only, never the wearer’s identity',prop:'object geometry, materials and color only',pose:'body and camera geometry only, never identity or clothing'};
- for(const [i,role] of (options.photoContext?.bibleRoles||[]).entries())add(options.bibleReferences?.[i],role.label+': '+(instructions[role.role]||role.role));
+ for(const [i,role] of (options.photoContext?.bibleRoles||[]).entries())if(!explicitClothing||role.role!=='garment')add(options.bibleReferences?.[i],role.label+': '+(instructions[role.role]||role.role));
  return 'Reference images in actual attachment order:\n'+refs.map((_,i)=>'Image '+(i+1)+': '+(jobs.get(i)?.join(' ')||'Use only for the explicitly requested visual detail.')).join('\n');
 }
 function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
@@ -54163,7 +54423,6 @@ function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
     const atMs = Number(options.atMs) || Date.now();
     const capture = companionPhotoCapturePlan(companion, sceneDescription, atMs, options);
     const situation = options.photoContext ? {...capture.situation,...options.photoContext} : capture.situation;
-    const environment = companionWeatherLabel(situation.environment);
     if (options.locationReferenceOnly) return `Photograph of a place, with no people. ${sceneDescription}. Preserve the described room layout, architecture, furniture and materials. Natural available light. No captions, labels, diagrams or text overlays.`;
     const hasReference = options.hasReference === false ? false : options.hasReference === true || !!companion.basePhoto || options.photoContext?.bibleRoles?.some(r=>r.role==='identity');
     const age = Number(companion.age);
@@ -54171,39 +54430,41 @@ function buildCompanionPhotoPrompt(companion, sceneDescription, options = {}) {
     const subject = hasReference
         ? `${ageText}. Use the identity reference for the same face, body shape, proportions and distinguishing features. Do not redesign or idealize the person based on incidental scene wording.`
         : `${ageText}. ${companion.appearance || 'A natural-looking person'}`;
-    let scene = String(sceneDescription || '').trim().replace(/[.]+$/, '');
+    let originalScene = String(sceneDescription || '').trim();
+    // Expand only an outfit ID actually named by the request, not the wardrobe.
     for (const look of companion.lifeProfile?.wardrobe || []) {
-        if (look.id && look.items) scene = scene.replaceAll(look.id, look.items);
+        if (look.id && look.items) originalScene = originalScene.replaceAll(look.id, look.items);
     }
+    const scene = originalScene.replace(/[.]+$/, '');
     const locationReference = companionPhotoLocationReference(companion, sceneDescription, {...options,photoLocationId:options.photoContext?.roomId||options.photoLocationId});
-    const continuity = options.previousPhoto ? 'Same photographic moment as the attached previous image: preserve its exact outfit, accessories, room, lighting and time of day. Visual evidence in that image wins over conflicting clothing or setting words in this follow-up request.' : options.historicalPhoto
-        ? 'This is an earlier photograph. Use the requested scene for its place, clothing and lighting; do not substitute the present-day schedule or weather.'
-        : `Current setting: ${situation.outfit ? `wearing ${situation.outfit}` : companion.currentOutfit ? `wearing ${companion.currentOutfit}` : 'outfit not otherwise established'}; ${situation.placeLabel || companion.currentLocationDetail || companion.locationLabel || 'specific surroundings not otherwise established'}${environment ? `; local conditions are ${environment}` : ''}.
-People present: ${situation.withNames?.length ? situation.withNames.join(', ') : 'no additional people established'}.
-${(companion.lifeProfile?.socialCircle||[]).filter(p=>situation.personIds?situation.personIds.includes(p.id):(situation.withNames||[]).includes(p.name)).map(p=>p.name+': '+(p.appearance||'Use their assigned person reference; physical appearance is otherwise unspecified.')+(p.age!=null?' Age: '+p.age+'.':'')).join('\n')}
-Do not derive anyone's physical appearance from their job, relationship, personality or name.
-Keep the established setting, clothing and time of day. Do not add an unseen friend or photographer.`;
-    return `${options.photoContext?.destination==='gallery'?'A personal photograph kept in the character’s camera gallery. It has not been shared or published.':'A personal photograph shared in a conversation.'}
-
-Subject: ${subject}
-Photographic personality: ${options.photoContext?.personality||companion.personality||'Use the established character'}. Translate personality into expression, posture and framing, without changing appearance or inventing company.
-Personal photo direction: ${options.photoContext?.direction??companion.photoDirection??'Use natural expressions and the established visual treatment.'}
-${options.previousPhoto ? `FOLLOW-UP TO THE SUPPLIED PREVIOUS PHOTO: Preserve the exact same garments, including cut, fabric, pattern, accessories and fit; the same room, lighting and time of day. The earlier image is visual ground truth. Change only the requested gesture or framing. Earlier scene: ${options.previousPhoto.scene}. Earlier outfit: ${options.previousPhoto.photoContext?.outfit||'match the attached photo exactly'}. Ignore contradictory outfit or room suggestions in the new scene. Earlier photo direction: ${options.previousPhoto.photoContext?.direction||''}` : ''}
-${companion.photoLargeBreasts === true ? 'Appearance emphasis: large breasts, with natural anatomy and realistic clothing fit. Retain this bust size even when using the identity reference; preserve the rest of the referenced identity and the established outfit.' : ''}
-${options.previousPhoto?'Follow-up gesture/framing request (ignore conflicting outfit or background suggestions)':'Scene'}: ${scene}.
-${continuity}
-${situation.zoneId ? `Current room zone: ${situation.zoneDescription || situation.zoneId}. Preserve this zone's layout and reviewed zone references; do not substitute another room within the same place.` : ''}
-${companionPhotoReferenceGuide(companion,sceneDescription,options)}
-
-
-Camera provenance — ${capture.label}:
-${capture.instruction}
-This camera provenance overrides any generic camera-angle wording in the visual style below.
-
-Visual treatment — ${style.label}:
-${style.appendix}
-
-Create one photograph of this moment, not a reference sheet, collage or multiple views. If an identity reference is a turnaround sheet, use its views to identify one person; do not reproduce its layout. Keep the scene clear, the person consistent, and the moment believable. Do not render instructions or labels as image text.`;
+    const sceneHasClothing = companionPhotoHasExplicitClothing(originalScene);
+    const sceneHasSpecificLocation = /\b(?:at|in|inside|outside|near|by|on)\s+(?:the\s+|a\s+|an\s+)?[a-z]/i.test(originalScene)
+        || /\b(?:living room|bedroom|kitchen|bathroom|office|studio|garden|park|beach|street|cafe|café|store|shop|car|train|bus|hotel|apartment|home|room|bed|sofa|couch|table|window|porch|yard|balcony|classroom|restaurant)\b/i.test(originalScene);
+    const explicitOutfitChange = companionPhotoHasExplicitClothing(originalScene);
+    const vh2ComfyuiPrompt = options.vh2Capture === true && companion.imageSource === 'comfyui';
+    const photography = vh2ComfyuiPrompt
+        ? 'Natural, photorealistic personal photograph with realistic skin texture and lighting. Preserve the character\'s facial identity and natural proportions. Follow the requested pose, camera angle, clothing, and framing.'
+        : style.appendix;
+    const continuity = options.previousPhoto && !explicitOutfitChange
+        ? 'Continue the attached photograph only where the request does not change it. Explicit clothing, location, activity and framing in this request take precedence over the earlier image.'
+        : options.historicalPhoto
+            ? 'Use the requested scene as the source of truth for clothing, location and lighting.'
+            : [
+                !explicitOutfitChange && !sceneHasClothing && (situation.outfit || companion.currentOutfit) ? `Relevant current outfit only when compatible with the requested moment: ${situation.outfit || companion.currentOutfit}.` : '',
+                !sceneHasSpecificLocation && !explicitOutfitChange && (situation.placeLabel || companion.currentLocationDetail || companion.locationLabel) ? `Relevant established location only when compatible with the requested moment: ${situation.placeLabel || companion.currentLocationDetail || companion.locationLabel}.` : '',
+                situation.withNames?.length ? `People already present: ${situation.withNames.join(', ')}. Do not add other people.` : 'Do not add other people or a photographer.'
+            ].filter(Boolean).join('\n');
+    const scenePriority = 'The current scene controls clothing, colors, coverage, pose, and setting.';
+    const details = [
+        options.photoContext?.destination === 'gallery' ? 'Private character camera-gallery photograph.' : 'Personal photograph shared in a conversation.',
+        explicitOutfitChange ? 'Follow the requested clothing and coverage exactly, including explicit exclusions; do not substitute saved or historical clothing.' : '',
+        continuity,
+        situation.zoneId && !sceneHasSpecificLocation ? `Room zone, only when compatible with the requested moment: ${situation.zoneDescription || situation.zoneId}.` : '',
+        companion.photoLargeBreasts === true ? 'Appearance emphasis: large breasts, with natural anatomy and realistic clothing fit; preserve the referenced identity.' : ''
+    ].filter(Boolean).join(' ');
+    const camera = vh2ComfyuiPrompt || sceneHasSpecificLocation ? '' : `${capture.instruction} Keep the requested framing; photography equipment stays outside the frame.`;
+    const prompt = `Requested scene:\n${originalScene}\n\nSubject identity:\n${subject}\n\nPhotography:\n${photography}\n\nReference guidance:\nUse identity references to preserve face, hair, and proportions. Do not copy incidental clothing from identity references when the current scene specifies different clothing.\n${scenePriority}${details ? ` ${details}` : ''}\n${companionPhotoReferenceGuide(companion,sceneDescription,options)}\n${camera ? `\n${camera}` : ''}\nDo not render instructions or labels as image text.`;
+    return prompt;
 }
 
 /**
@@ -57202,6 +57463,13 @@ function commitCompanionStudioForm() {
     return companion;
 }
 
+async function loadCompanionVh2PhotoSettings(companion){
+    const timeline=getActiveCompanionTimeline(companion.id),daily=document.getElementById('cs-vh2-photo-daily-limit'),explicit=document.getElementById('cs-vh2-explicit-photo-daily-limit'),mode=document.getElementById('cs-vh2-photo-behaviour'),status=document.getElementById('cs-vh2-photo-budget-status');
+    const initialDaily=daily?.value,initialExplicit=explicit?.value;
+    try{const saved=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id)):await mcpBridgeRequest('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));if(state.editingCompanionId!==companion.id)return;if(saved.configured){if(daily&&daily.value===initialDaily)daily.value=saved.dailyLimit??100;if(explicit&&explicit.value===initialExplicit)explicit.value=saved.explicitDailyLimit??100;if(status)status.textContent=`Saved values · Spontaneous ${saved.dailyLimit??100}/day (${saved.autonomousBudget?.remaining??saved.dailyLimit??100} remaining) · Explicit ${saved.explicitDailyLimit??100}/day (${saved.explicitBudget?.remaining??saved.explicitDailyLimit??100} remaining).`;}else if(status)status.textContent='No VH2 provider limits are saved yet. Choose a VH2 provider and model before saving allowances.';if(mode)mode.value=companion.photoBehaviorMode||'natural';}
+    catch(error){if(status)status.textContent='VH2 limits unavailable: '+error.message;}
+}
+
 function renderCompanionStudioForm(options = {}) {
     const companion = getCompanion(state.editingCompanionId);
     if (!companion) return;
@@ -57309,6 +57577,10 @@ function renderCompanionStudioForm(options = {}) {
     document.getElementById('cs-always-on-enabled').checked = companion.alwaysOnEnabled;
     document.getElementById('cs-web-access').checked = companion.webAccess;
     document.getElementById('cs-allow-photos').checked = companion.allowPhotos;
+    const photoMode=document.getElementById('cs-vh2-photo-behaviour');if(photoMode)photoMode.value=companion.photoBehaviorMode||'natural';
+    const photoLimit=document.getElementById('cs-vh2-photo-daily-limit'),explicitLimit=document.getElementById('cs-vh2-explicit-photo-daily-limit');if(photoLimit)photoLimit.value=100;if(explicitLimit)explicitLimit.value=100;
+    const photoBudgetStatus=document.getElementById('cs-vh2-photo-budget-status');if(photoBudgetStatus)photoBudgetStatus.textContent='Loading saved VH2 photo allowances…';
+    loadCompanionVh2PhotoSettings(companion).catch(error=>{if(photoBudgetStatus)photoBudgetStatus.textContent='Could not load saved VH2 limits: '+error.message;});
     document.getElementById('cs-allow-voice-notes').checked = companion.allowVoiceNotes;
     document.getElementById('cs-voice-gender').value = companion.voiceGender;
     document.getElementById('cs-mood-baseline').value = companion.moodBaseline.valence;
@@ -58031,7 +58303,7 @@ function updateCompanionImageSourceUI(companion) {
         google.innerHTML='<label>Google image model<input class="form-input" data-model placeholder="gemini-2.5-flash-image"></label><label>Google AI Studio API key<input class="form-input" data-key type="password" autocomplete="off" placeholder="Blank keeps the saved key"></label><button type="button" class="tool-btn">Save Google image connection</button><p role="status"></p>';
         const model=google.querySelector('[data-model]'),key=google.querySelector('[data-key]'),button=google.querySelector('button'),status=google.querySelector('[role=status]');
         model.value=companion.imageModel||'gemini-2.5-flash-image';model.oninput=()=>{companion.imageModel=model.value.trim();};
-        button.onclick=async()=>{button.disabled=true;status.textContent='Saving…';try{const timeline=getActiveCompanionTimeline(companion.id),call=(path,options)=>timeline?.vh2&&typeof vh2Request==='function'?vh2Request(timeline,path,options):mcpBridgeRequest(path,options);const saved=await call('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));await call('/vh2/image-provider',{method:'POST',body:{scope:'horde:'+companion.id,provider:'gemini',model:model.value.trim(),apiKey:key.value,enabled:saved.provider==='gemini'&&saved.enabled===true,dailyLimit:saved.dailyLimit||4,maxReferences:/gemini-2\.5/.test(model.value)?3:14}});companion.imageModel=model.value.trim();key.value='';await saveState();status.textContent=timeline?.vh2?.hostId?'Google image connection saved on the private host.':'Google image connection saved.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
+        button.onclick=async()=>{button.disabled=true;status.textContent='Saving…';try{const timeline=getActiveCompanionTimeline(companion.id),call=(path,options)=>timeline?.vh2&&typeof vh2Request==='function'?vh2Request(timeline,path,options):mcpBridgeRequest(path,options);const saved=await call('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));await call('/vh2/image-provider',{method:'POST',body:{scope:'horde:'+companion.id,provider:'gemini',model:model.value.trim(),apiKey:key.value,enabled:saved.provider==='gemini'&&saved.enabled===true,dailyLimit:saved.dailyLimit||100,explicitDailyLimit:saved.explicitDailyLimit||100,maxReferences:/gemini-2\.5/.test(model.value)?3:14}});companion.imageModel=model.value.trim();key.value='';await saveState();status.textContent=timeline?.vh2?.hostId?'Google image connection saved on the private host.':'Google image connection saved.';}catch(error){status.textContent=error.message;}finally{button.disabled=false;}};
     }
     mcpControls?.classList.toggle('hidden', !isMcp);
     const textProvider = providerDisplayName(companionTextProviderId(companion));
@@ -59741,6 +60013,23 @@ function setupCompanionsLogic() {
         const companion = commitCompanionStudioForm();
         if (companion) vhAIHelpers(companion, 'places');
     };
+    document.getElementById('cs-vh2-photo-settings-save').onclick=async()=>{
+        const companion=getCompanion(state.editingCompanionId),status=document.getElementById('cs-vh2-photo-budget-status');if(!companion)return;
+        const timeline=getActiveCompanionTimeline(companion.id),daily=Number(document.getElementById('cs-vh2-photo-daily-limit').value),explicit=Number(document.getElementById('cs-vh2-explicit-photo-daily-limit').value),mode=document.getElementById('cs-vh2-photo-behaviour').value;
+        if(!Number.isInteger(daily)||daily<1||daily>100||!Number.isInteger(explicit)||explicit<1||explicit>100){if(status)status.textContent='Enter whole-number limits from 1 to 100.';return;}
+        try{
+            const read=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id)):await mcpBridgeRequest('/vh2/image-provider?scope='+encodeURIComponent('horde:'+companion.id));
+            const provider=read.configured?read:vh2ImageConfiguration(companion,read);
+            const body={scope:'horde:'+companion.id,provider:provider.provider,tool:provider.tool||'',arguments:safeJsonClone(provider.arguments||{}),model:provider.model||'provider default',enabled:provider.enabled===true,dailyLimit:daily,explicitDailyLimit:explicit,maxReferences:provider.maxReferences||10,apiKey:provider.apiKey||'',imageParameters:provider.imageParameters||{},imageProviderOptions:provider.imageProviderOptions||{},imageProviderTag:provider.imageProviderTag||'',imageProviderSlug:provider.imageProviderSlug||''};
+            const receipt=timeline?.vh2?.hostId?await vh2Request(timeline,'/vh2/image-provider',{method:'POST',body}):await mcpBridgeRequest('/vh2/image-provider',{method:'POST',body});
+            if(timeline?.vh2)timeline.vh2.imageProvider={...receipt,stale:false};
+            companion.photoBehaviorMode=mode;
+            if(timeline?.vh2?.worldId)await vh2Enqueue(timeline,'configure_expression_profile',{fields:{photoBehaviorMode:mode}});
+            await saveState();
+            if(status)status.textContent=`Saved · spontaneous ${receipt.dailyLimit}/day (${receipt.autonomousBudget?.remaining??receipt.dailyLimit} remaining) · explicit ${receipt.explicitDailyLimit}/day (${receipt.explicitBudget?.remaining??receipt.explicitDailyLimit} remaining) · ${mode.replace('_',' ')}.`;
+        }catch(error){if(status)status.textContent='Could not save VH2 photo settings: '+error.message;}
+    };
+    document.getElementById('cs-vh2-photo-behaviour').onchange=e=>{const companion=getCompanion(state.editingCompanionId);if(companion)companion.photoBehaviorMode=e.target.value;};
     document.getElementById('cs-allow-photos').onchange = (e) => {
         const companion = getCompanion(state.editingCompanionId);
         if (companion) {

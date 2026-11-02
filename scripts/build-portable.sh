@@ -5,7 +5,7 @@ set -eu
 # of the public bundle on every Python version and in child processes.
 export PYTHONDONTWRITEBYTECODE=1
 
-VERSION="${1:-18.3.6}"
+VERSION="${1:-18.3.7}"
 case "$VERSION" in
   ''|*[!A-Za-z0-9._-]*) echo "Version must contain only letters, digits, periods, underscores or hyphens." >&2; exit 1 ;;
 esac

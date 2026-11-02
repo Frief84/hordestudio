@@ -10,6 +10,8 @@ const checkApi = typeof module !== 'undefined' && module.exports
     ? require('./universal-checks') : root.HordeUniversalChecks;
 const discoveryApi = typeof module !== 'undefined' && module.exports
     ? require('./dynamic-object-discovery') : root.HordeDynamicObjectDiscovery;
+const sceneApi = typeof module !== 'undefined' && module.exports
+    ? require('./scene-draft') : null;
 const copy = value => value === undefined ? undefined : structuredClone(value);
 const safeId = value => typeof value === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(value);
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object || {}, key);
@@ -1645,6 +1647,15 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     event.type === 'activity' && event.actor_id === 'player'
                     && event.passage_id === action.response_id
                     && !!String(event.activity || '').trim());
+                const localInteractionProof = action.verifiedLocalInteraction === true
+                    && responseLinked && !operations.length
+                    && (sceneApi || root.HordeWorldSceneDraft)?.localInteraction(action.request, {
+                        inventory: working.getSession('inventory') || [],
+                        actors: (world.entities || []).filter(entity => entity?.type === 'npc'),
+                        present: (world.entities || []).filter(entity => entity?.type === 'npc'
+                            && working.getEntity(entity.id).state?.location === working.getSession('playerLocation')
+                            && !working.getEntity(entity.id).state?.journey).map(entity => entity.id)
+                    });
                 const proved = action.kind === 'travel'
                     ? executed.some(effect => effect.type === 'actor_move'
                         && (effect.payload.actor_id === 'player'
@@ -1652,7 +1663,7 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     : action.kind === 'wait'
                         ? executed.some(effect => ['time_advance', 'time_skip_minutes'].includes(effect.type))
                         : action.kind === 'physical'
-                            ? physicalEffect || witnessedInteraction || witnessedLocalActivity
+                            ? physicalEffect || witnessedInteraction || witnessedLocalActivity || localInteractionProof
                             : stateEffect || ['speech', 'question', 'observation', 'other']
                                 .includes(action.kind) && responseLinked;
                 if (!proved) throw new Error('unverified_action_success');

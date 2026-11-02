@@ -178,7 +178,7 @@ class PhotoSnapshotStorage(unittest.TestCase):
 
         def broken(snapshot):
             result = canonical(snapshot)
-            result["companion"]["personality"] = "A materially different expression"
+            result["scene"] = "A materially different photograph at another place"
             return result
 
         with mock.patch.object(vh2_runtime.vh2_media, "compact_capture_snapshot", side_effect=broken):
