@@ -3557,7 +3557,7 @@ def loopback_base_url(value: Any, default_port: int) -> str:
     return candidate
 
 
-def multipart_image(data_url: str, filename: str = "horde-reference.png") -> tuple[bytes, str]:
+def multipart_image(data_url: str, filename: str = "horde-reference.png", *, overwrite: bool = True, subfolder: str = "") -> tuple[bytes, str]:
     match = re.match(r"^data:([^;,]+);base64,([\s\S]+)$", str(data_url or ""), re.I)
     if not match:
         raise ValueError("ComfyUI references must be base64 data images.")
@@ -3567,7 +3567,8 @@ def multipart_image(data_url: str, filename: str = "horde-reference.png") -> tup
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"image\"; filename=\"{filename}\"\r\n"
         f"Content-Type: {match.group(1)}\r\n\r\n".encode() + image,
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"type\"\r\n\r\ninput".encode(),
-        f"--{boundary}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\ntrue".encode(),
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"overwrite\"\r\n\r\n{'true' if overwrite else 'false'}".encode(),
+        *([f"--{boundary}\r\nContent-Disposition: form-data; name=\"subfolder\"\r\n\r\n{subfolder}".encode()] if subfolder else []),
         f"--{boundary}--".encode(),
     ]
     return b"\r\n".join(parts) + b"\r\n", boundary
@@ -3648,7 +3649,16 @@ def comfy_generate(body: dict[str, Any]) -> str:
     reference_input = str(mapping.get("referenceInput") or "image")
     if any(not isinstance(workflow.get(node,{}).get('inputs'),dict) or reference_input not in workflow[node]['inputs'] for node in nodes[:len(references)]):
         raise ValueError("A configured ComfyUI reference node/input does not exist.")
-    uploads = [multipart_image(reference, f"horde-reference-{i}.png") for i,reference in enumerate(references)]
+    # When enabled, each queued job uploads immutable unique reference files.
+    # Normal ComfyUI uploads are unchanged when this guard is disabled.
+    reference_guard = body.get("referenceGuard") is True
+    job_token = secrets.token_hex(16) if reference_guard else ""
+    uploads = [multipart_image(
+        reference,
+        f"horde-guard-{job_token}-{i}.png" if reference_guard else f"horde-reference-{i}.png",
+        overwrite=not reference_guard,
+        subfolder="horde_reference_guard" if reference_guard else "",
+    ) for i, reference in enumerate(references)]
     for node,(upload,boundary) in zip(nodes,uploads):
         status, _, raw = http_request(base + "/upload/image", "POST",
             {"Accept":"application/json","Content-Type":f"multipart/form-data; boundary={boundary}"},upload,120)
