@@ -1,0 +1,193 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "generationMs": 113850,
+  "validationMs": 27,
+  "durationMs": 113877,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 935,
+    "total_tokens": 1086
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "The player kneels down.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "kneeling"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "then wave to Linda and say \"Hello.\"",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "The player waves to Linda and says, \"Hello.\"",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "waving"
+              },
+              {
+                "type": "dialogue",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "say",
+                "target_id": "Linda",
+                "source_type": "witnessed",
+                "source_npc_id": "Linda",
+                "witnessed_by": [
+                  "Linda"
+                ],
+                "cause": "actor_request_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnessed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_actor_request_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_1e8a5d02_2dcd_4f4a_a9c3_df9cfdb47a3e"
+              },
+              {
+                "type": "dialogue",
+                "actor_id": "Linda",
+                "status": "completed",
+                "explore": false,
+                "activity": "hear",
+                "source_type": "witnessed",
+                "source_npc_id": "player",
+                "witnessed_by": [
+                  "Linda"
+                ],
+                "cause": "npc_response_to_incoming_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_response_to_incoming_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_1e8a5d02_2dcd_4f4a_a9c3_df9cfdb47a3e"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "reactions": [
+      {
+        "text": "Linda waves back at the player.",
+        "events": [
+          {
+            "type": "activity",
+            "actor_id": "Linda",
+            "status": "completed",
+            "activity": "waving"
+          }
+        ]
+      }
+    ]
+  },
+  "repairCount": 5,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I kneel, then ",
+      "response_id": "turn_dc1791bceb40ed487e43afbd_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "wave to Linda and say \"Hello.\"",
+      "response_id": "turn_dc1791bceb40ed487e43afbd_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_dc1791bceb40ed487e43afbd_world_0",
+      "kind": "other",
+      "status": "resolved",
+      "request": "",
+      "response_id": "turn_dc1791bceb40ed487e43afbd_world_0_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "kneeling",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_0",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_action_0_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "waving",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_1",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_action_1_p0"
+    },
+    {
+      "type": "dialogue",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "say",
+      "target_id": "linda",
+      "source_type": "witnessed",
+      "source_npc_id": "Linda",
+      "witnessed_by": [
+        "Linda"
+      ],
+      "cause": "actor_request_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnessed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_actor_request_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_1e8a5d02_2dcd_4f4a_a9c3_df9cfdb47a3e",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_1",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_action_1_p0"
+    },
+    {
+      "type": "dialogue",
+      "actor_id": "linda",
+      "status": "completed",
+      "explore": false,
+      "activity": "hear",
+      "source_type": "witnessed",
+      "source_npc_id": "player",
+      "witnessed_by": [
+        "Linda"
+      ],
+      "cause": "npc_response_to_incoming_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_response_to_incoming_speech_say_quoted_text_with_target_and_witniss_and_speaker_with_target_id_from_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_actor_specified_by_action_actor_id_with_speech_target_specified_by_action_target_id_with_speech_text_specified_by_action_text_quoted_with_one_or_more_witnissed_by_npc_ids_specified_by_request_witnissed_by_one_or_more_npc_ids_from_request_speaker_id_1e8a5d02_2dcd_4f4a_a9c3_df9cfdb47a3e",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_1",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_action_1_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "linda",
+      "status": "completed",
+      "activity": "waving",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_world_0",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_world_0_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_dc1791bceb40ed487e43afbd_action_1",
+      "passage_id": "turn_dc1791bceb40ed487e43afbd_action_1_p0"
+    }
+  ],
+  "complete": false
+}

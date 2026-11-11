@@ -1,0 +1,166 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "durationMs": 99810,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 324,
+    "total_tokens": 475
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You kneel down.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "kneeling"
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "Linda"
+                ],
+                "quote": "Hello."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "wave to Linda and say \"Hello.\"",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You wave to Linda and say, \"Hello.\"",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "waving"
+              },
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "say:Hello."
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "Linda"
+                ],
+                "quote": "Hello."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "executorErrors": [
+    {
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_0",
+      "reason": "unverified_action_success",
+      "code": "unverified_action_success",
+      "effect": "",
+      "protocol": "scene_draft_v3",
+      "executionMode": "linked",
+      "available": [
+        "actor_move",
+        "npc_follow",
+        "npc_goal_set",
+        "interactable_transition",
+        "item_transfer",
+        "item_consume",
+        "item_introduce",
+        "entity_introduce",
+        "location_introduce",
+        "condition_change",
+        "relation_set",
+        "event_emit",
+        "knowledge_share",
+        "time_advance",
+        "outfit_set"
+      ],
+      "source": "worlds/effect-registry.js",
+      "stage": "linked_action_execution",
+      "cause": "unverified_action_success"
+    }
+  ],
+  "executorOk": false,
+  "actions": [
+    {
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I kneel, then ",
+      "response_id": "turn_c6f54a10ef79df00f8338d3a_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "wave to Linda and say \"Hello.\"",
+      "response_id": "turn_c6f54a10ef79df00f8338d3a_action_1_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "kneeling",
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_0",
+      "passage_id": "turn_c6f54a10ef79df00f8338d3a_action_0_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "waving",
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_1",
+      "passage_id": "turn_c6f54a10ef79df00f8338d3a_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "say:Hello.",
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_1",
+      "passage_id": "turn_c6f54a10ef79df00f8338d3a_action_1_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_c6f54a10ef79df00f8338d3a_action_1",
+      "passage_id": "turn_c6f54a10ef79df00f8338d3a_action_1_p0"
+    }
+  ],
+  "complete": false
+}

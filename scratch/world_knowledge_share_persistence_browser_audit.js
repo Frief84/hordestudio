@@ -101,7 +101,9 @@ const root = path.resolve(__dirname, '..');
                 goalCount: durable.entityStates.b.goalPool?.length || 0,
                 eventCount: durable.turnEvents.filter(event => event.committed).length,
                 liveMatchesDurable: JSON.stringify(sess) === JSON.stringify(durable),
-                duplicateOk: duplicate.ok };
+                duplicateOk: duplicate.ok,
+                duplicateOutcome: duplicate.outcomes?.get('ada_ben_confirmed'),
+                duplicateReason: duplicate.blockedReasons?.get('ada_ben_confirmed') };
         });
         assert.equal(result.failed, true);
         assert.equal(result.midTransactionFailed, true);
@@ -117,8 +119,10 @@ const root = path.resolve(__dirname, '..');
         assert.equal(result.goalCount, 1);
         assert.equal(result.eventCount, 1);
         assert.equal(result.liveMatchesDurable, true);
-        assert.equal(result.duplicateOk, false,
-            'the confirmed action ID must not be accepted twice');
+        assert.equal(result.duplicateOk, true);
+        assert.equal(result.duplicateOutcome, 'blocked',
+            'the confirmed action ID must be rejected as a blocked action');
+        assert.equal(result.duplicateReason, 'already_delivered');
         await page.reload();
         await page.waitForFunction(() => state.worldInstances?.knowledge_persistence_fixture?.sessions?.length);
         const reloaded = await page.evaluate(() => {

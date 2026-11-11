@@ -12,6 +12,24 @@
     "tail": "PASS server-owned IDs, long/short dialogue, gestures, Aslan/Lorne, autonomous NPC movement, effects, deadlines, truncation, repair preservation and rollback"
   },
   {
+    "name": "world_p43e_speaker_receipt_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.3e mixed speaker and observation receipt projection"
+  },
+  {
+    "name": "world_p43e_vault_turn_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.3e bound Vault turn: NPC consent/refusal, door, movement, effects, events, reload"
+  },
+  {
+    "name": "world_p43d_action_reliability_audit.js",
+    "code": 0,
+    "timeout": false,
+    "tail": "PASS P4.3d context, speech plus action, door chain, NPC key identity, rollback controls, reload"
+  },
+  {
     "name": "world_linked_execution_audit.js",
     "code": 0,
     "timeout": false,
@@ -75,7 +93,7 @@
     "name": "world_npc_goal_priority_audit.js",
     "code": 0,
     "timeout": false,
-    "tail": "PASS goal priority: rules, interruption, resume, blocked alternative, stable ties, item consume; 40 NPC x 10 goals x 50 ticks in 51.9ms"
+    "tail": "PASS goal priority: rules, interruption, resume, blocked alternative, stable ties, item consume; 40 NPC x 10 goals x 50 ticks in 61.4ms"
   },
   {
     "name": "world_npc_goal_progress_audit.js",
@@ -87,31 +105,31 @@
     "name": "world_perception_audit.js",
     "code": 0,
     "timeout": false,
-    "tail": "Perception only: 5.88 ms / 100 events, 48 rooms, 48 NPCs\nworld_perception_audit: passed"
+    "tail": "Perception only: 5.95 ms / 100 events, 48 rooms, 48 NPCs\nworld_perception_audit: passed"
   },
   {
     "name": "world_knowledge_share_audit.js",
     "code": 0,
     "timeout": false,
-    "tail": "knowledge-share cost only: 26.2 ms for 16 deliveries, 19 NPCs\nPASS knowledge share: delivery, relay provenance, privacy, range, witness, reaction, event-rule consequence, reload"
+    "tail": "knowledge-share cost only: 30.2 ms for 16 deliveries, 19 NPCs\nPASS knowledge share: delivery, relay provenance, privacy, range, witness, reaction, event-rule consequence, reload"
   },
   {
     "name": "world_server_binding_browser_audit.js",
-    "code": 0,
+    "code": 1,
     "timeout": false,
-    "tail": "P2.8 browser metrics: {\"clean\":{\"calls\":1,\"durationMs\":209},\"repaired\":{\"calls\":3,\"durationMs\":375},\"recovered\":{\"calls\":2,\"durationMs\":655},\"recovered_attempt\":{\"calls\":2,\"durationMs\":605},\"failed\":{\"calls\":2,\"durationMs\":347},\"joint_move\":{\"calls\":1,\"durationMs\":420},\"joint_move_repaired\":{\"calls\":2,\"durationMs\":624},\"pickup\":{\"calls\":1,\"durationMs\":418},\"npc_follows\":{\"calls\":1,\"durationMs\":389},\"npc_refuses\":{\"calls\":1,\"durationMs\":439},\"npc_state\":{\"calls\":1,\"durationMs\":457},\"partial\":{\"calls\":1,\"durationMs\":511}}\nPASS browser: bound receipts, effect trace, speaker evidence, scoped NPC memory, rollback and reload"
+    "tail": "    at N:\\Horde Studio\\app\\scratch\\world_server_binding_browser_audit.js:342:24 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: [Object],\n  expected: [Object],\n  operator: 'deepStrictEqual',\n  diff: 'simple'\n}"
   },
   {
     "name": "world_p42_resource_cost_browser_audit.js",
-    "code": 0,
+    "code": 1,
     "timeout": false,
-    "tail": "PASS P4.2 browser turns: success and failure costs, one call each, receipts and reload"
+    "tail": "    at N:\\Horde Studio\\app\\scratch\\world_p42_resource_cost_browser_audit.js:95:16 {\n  generatedMessage: true,\n  code: 'ERR_ASSERTION',\n  actual: 5,\n  expected: 3,\n  operator: 'strictEqual',\n  diff: 'simple'\n}"
   },
   {
     "name": "world_p41_linked_turn_browser_audit.js",
-    "code": 0,
+    "code": 1,
     "timeout": false,
-    "tail": "PASS P4.1 full deterministic linked turn, receipt, persistence and result card"
+    "tail": "    at N:\\Horde Studio\\app\\scratch\\world_p41_linked_turn_browser_audit.js:81:16 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: undefined,\n  expected: 'pass',\n  operator: 'strictEqual',\n  diff: 'simple'\n}"
   },
   {
     "name": "world_npc_goal_tick_browser_audit.js",
@@ -127,9 +145,9 @@
   },
   {
     "name": "world_knowledge_share_persistence_browser_audit.js",
-    "code": 0,
+    "code": 1,
     "timeout": false,
-    "tail": "PASS knowledge-share persistence: failed commit atomic, retry once, action idempotence, reload\nPASS knowledge-share legacy: V2/V3 definitions and sessions migrate and reload without invented knowledge"
+    "tail": "    at N:\\Horde Studio\\app\\scratch\\world_knowledge_share_persistence_browser_audit.js:120:16 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: true,\n  expected: false,\n  operator: 'strictEqual',\n  diff: 'simple'\n}"
   },
   {
     "name": "worlds2_atomic_turn_persistence_browser_audit.js",
@@ -145,8 +163,14 @@
   },
   {
     "name": "worlds2_hosted_turn_deadline_browser_audit.js",
+    "code": 1,
+    "timeout": false,
+    "tail": "    at N:\\Horde Studio\\app\\scratch\\worlds2_hosted_turn_deadline_browser_audit.js:129:9 {\n  generatedMessage: false,\n  code: 'ERR_ASSERTION',\n  actual: false,\n  expected: true,\n  operator: '==',\n  diff: 'simple'\n}"
+  },
+  {
+    "name": "world_resolved_intent_browser_audit.js",
     "code": 0,
     "timeout": false,
-    "tail": "PASS: idle stalls stop; streamed progress stops at the five-minute turn limit"
+    "tail": "PASS ResolvedIntent browser integration (local-bind): key→gate→speech, blocked/ready follow-ups, multi-leg route, typed fare"
   }
 ]

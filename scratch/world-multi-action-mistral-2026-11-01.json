@@ -1,0 +1,74 @@
+{
+  "model": "mistral-small3.2:24b",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "durationMs": 159154,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 144,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 137,
+    "total_tokens": 281
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You kneel."
+          }
+        ]
+      },
+      {
+        "request": "wave to Linda",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You wave to Linda."
+          }
+        ]
+      },
+      {
+        "request": "then say 'Hello.'",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You said: \"Hello.\"."
+          }
+        ]
+      }
+    ]
+  },
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_87522521ae9e634c587df4f5_action_0",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "I kneel, then wave to Linda and say \"Hello.\"",
+      "response_id": "turn_87522521ae9e634c587df4f5_action_0_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_87522521ae9e634c587df4f5_action_0",
+      "passage_id": "turn_87522521ae9e634c587df4f5_action_0_p0"
+    }
+  ],
+  "complete": false
+}

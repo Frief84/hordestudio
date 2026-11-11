@@ -1,0 +1,217 @@
+{
+  "model": "qwen2.5:14b",
+  "bound": false,
+  "result": {
+    "generalized": true,
+    "results": [
+      {
+        "language": "de",
+        "action": 0,
+        "effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "apple",
+              "from_id": "garden",
+              "to_id": "player",
+              "quantity": 1
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          }
+        ],
+        "location": "garden",
+        "inventory": [
+          "Apfel"
+        ],
+        "narrative": "Du streckst die Hand aus und pflückst einen roten Apfel vom Ast des Apfelbaums. Der Apfel fällt in deine Hand, frisch und gesund. Jonas, der freundliche Gärtner, blickt kurz zu dir und lächelt, als er deine Aktion bemerkt.",
+        "time": 485
+      },
+      {
+        "language": "de",
+        "action": 1,
+        "effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "apple",
+              "from_id": "player",
+              "to_id": "garden",
+              "quantity": 1
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          }
+        ],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "Du gehst zu dem Apfelbaum in deinem Garten und pflückst einen Apfel. Deine Hand umklammert den festen Fruchtwelchen kurz, bevor du ihn vorsichtig auf den Boden legst. Jonas, der in der Nähe arbeitet, hebt den Kopf und sieht zu dir herüber, während er das Geräusch des Apfels auf dem trockenen Gras hört.",
+        "time": 490
+      },
+      {
+        "language": "de",
+        "action": 2,
+        "effects": [],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "Du stehst unter dem Apfelbaum und wartest geduldig auf Jonas. Nach einigen Minuten nähert sich Jonas dem Baum. Er lächelt, als er dich sieht.\n\n\"Was hast du da auf den Boden gelegt?\", fragt er neugierig.\n\n\"Ich habe einen Apfel vom Baum gepflückt\", antwortest du. \"Was hast du heute noch so im Garten gemacht?\"",
+        "time": 495
+      },
+      {
+        "language": "de",
+        "action": 3,
+        "effects": [],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "Jonas hört auf, durch den Garten zu wandern und blickt dich neugierig an. „Was möchtest du heute unternehmen?“, fragt er zurück, bevor er antwortet. Er scheint deine Frage zu überdenken und schmunzelt dabei. „Ich werde den Rest des Tages damit verbringen, den Garten zu pflegen und zu bewässern“, sagt er dann. „Aber nach dem Mittagessen könnte ich ein wenig Zeit für ein Schwätzchen haben, wenn du möchtest.“",
+        "time": 500
+      },
+      {
+        "language": "en",
+        "action": 0,
+        "effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "apple",
+              "from_id": "garden",
+              "to_id": "player",
+              "quantity": 1
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          }
+        ],
+        "location": "garden",
+        "inventory": [
+          "Apfel"
+        ],
+        "narrative": "You reach up and pluck an apple from the tree, feeling the satisfying crunch of the stem as it breaks free. The apple is firm and ripe, its skin smooth and glossy.\n\nJonas, the friendly gardener, glances over at you with a warm smile. \"That's a good choice,\" he says. \"The apples from this tree are some of the best in the garden.\"",
+        "time": 485
+      },
+      {
+        "language": "en",
+        "action": 1,
+        "effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "apple",
+              "from_id": "player",
+              "to_id": "garden",
+              "quantity": 1
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          }
+        ],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "You reach up and pluck an apple from the tree, feeling the smooth skin of the fruit under your fingers. Holding it for a moment, you then gently place the apple on the ground beside you. Jonas, the friendly gardener, walks over and notices the apple on the ground. “Ah, an apple from our tree,” he says with a smile. “Did you want to leave it here for the birds or perhaps you’re planning something else?”",
+        "time": 490
+      },
+      {
+        "language": "en",
+        "action": 2,
+        "effects": [],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "You wait beside the apple tree, the scent of fresh earth and foliage filling the air. Jonas approaches you, a curious look on his face. \"Why did you put that apple on the ground?\" he asks, tilting his head slightly.\n\n\"I was wondering if you could tell me more about the garden,\" you reply, hoping to steer the conversation back to a topic you're interested in.\n\nJonas nods, his demeanor warming. \"Of course, I'd be happy to share. This garden is a labor of love, filled with many stories and secrets,\" he says, gesturing around the lush greenery.",
+        "time": 495
+      },
+      {
+        "language": "en",
+        "action": 3,
+        "effects": [],
+        "location": "garden",
+        "inventory": [],
+        "narrative": "Jonas looks up from his gardening, wiping the sweat from his brow with a worn cloth. \"I plan to finish planting the herbs today and perhaps start on the vegetables,\" he replies in a friendly tone, his accent softening the English words. \"The weather is perfect for it.\"\n\nYou notice Jonas has a small patch of land cleared, ready for planting, and he seems eager to get started.",
+        "time": 500
+      }
+    ],
+    "dialogues": [
+      {
+        "language": "de",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas hält inne und sieht dich neugierig an. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über die rote Schal zu überdenken. Er schmunzelt kurz, bevor er antwortet: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "de",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas bleibt stehen und mustert dich neugierig. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über den roten Schal zu überdenken. Mit einem kurzen Schmunzeln antwortet er: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "de",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas bleibt stehen und mustert dich neugierig. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über den roten Schal zu überdenken. Mit einem kurzen Schmunzeln antwortet er: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "de",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas bleibt stehen und mustert dich neugierig. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über den roten Schal zu überdenken. Mit einem kurzen Schmunzeln antwortet er: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "de",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas bleibt stehen und mustert dich neugierig. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über den roten Schal zu überdenken. Mit einem kurzen Schmunzeln antwortet er: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "de",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas bleibt stehen und mustert dich neugierig. „Was möchtest du heute unternehmen?“, fragt er und scheint deine Frage über den roten Schal zu überdenken. Mit einem kurzen Schmunzeln antwortet er: „Ja, ich erinnere mich an unseren roten Schal. Wir haben ihn oft getragen, als wir noch jünger waren.“"
+      },
+      {
+        "language": "en",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas looks up, his eyes meeting yours. He pauses his gardening work, a thoughtful expression crossing his face. \"The red scarf,\" he murmurs, his voice tinged with a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      },
+      {
+        "language": "en",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas looks up from his gardening, his eyes meeting yours. He pauses his work, a thoughtful expression on his face. \"The red scarf,\" he murmurs, his voice carrying a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      },
+      {
+        "language": "en",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas looks up from his gardening, his eyes meeting yours. He pauses his work, a thoughtful expression crossing his face. \"The red scarf,\" he murmurs, his voice tinged with a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      },
+      {
+        "language": "en",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas looks up from his gardening, his eyes meeting yours. He pauses his work, a thoughtful expression crossing his face. \"The red scarf,\" he murmurs, his voice tinged with a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      },
+      {
+        "language": "en",
+        "input": "Ich frage Jonas: „Do you remember our red scarf?“",
+        "reply": "Jonas looks up from his gardening, his eyes meeting yours. He pauses his work, a thoughtful expression crossing his face. \"The red scarf,\" he murmurs, his voice tinged with a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      },
+      {
+        "language": "en",
+        "input": "I ask Jonas: “Erinnerst du dich an unseren roten Schal?”",
+        "reply": "Jonas looks up from his gardening, his eyes meeting yours. He pauses his work, a thoughtful expression crossing his face. \"The red scarf,\" he murmurs, his voice tinged with a hint of nostalgia. \"Yes, I remember. It was a gift from you, wasn’t it?\""
+      }
+    ],
+    "cases": 22,
+    "calls": 44
+  }
+}

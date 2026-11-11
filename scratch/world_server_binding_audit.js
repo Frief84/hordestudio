@@ -48,6 +48,45 @@ function compile(proposal, custom = {}) {
     return { bound, compiled, executed, session };
 }
 async function main() {
+    const sitRequest = 'ich setze mich auf einen stuhl';
+    const sitProposal = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+        status: 'resolved', effects: [], response: [{ text: 'You sit down.' }] }] };
+    const sitReferences = [{ id: 'seat', name: 'Wooden chair', aliases: ['Stuhl'],
+        type: 'item', locationId: 'stone', reachable: true }];
+    const groundedSit = binding.bind(sitProposal, { ...context, input: sitRequest,
+        playerLocation: 'stone', references: sitReferences }, canonical);
+    assert(groundedSit.ok, JSON.stringify(groundedSit.errors));
+    assert(groundedSit.draft.events.some(event => event.type === 'activity'
+        && event.actor_id === 'player' && event.status === 'completed'));
+    const absentSit = binding.bind(sitProposal, { ...context, input: sitRequest,
+        playerLocation: 'stone', references: [] }, canonical);
+    assert(absentSit.ok && !absentSit.draft.events.length,
+        'a missing support must not be witnessed as a completed activity');
+    const mixedSpeechInput = 'I sit on the bench. "I am here."';
+    const mixedDraft = { protocol: 'scene_draft_v3', actions: [{ kind: 'physical',
+        status: 'resolved', effects: [], response: [{ text: 'The bench supports you.',
+            events: [{ type: 'activity', actor_id: 'player', status: 'completed',
+                activity: 'sitting on the bench' }] }] }] };
+    const mixedSpeech = binding.bind(mixedDraft, { ...context, input: mixedSpeechInput,
+        presentActorIds: ['lorne'] }, canonical);
+    assert(mixedSpeech.ok, JSON.stringify(mixedSpeech.errors));
+    assert(mixedSpeech.draft.narrative[0].text.includes('I am here.'));
+    assert(mixedSpeech.draft.speech.some(item => item.speaker === 'player'
+        && item.quote === 'I am here.' && item.listeners.includes('lorne')),
+    'player speech attached to a physical action must be preserved verbatim');
+    const unsupportedMixed = structuredClone(mixedDraft);
+    delete unsupportedMixed.actions[0].response[0].events;
+    const unsupported = binding.bind(unsupportedMixed,
+        { ...context, input: mixedSpeechInput, presentActorIds: ['lorne'] }, canonical);
+    assert(unsupported.ok);
+    const noProof = scene.compile(unsupported.draft, { input: mixedSpeechInput,
+        location: 'stone', playerStart: 'stone', present: ['lorne'],
+        locations: ['stone', 'path'], now: 485, linkedRequired: true, contract: canonical });
+    assert(noProof.ok, JSON.stringify(noProof.errors));
+    const noProofResult = linked.executeLinkedActions(noProof.linkedPlan, world,
+        structuredClone(initial), { worldActionIds: unsupported.binding.worldActionIds });
+    assert(noProofResult.errors.some(error => error.reason === 'unverified_action_success'),
+        'speech cannot attest an unsupported physical success');
     const danceInput = 'I ask Lorne to dance with me, then I dance beside him.';
     const swallowedDance = { protocol: 'scene_draft_v3', actions: [{
         kind: 'speech', status: 'resolved', request: danceInput, effects: [],
@@ -223,8 +262,42 @@ async function main() {
     'compound or unverified requests still need explicit part coverage');
     const missingStatus = structuredClone(scalarResponse);
     delete missingStatus.actions[0].status;
-    assert(binding.bind(missingStatus, context, canonical).errors.some(item =>
-        item.reason === 'missing_bound_field' && item.detail === 'actions.0.status'));
+    const derivedStatus = binding.bind(missingStatus, { ...context, input: 'Hello.' }, canonical);
+    assert(derivedStatus.ok && derivedStatus.draft.actions[0].status === 'resolved');
+    const missingPhysicalStatus = { protocol: 'scene_draft_v3', actions: [{
+        kind: 'physical', effects: [], response: [{ text: 'You take the cup.' }] }] };
+    assert(binding.bind(missingPhysicalStatus, { ...context, input: 'I take the cup.' }, canonical)
+        .errors.some(item => item.reason === 'missing_bound_field'
+            && item.detail === 'actions.0.status'),
+    'an unproved physical success cannot acquire a status from prose');
+    const speechSource = 'I sit down. "I am here; I will stay."';
+    const speechProposal = { protocol: 'scene_draft_v3', actions: [
+        { request: 'I sit down.', kind: 'physical', status: 'resolved', effects: [],
+            response: [{ text: 'You sit.', events: [{ type: 'activity', actor_id: 'player',
+                status: 'completed', activity: 'sitting' }] }] },
+        { request: '"I am here; I will stay."', kind: 'speech', status: 'resolved',
+            effects: [], response: [{ text: 'Lorne listens.' }] }
+    ] };
+    const preservedSpeech = binding.bind(speechProposal, { ...context, input: speechSource,
+        presentActorIds: ['lorne'], references: [{ id: 'lorne', name: 'Lorne', type: 'npc' }] }, canonical);
+    assert(preservedSpeech.ok, JSON.stringify(preservedSpeech.errors));
+    assert(preservedSpeech.draft.narrative[1].text.includes('I am here; I will stay.'));
+    assert(preservedSpeech.draft.speech.some(item => item.speaker === 'player'
+        && item.quote === 'I am here; I will stay.'));
+    const preservedTurn = compile(speechProposal, { input: speechSource,
+        presentActorIds: ['lorne'], references: [{ id: 'lorne', name: 'Lorne', type: 'npc' }] });
+    assert(preservedTurn.executed.ok, JSON.stringify(preservedTurn.executed.errors));
+    assert(preservedTurn.compiled.speech.some(item => item.speaker === 'player'
+        && item.statement === 'I am here; I will stay.'));
+    const speechOnly = binding.bind({ protocol: 'scene_draft_v3', actions: [{
+        kind: 'speech', status: 'resolved', effects: [], response: [{ text: 'Lorne listens.' }] }] },
+    { ...context, input: '"I am here."', presentActorIds: ['lorne'] }, canonical);
+    assert(speechOnly.ok && speechOnly.draft.speech[0]?.quote === 'I am here.');
+    assert.deepEqual(binding.repairEventLosses([{
+        type: 'interaction', actor_id: 'player', status: 'completed',
+        action_id: 'a', passage_id: 'p', action: 'I sit down.' }], [{
+        type: 'activity', actor_id: 'player', status: 'completed',
+        action_id: 'a', passage_id: 'p', activity: 'sitting' }]), []);
     const unsupportedField = structuredClone(scalarResponse);
     unsupportedField.actions[0].unknown = 'value';
     assert(binding.bind(unsupportedField, context, canonical).errors.some(item =>
@@ -546,12 +619,11 @@ He shifts slightly on his sun-warmed stone.
     ] };
     const lifted = compile(lift, { input: liftRequest });
     assert(lifted.executed.ok, JSON.stringify(lifted.executed.errors));
-    assert.equal(lifted.bound.draft.actions.length, 1,
-        'nonmechanical dialogue and gestures share the complete player turn');
-    assert.equal(lifted.bound.draft.actions[0].request, liftRequest);
+    assert.equal(lifted.bound.draft.actions.length, 3,
+        'independently anchored dialogue and gesture steps stay in the action graph');
+    assert.equal(lifted.bound.draft.actions.map(action => action.request).join(''), liftRequest);
     assert.equal(lifted.bound.draft.narrative.length, 3,
         'normalization preserves every model response paragraph');
-    assert(lifted.bound.binding.repairs.some(repair => repair.type === 'merge_conversational_actions'));
     const falseAppointment = dialogue('Lorne smiles. "I can give you a lift to Millbrook."');
     falseAppointment.actions[0].kind = 'speech';
     falseAppointment.actions[0].response[0].commitments = [{ title: 'Take Aslan to Millbrook',

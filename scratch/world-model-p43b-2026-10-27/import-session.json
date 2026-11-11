@@ -1,0 +1,1319 @@
+{
+  "world": {
+    "id": "world_1793091016414",
+    "name": "The Submission Vault",
+    "locations": [
+      {
+        "id": "loc_antechamber",
+        "name": "The Antechamber",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_staircase",
+            "text": "up to The Ascent",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_antechamber::loc_staircase"
+          },
+          {
+            "targetLocationId": "loc_round_room",
+            "text": "to the Round Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_antechamber::loc_round_room"
+          }
+        ]
+      },
+      {
+        "id": "loc_staircase",
+        "name": "The Ascent",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_antechamber",
+            "text": "down to the Antechamber",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_antechamber::loc_staircase"
+          }
+        ]
+      },
+      {
+        "id": "loc_round_room",
+        "name": "The Round Room",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_antechamber",
+            "text": "to The Antechamber",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_antechamber::loc_round_room"
+          },
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to The Cell Corridor",
+            "travelTime": 2,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_corridor::loc_round_room"
+          },
+          {
+            "targetLocationId": "loc_hex_room",
+            "text": "to The Hexagonal Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "unlocked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_hex_room::loc_round_room"
+          },
+          {
+            "targetLocationId": "loc_storage",
+            "text": "to the Storage Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_round_room::loc_storage"
+          }
+        ]
+      },
+      {
+        "id": "loc_cell_corridor",
+        "name": "The Cell Corridor",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_round_room",
+            "text": "back to the Round Room",
+            "travelTime": 2,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_corridor::loc_round_room"
+          },
+          {
+            "targetLocationId": "loc_cell_1",
+            "text": "into Cell 1",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_1::loc_cell_corridor"
+          },
+          {
+            "targetLocationId": "loc_cell_2",
+            "text": "into Cell 2",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_2::loc_cell_corridor"
+          },
+          {
+            "targetLocationId": "loc_cell_3",
+            "text": "into Cell 3",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_3::loc_cell_corridor"
+          },
+          {
+            "targetLocationId": "loc_hex_room",
+            "text": "to The Hexagonal Room",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_cell_corridor::loc_hex_room",
+            "requiredItem": "",
+            "allowCheckUnlock": true
+          },
+          {
+            "targetLocationId": "loc_1791872032911_m2x10f",
+            "text": "to Washroom",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_1791872032911_m2x10f::loc_cell_corridor",
+            "requiredItem": "",
+            "allowCheckUnlock": false
+          },
+          {
+            "targetLocationId": "loc_1791872111952_f9vvyt",
+            "text": "to Guard room",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_1791872111952_f9vvyt::loc_cell_corridor",
+            "requiredItem": "",
+            "allowCheckUnlock": false
+          }
+        ]
+      },
+      {
+        "id": "loc_cell_1",
+        "name": "Cell 1",
+        "access": {
+          "default": "open",
+          "factions": {
+            "faction_new_faction_1": "allow",
+            "faction_new_faction_2": "allow"
+          }
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to the Corridor",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_1::loc_cell_corridor"
+          }
+        ]
+      },
+      {
+        "id": "loc_cell_2",
+        "name": "Cell 2",
+        "access": {
+          "default": "open",
+          "factions": {
+            "faction_new_faction_1": "allow",
+            "faction_new_faction_2": "allow"
+          }
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to the Corridor",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_2::loc_cell_corridor"
+          }
+        ]
+      },
+      {
+        "id": "loc_cell_3",
+        "name": "Cell 3",
+        "access": {
+          "default": "restricted",
+          "npcs": {
+            "ent_cassy": "deny",
+            "ent_alexis": "deny",
+            "ent_linda": "deny"
+          },
+          "factions": {
+            "faction_new_faction_1": "allow",
+            "faction_new_faction_2": "allow"
+          }
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to the Corridor",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_cell_3::loc_cell_corridor"
+          }
+        ]
+      },
+      {
+        "id": "loc_storage",
+        "name": "The Storage Room",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_round_room",
+            "text": "to The Round Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_round_room::loc_storage"
+          },
+          {
+            "targetLocationId": "loc_hex_room",
+            "text": "to The Hexagonal Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_hex_room::loc_storage"
+          }
+        ]
+      },
+      {
+        "id": "loc_hex_room",
+        "name": "The Hexagonal Room",
+        "access": {
+          "default": "open"
+        },
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_round_room",
+            "text": "to the Round Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "unlocked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_hex_room::loc_round_room"
+          },
+          {
+            "targetLocationId": "loc_storage",
+            "text": "to the Storage Room",
+            "travelTime": 1,
+            "mode": "walk",
+            "isOneWay": false,
+            "lockState": "locked",
+            "routeName": "",
+            "cost": "",
+            "requiredItem": "Cell key",
+            "allowCheckUnlock": true,
+            "doorId": "door:loc_hex_room::loc_storage"
+          },
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to The Cell Corridor",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_cell_corridor::loc_hex_room",
+            "requiredItem": "",
+            "allowCheckUnlock": true
+          }
+        ]
+      },
+      {
+        "id": "loc_1791872032911_m2x10f",
+        "name": "Washroom",
+        "access": null,
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to The Cell Corridor",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_1791872032911_m2x10f::loc_cell_corridor",
+            "requiredItem": "",
+            "allowCheckUnlock": false
+          }
+        ]
+      },
+      {
+        "id": "loc_1791872111952_f9vvyt",
+        "name": "Guard room",
+        "access": null,
+        "accessRules": null,
+        "exits": [
+          {
+            "targetLocationId": "loc_cell_corridor",
+            "text": "to The Cell Corridor",
+            "direction": "",
+            "mode": "walk",
+            "travelTime": 0,
+            "routeName": "",
+            "cost": "",
+            "isOneWay": false,
+            "doorId": "door:loc_1791872111952_f9vvyt::loc_cell_corridor",
+            "requiredItem": "",
+            "allowCheckUnlock": false
+          }
+        ]
+      }
+    ],
+    "entities": [
+      {
+        "id": "ent_cassy",
+        "name": "Cassy",
+        "type": "npc",
+        "locationId": "loc_antechamber",
+        "startLocation": "loc_cell_2",
+        "requiredItem": null,
+        "sessionState": {
+          "location": "loc_cell_2",
+          "observations": [],
+          "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+          "goalProgress": 0,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "active",
+          "goalSteps": [
+            "Schreiben",
+            "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+            "She observes the guards' movements and memorises their patrol and inspection routines.",
+            "She attempts to communicate with other prisoners and gather information about the underground complex."
+          ],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": []
+        }
+      },
+      {
+        "id": "ent_alexis",
+        "name": "Alexis",
+        "type": "npc",
+        "locationId": "loc_cell_1",
+        "startLocation": "loc_cell_1",
+        "requiredItem": null,
+        "sessionState": {
+          "location": "loc_cell_1",
+          "observations": [],
+          "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+          "goalProgress": 0,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "active",
+          "goalSteps": [
+            "Alexis examines her locked cell for weaknesses and possible escape routes.",
+            "She observes the guards and memorizes their daily routines.",
+            "She attempts to communicate with other prisoners and persuade guards to help her.",
+            "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+          ],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": []
+        }
+      },
+      {
+        "id": "ent_linda",
+        "name": "Linda",
+        "type": "npc",
+        "locationId": "loc_cell_2",
+        "startLocation": "loc_antechamber",
+        "requiredItem": null,
+        "sessionState": {
+          "location": "loc_antechamber",
+          "observations": [],
+          "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+          "goalProgress": 0,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "active",
+          "goalSteps": [
+            "Lina waits in the antechamber and nervously examines her surroundings.",
+            "She confirms that she has agreed to participate in the programme.",
+            "She asks the player what will happen next and what is expected of her.",
+            "She listens to the explanation and asks questions about anything she does not understand."
+          ],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": []
+        }
+      },
+      {
+        "id": "char_andew_cloudi",
+        "name": "Andew Cloudi",
+        "type": "npc",
+        "locationId": null,
+        "startLocation": "loc_round_room",
+        "requiredItem": null,
+        "sessionState": {
+          "location": "loc_round_room",
+          "observations": [],
+          "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+          "goalProgress": 0,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "active",
+          "goalSteps": [
+            "Identify individual psychological triggers",
+            "Implement tailored breaking protocols",
+            "Enforce absolute, unquestioning obedience"
+          ],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": []
+        }
+      },
+      {
+        "id": "ent_1791692661141",
+        "name": "Cell key",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_antechamber",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_steel_handcuffs",
+        "name": "Heavy-Duty Steel Handcuffs",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_leather_cuffs",
+        "name": "Leather Wrist and Ankle Cuffs",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_spreader_bar",
+        "name": "Steel Spreader Bar",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_chain_restraints",
+        "name": "Chain-Link Restraints",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_iron_collar",
+        "name": "Locking Iron Collar",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_vib_bullet_pink",
+        "name": "Pink Bullet Vibrator",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_vib_wand_purple",
+        "name": "Purple Wand Vibrator",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_vib_rabbit_black",
+        "name": "Black Rabbit Vibrator",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_vib_egg_red",
+        "name": "Red Egg Vibrator",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_vib_remote_white",
+        "name": "White Remote-Controlled Vibrator",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "ent_1791702539759",
+        "name": "Wooden Storrage box ",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_antechamber",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_strap_realistic",
+        "name": "Realistic Silicone Strap-on",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_strap_leather",
+        "name": "Heavy-Duty Leather Harness Strap-on",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_strap_oversized",
+        "name": "Oversized Silicone Strap-on",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_storage",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_bondage_table",
+        "name": "Bondage Table",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_wooden_stocks",
+        "name": "Wooden Stocks",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_pillory_bench",
+        "name": "Pillory Bench",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_suspension_frame",
+        "name": "Suspension Frame",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_wall_restraint_panel",
+        "name": "Wall Restraint Panel",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_bondage_horse",
+        "name": "Bondage Horse",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_open_seat_chair",
+        "name": "Open Seat Chair",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_restraint_cage",
+        "name": "Restraint Cage",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_restraint_bed",
+        "name": "Restraint Bed",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_display_pedestal",
+        "name": "Display Pedestal",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "item_sex_machine",
+        "name": "Mechanical Thrusting Machine",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "ent_1791925256019",
+        "name": "Automated Stimulation Chair",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      },
+      {
+        "id": "ent_1791925346617",
+        "name": "sexual torture device",
+        "type": "item",
+        "locationId": null,
+        "startLocation": "loc_hex_room",
+        "requiredItem": null,
+        "sessionState": null
+      }
+    ],
+    "startingLives": [
+      {
+        "id": "origin_1791694329313",
+        "name": "Master",
+        "icon": "◈",
+        "role": "Master",
+        "socialRank": "Dungeon keeper",
+        "description": "",
+        "startLocationId": "loc_antechamber",
+        "homeLocationId": "",
+        "householdId": "",
+        "groupIds": [
+          "grp_vault_command"
+        ],
+        "startingRelationships": [],
+        "factionId": "faction_new_faction_2",
+        "factionReputation": 0,
+        "title": "",
+        "outfit": "",
+        "inventory": [
+          "Cell key",
+          "a knive",
+          "a nice white thishue"
+        ],
+        "obligations": [],
+        "privileges": [],
+        "skills": [],
+        "perks": [],
+        "legalStatus": "free",
+        "holdings": [],
+        "statOverrides": {},
+        "intro": ""
+      }
+    ],
+    "gameRules": {
+      "profileId": "custom",
+      "modules": {
+        "stats": true,
+        "health": true,
+        "conditions": true,
+        "checks": true,
+        "inventory": true,
+        "equipment": true,
+        "commerce": true,
+        "quests": true,
+        "relationships": true,
+        "schedules": false,
+        "livingWorld": true
+      },
+      "vitalStatId": "hp",
+      "zeroHpMode": "fail_forward",
+      "currencyStatId": "gold",
+      "currencyName": "Gold",
+      "equipmentSlots": [
+        "head",
+        "body",
+        "main-hand",
+        "off-hand",
+        "accessory"
+      ],
+      "itemCatalog": [],
+      "pausedMechanicalModules": null,
+      "dice": {
+        "resolution": "automatic",
+        "sides": 20,
+        "modifierMode": "per_stat",
+        "defaultDifficulty": 11,
+        "visibility": "visible",
+        "criticals": true
+      },
+      "universalChecks": {
+        "enabled": false,
+        "rules": []
+      },
+      "capabilities": {
+        "customizable": true,
+        "startingPointBudget": 4,
+        "skills": [],
+        "perks": [],
+        "flaws": [],
+        "progression": {
+          "enabled": false,
+          "method": ""
+        }
+      },
+      "consequences": {
+        "enabled": true,
+        "maxActive": 120,
+        "escalationTurns": 4,
+        "decayTurns": 8
+      }
+    },
+    "kernel": {
+      "enabled": true,
+      "sceneLocationLimit": 30,
+      "memoryMode": "ledger",
+      "repairMode": "adaptive",
+      "compactTools": true,
+      "resolveFirst": true,
+      "sceneDrafts": true,
+      "sceneDraftProtocol": "scene_draft_v3",
+      "serverBindings": true,
+      "effectMode": "standard"
+    }
+  },
+  "session": {
+    "id": "p43b_fresh_session",
+    "originId": "origin_1791694329313",
+    "playerLocation": "loc_antechamber",
+    "inventory": [
+      "Cell key",
+      "a knive",
+      "a nice white thishue"
+    ],
+    "entityStates": {
+      "ent_cassy": {
+        "location": "loc_cell_2",
+        "observations": [],
+        "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Schreiben",
+          "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+          "She observes the guards' movements and memorises their patrol and inspection routines.",
+          "She attempts to communicate with other prisoners and gather information about the underground complex."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_alexis": {
+        "location": "loc_cell_1",
+        "observations": [],
+        "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Alexis examines her locked cell for weaknesses and possible escape routes.",
+          "She observes the guards and memorizes their daily routines.",
+          "She attempts to communicate with other prisoners and persuade guards to help her.",
+          "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_linda": {
+        "location": "loc_antechamber",
+        "observations": [],
+        "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Lina waits in the antechamber and nervously examines her surroundings.",
+          "She confirms that she has agreed to participate in the programme.",
+          "She asks the player what will happen next and what is expected of her.",
+          "She listens to the explanation and asks questions about anything she does not understand."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "char_andew_cloudi": {
+        "location": "loc_round_room",
+        "observations": [],
+        "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Identify individual psychological triggers",
+          "Implement tailored breaking protocols",
+          "Enforce absolute, unquestioning obedience"
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      }
+    },
+    "locationStates": {
+      "loc_antechamber": {
+        "conditions": [
+          {
+            "id": "condition_loc_antechamber_damp_walls",
+            "label": "damp walls",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_antechamber_stagnant_air",
+            "label": "stagnant air",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 30,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_staircase": {
+        "conditions": [
+          {
+            "id": "condition_loc_staircase_sealed",
+            "label": "sealed",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 20,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_round_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 60,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_corridor": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_corridor_smells_of_mildew",
+            "label": "smells of mildew",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_1": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_1_oppressive",
+            "label": "oppressive",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_2": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_2_cold",
+            "label": "cold",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_cell_2_damp",
+            "label": "damp",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_3": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_storage": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 20,
+        "resources": {}
+      },
+      "loc_hex_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 90,
+        "prosperity": 0,
+        "resources": {}
+      }
+    },
+    "playerStats": {
+      "hp": 100,
+      "gold": 0
+    },
+    "npcRelationships": {
+      "ent_alexis|ent_cassy": {
+        "score": 30,
+        "label": "fellow prisoner",
+        "reason": "shared trauma of imprisonment",
+        "lastChangedTurn": 0,
+        "autoManaged": false
+      },
+      "char_andew_cloudi|ent_cassy": {
+        "score": -90,
+        "label": "captor",
+        "reason": "total systemic domination",
+        "lastChangedTurn": 0,
+        "autoManaged": false
+      },
+      "char_andew_cloudi|ent_alexis": {
+        "score": -90,
+        "label": "captor",
+        "reason": "total systemic domination",
+        "lastChangedTurn": 0,
+        "autoManaged": false
+      },
+      "char_andew_cloudi|ent_linda": {
+        "score": 0,
+        "label": "captor",
+        "reason": "intense terror of captor",
+        "lastChangedTurn": 0,
+        "autoManaged": false
+      }
+    },
+    "turnEvents": [],
+    "history": [],
+    "setupComplete": true
+  },
+  "saved": {
+    "id": "p43b_fresh_session",
+    "originId": "origin_1791694329313",
+    "playerLocation": "loc_antechamber",
+    "inventory": [
+      "Cell key",
+      "a knive",
+      "a nice white thishue"
+    ],
+    "entityStates": {
+      "ent_cassy": {
+        "location": "loc_cell_2",
+        "observations": [],
+        "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Schreiben",
+          "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+          "She observes the guards' movements and memorises their patrol and inspection routines.",
+          "She attempts to communicate with other prisoners and gather information about the underground complex."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_alexis": {
+        "location": "loc_cell_1",
+        "observations": [],
+        "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Alexis examines her locked cell for weaknesses and possible escape routes.",
+          "She observes the guards and memorizes their daily routines.",
+          "She attempts to communicate with other prisoners and persuade guards to help her.",
+          "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_linda": {
+        "location": "loc_antechamber",
+        "observations": [],
+        "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Lina waits in the antechamber and nervously examines her surroundings.",
+          "She confirms that she has agreed to participate in the programme.",
+          "She asks the player what will happen next and what is expected of her.",
+          "She listens to the explanation and asks questions about anything she does not understand."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "char_andew_cloudi": {
+        "location": "loc_round_room",
+        "observations": [],
+        "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Identify individual psychological triggers",
+          "Implement tailored breaking protocols",
+          "Enforce absolute, unquestioning obedience"
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      }
+    },
+    "locationStates": {
+      "loc_antechamber": {
+        "conditions": [
+          {
+            "id": "condition_loc_antechamber_damp_walls",
+            "label": "damp walls",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_antechamber_stagnant_air",
+            "label": "stagnant air",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 30,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_staircase": {
+        "conditions": [
+          {
+            "id": "condition_loc_staircase_sealed",
+            "label": "sealed",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 20,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_round_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 60,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_corridor": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_corridor_smells_of_mildew",
+            "label": "smells of mildew",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_1": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_1_oppressive",
+            "label": "oppressive",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_2": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_2_cold",
+            "label": "cold",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_cell_2_damp",
+            "label": "damp",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_3": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_storage": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 20,
+        "resources": {}
+      },
+      "loc_hex_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 90,
+        "prosperity": 0,
+        "resources": {}
+      }
+    },
+    "setupComplete": true
+  },
+  "pageErrors": []
+}

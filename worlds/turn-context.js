@@ -223,7 +223,7 @@ function requestClauses(input) {
     const source = String(input || '');
     if (!source.trim()) return [];
     const boundaries = [0];
-    const pattern = /[.!?]\s+(?=\S)|\s+(?=(?:while|and|then)\s+(?:I\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|wait|nehme|öffne|gehe|frage|sage|warte)\b)|(?<=[,;])\s+(?=(?:I\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|wait|nehme|öffne|gehe|frage|sage|warte)\b)|\s+(?=if\s+(?:she|he|they|[A-Z][\p{L}]+)\s+agree\b)/giu;
+    const pattern = /[.!?]\s+(?=\S)|\s+(?=(?:while|and|then|und|dann)\s+(?:(?:I|ich)\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|say|murmur|wait|nehme|öffne|gehe|bewege|frage|sage|spreche|murmele|warte)\b)|(?<=[,;])\s+(?=(?:(?:I|ich)\s+)?(?:take|pick|grab|unlock|open|walk|go|enter|move|ask|tell|speak|say|murmur|wait|nehme|öffne|gehe|bewege|frage|sage|spreche|murmele|warte)\b)|\s+(?=if\s+(?:she|he|they|[A-Z][\p{L}]+)\s+agree\b)/giu;
     for (const match of source.matchAll(pattern)) boundaries.push(match.index + match[0].length);
     boundaries.push(source.length);
     return boundaries.slice(0, -1).map((start, index) => ({

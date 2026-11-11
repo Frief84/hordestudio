@@ -212,6 +212,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         if (actor === 'player') working.writeSession('playerLocation', field => { field.value = to; });
     };
     registerNative('actor_move', value => ids(value?.actor_id, value?.to_location_id)
+        && (value.exit_index === undefined || Number.isInteger(value.exit_index)
+            && value.exit_index >= 0)
         && (value.mode === undefined || ['journey', 'teleport'].includes(value.mode))
         && (value.explore === undefined || typeof value.explore === 'boolean')
         && (value.companion_ids === undefined || Array.isArray(value.companion_ids)
@@ -226,7 +228,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         const scene = working.prepare();
         const verdict = context.canMove
             ? context.canMove(scene.world, scene.session, value.actor_id, from, value.to_location_id,
-                { mode: value.mode || 'arrival', explore: value.explore === true })
+                { mode: value.mode || 'arrival', explore: value.explore === true,
+                    exitIndex: value.exit_index })
             : (() => {
                 const source = working.getLocation(from).definition;
                 const connected = (source?.exits || []).some(exit => {
@@ -255,7 +258,7 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
                 const allowed = context.canMove(scene.world, scene.session,
                     companion, from, value.to_location_id,
                     { accompanyingPlayer: true, mode: value.mode || 'arrival',
-                        explore: value.explore === true });
+                        explore: value.explore === true, exitIndex: value.exit_index });
                 if (!allowed?.ok) throw new BlockedAction(allowed?.reason || 'companion_access_denied');
                 if (value.mode !== 'teleport' && Number(allowed.travelTime) > 0
                     && (Number(allowed.elapsedMinutes) || 0) - (context.travelSpent?.get(companion) || 0)
@@ -265,6 +268,34 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
         if (value.mode !== 'teleport' && Number(verdict.travelTime) > 0
             && (Number(verdict.elapsedMinutes) || 0) - (context.travelSpent?.get(value.actor_id) || 0)
                 < Number(verdict.travelTime)) throw new BlockedAction('insufficient_travel_time');
+        if (value.actor_id !== 'player' && verdict.fare)
+            throw new BlockedAction('npc_route_fare_unsupported');
+        if (value.actor_id === 'player' && verdict.fare) {
+            const { resourceId, amount } = verdict.fare;
+            const balance = resourceBalance(working, 'player', resourceId);
+            if (!Number.isSafeInteger(amount) || amount <= 0 || balance < amount)
+                throw new BlockedAction('insufficient_resource');
+            const ledger = working.getSession('resourceCostLedger') || [];
+            const transactionId = JSON.stringify([context.worldId || 'world',
+                context.sessionId || working.getSession('id') || 'session',
+                context.turnId || working.getSession('turnCount') || 1,
+                context.actionId || value.to_location_id,
+                'player', from, target.id, resourceId, amount]);
+            if (ledger.includes(transactionId)) throw new BlockedAction('duplicate_route_fare');
+            working.writeSession('playerStats', field => {
+                field.value[resourceId] = balance - amount;
+            });
+            working.writeSession('resourceCostLedger', field => {
+                field.value = [...(field.value || []), transactionId];
+            });
+            working.writeEvent('engineEvents', field => {
+                field.value ||= [];
+                field.value.push({ id: `fare_${context.actionId || 'move'}_${from}_${target.id}_${resourceId}`,
+                    type: 'resource_cost', cause: 'route_fare', action_id: context.actionId || null,
+                    actor_id: 'player', from_location_id: from, to_location_id: target.id,
+                    resource_id: resourceId, amount });
+            });
+        }
         moveActor(working, value.actor_id, target.id);
         for (const companion of companions) moveActor(working, companion, target.id);
         if (value.actor_id === 'player')
@@ -1043,6 +1074,8 @@ function createWorldEffectRegistry(legacyEffectKeys = [], capability = null) {
 }
 function executeLinkedActions(plan, world, session, context = {}) {
     if (!plan || !Array.isArray(plan.actions)) throw new TypeError('invalid_linked_plan');
+    context = { ...context, worldId: world?.id || context.worldId,
+        sessionId: session?.id || context.sessionId };
     if (world?.gameRules?.dynamicObjectDiscovery?.enabled === true
         && (plan.events || []).some(event => event.type === 'discovery' && !event.id)) {
         plan = { ...plan, events: (plan.events || []).map((event, index) =>
@@ -1289,6 +1322,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
     };
     const turnTimeBudget = { remaining: Math.max(0, Number(context.includedTurnMinutes) || 0) };
     const travelSpent = new Map();
+    const actionFailures = [];
+    const preflightResults = new Map();
     let actionSlot = 0;
     for (const action of plan.actions) {
         actionSlot++;
@@ -1296,6 +1331,26 @@ function executeLinkedActions(plan, world, session, context = {}) {
         if (guards.some(guard => outcomes.get(guard.action_id) !== guard.outcome)) {
             outcomes.set(action.action_id, 'skipped');
             continue;
+        }
+        // Intent interpretation is provisional. A read-only engine decision
+        // uses the current Working State after every earlier action.
+        const otherEffects = Object.entries(action.action_effects || {}).some(([type, values]) =>
+            !['actor_move', 'time_advance'].includes(type)
+                && (!Array.isArray(values) || values.length));
+        const otherEvidence = (plan.events || []).some(event =>
+            event.action_id === action.action_id && event.status === 'completed'
+                && !['movement', 'time'].includes(event.type))
+            || (plan.speech || []).some(item => item.action_id === action.action_id);
+        if (action.kind === 'travel' && !otherEffects && !otherEvidence
+            && typeof context.preflightTravel === 'function') {
+            const decision = context.preflightTravel(working.prepare(), action, plan);
+            if (decision?.status === 'blocked' || decision?.status === 'already_satisfied') {
+                preflightResults.set(action.action_id, decision);
+                outcomes.set(action.action_id, decision.status);
+                if (decision.status === 'blocked') blockedReasons.set(action.action_id,
+                    decision.reason || 'unreachable_or_denied');
+                continue;
+            }
         }
         if (action.action_effects?.actor_move?.length
             && typeof context.syncClockEffects === 'function') {
@@ -1443,6 +1498,17 @@ function executeLinkedActions(plan, world, session, context = {}) {
             };
             const expectedCheckStatus = actionChecks.some(check => check.kind === 'blocked') ? 'blocked'
                 : actionChecks.some(check => check.kind === 'failure') ? 'attempted' : null;
+            if (context.resolveIntentCheckOutcomes === true && action.status === 'resolved'
+                && expectedCheckStatus && (plan.events || []).some(event =>
+                    event.action_id === action.action_id
+                    && event.cause === 'resolved_intent_attempt_witness')) {
+                // A compact intent records the player's attempted act, not a
+                // guessed check result. The canonical check engine owns the
+                // outcome and strips the success witness when it fails/blocks.
+                action.status = expectedCheckStatus;
+                plan.events = plan.events.filter(event => event.action_id !== action.action_id
+                    || event.cause !== 'resolved_intent_attempt_witness');
+            }
             if (expectedCheckStatus && action.status !== expectedCheckStatus
                 || !expectedCheckStatus && actionChecks.length
                     && !['resolved', 'answered'].includes(action.status))
@@ -1635,15 +1701,20 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     && event.status === 'completed');
                 const responseLinked = (!!String(action.request || '').trim()
                     || (context.worldActionIds || []).includes(action.action_id))
-                    && plan.narrative.some(passage => passage.id === action.response_id
-                        && passage.action_id === action.action_id
+                    && plan.narrative.some(passage => passage.action_id === action.action_id
                         && !!String(passage.text || '').trim());
+                const witnessedPassage = event => plan.narrative.some(passage =>
+                    passage.id === event.passage_id
+                    && passage.action_id === action.action_id
+                    && !!String(passage.text || '').trim());
                 const witnessedInteraction = responseLinked && completed.some(event =>
                     event.type === 'interaction' && event.actor_id === 'player'
-                    && event.passage_id === action.response_id);
+                    && (context.allowPartialRecovery !== true
+                        || !!String(event.action || '').trim())
+                    && witnessedPassage(event));
                 const witnessedLocalActivity = responseLinked && completed.some(event =>
                     event.type === 'activity' && event.actor_id === 'player'
-                    && event.passage_id === action.response_id
+                    && witnessedPassage(event)
                     && !!String(event.activity || '').trim());
                 const proved = action.kind === 'travel'
                     ? executed.some(effect => effect.type === 'actor_move'
@@ -1688,7 +1759,12 @@ function executeLinkedActions(plan, world, session, context = {}) {
                     if (event.type === 'movement' && !moveTransitions.some(move =>
                         move.actor === event.actor_id && move.to === event.to_location_id))
                         throw new Error('unlinked_movement_event');
-                    if (event.type === 'movement' && event.to_location_id
+                    const laterMovement = event.type === 'movement'
+                        && plan.events.slice(eventIndex + 1).some(next =>
+                            next.action_id === action.action_id
+                            && next.type === 'movement' && next.status === 'completed'
+                            && next.actor_id === event.actor_id);
+                    if (event.type === 'movement' && !laterMovement && event.to_location_id
                         && (event.actor_id === 'player' ? working.getSession('playerLocation')
                             : working.getEntity(event.actor_id).state?.location) !== event.to_location_id)
                         throw new Error('event_movement_mismatch');
@@ -1771,6 +1847,15 @@ function executeLinkedActions(plan, world, session, context = {}) {
                 outcomes.set(action.action_id, 'blocked');
                 blockedReasons.set(action.action_id, error.message);
             }
+            else if (context.allowPartialRecovery === true
+                && ['unverified_action_success', 'uncommitted_completed_event']
+                .includes(error.code || error.message)) {
+                outcomes.set(action.action_id, 'unresolved');
+                actionFailures.push({ action_id: action.action_id,
+                    reason: error.code || error.message,
+                    ...(Number.isInteger(error.event_index)
+                        ? { event_index: error.event_index } : {}) });
+            }
             else { errors.push({ action_id: action.action_id, reason: error.code || error.message,
                 code: error.code || error.message, effect: error.effect || '',
                 ...(error.movementDiagnostic || {}),
@@ -1787,7 +1872,8 @@ function executeLinkedActions(plan, world, session, context = {}) {
             ? 'succeeded' : action.status === 'attempted' ? 'failed'
                 : action.status === 'blocked' ? 'blocked'
                     : action.status === 'pending_check' ? 'pending' : 'unresolved';
-        if (actual !== proposed) {
+        if (actual !== proposed && actual !== 'blocked'
+            && !actionFailures.some(failure => failure.action_id === action.action_id)) {
             errors.push({ action_id: action.action_id, reason: 'action_outcome_mismatch',
                 proposed, actual, ...(blockedReasons.has(action.action_id)
                     ? { cause: blockedReasons.get(action.action_id) } : {}) });
@@ -1837,9 +1923,44 @@ function executeLinkedActions(plan, world, session, context = {}) {
             source: 'worlds/working-state.js', stage: 'post_action_invariants',
         cause: error.message }], outcomes, verifiedEffects: [], verifiedEvents: [], confirmedEffects: [] };
     }
-    const visiblePassages = (plan.narrative || []).filter(passage =>
-        !passage.action_id || outcomes.get(passage.action_id) !== 'skipped');
-    return { ok: true, working, outcomes, blockedReasons, events,
+    const visiblePassages = (plan.narrative || []).flatMap(passage => {
+        const outcome = outcomes.get(passage.action_id);
+        const action = plan.actions.find(item => item.action_id === passage.action_id);
+        const preflight = preflightResults.get(passage.action_id);
+        if (preflight) {
+            const fallback = context.outcomeFallback?.(preflight.status, action,
+                preflight.reason, preflight);
+            return [{ ...passage, text: fallback || (preflight.status === 'blocked'
+                ? 'The route is not accessible right now.'
+                : 'You are already at the destination.') }];
+        }
+        // A reducer may block an action the model proposed as successful.
+        // Its success prose is unsafe, but the verified blockage is a valid
+        // outcome. Keep that step in sequence with a conservative response.
+        if (outcome === 'blocked' && action && action.status !== 'blocked'
+            && blockedReasons.has(passage.action_id)) {
+            const fallback = context.outcomeFallback?.('blocked', action,
+                blockedReasons.get(passage.action_id));
+            return [{ ...passage, text: fallback || 'The action is not possible under the current conditions.' }];
+        }
+        if (outcome === 'unresolved' && action
+            && actionFailures.some(failure => failure.action_id === passage.action_id)) {
+            const fallback = context.outcomeFallback?.('unresolved', action,
+                actionFailures.find(failure => failure.action_id === passage.action_id)?.reason);
+            return [{ ...passage, text: fallback || 'The result of this action is not confirmed.' }];
+        }
+        return !passage.action_id || outcome === 'succeeded'
+            || outcomes.get(passage.action_id) === 'failed'
+            || outcomes.get(passage.action_id) === 'pending'
+            || outcomes.get(passage.action_id) === 'blocked'
+                && plan.actions.some(action => action.action_id === passage.action_id
+                    && action.status === 'blocked')
+            || outcomes.get(passage.action_id) === 'unresolved'
+                && plan.actions.some(action => action.action_id === passage.action_id
+                    && action.status === 'needs_clarification') ? [passage] : [];
+    });
+    return { ok: true, working, outcomes, blockedReasons, preflightResults,
+        actionFailures, events,
         verifiedEffects, verifiedEvents, confirmedEffects,
         checkResults: checkResults.map(check => ({ ...check,
             effect_types: confirmedEffects.filter(effect => effect.action_id === check.action_id)

@@ -1,0 +1,213 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I pirouette, then signal to Linda and murmur \"Ready.\"",
+  "generationMs": 104589,
+  "validationMs": 30,
+  "durationMs": 104619,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 155,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 538,
+    "total_tokens": 693
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I pirouette",
+        "kind": "physical",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You pirouette gracefully.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "pirouetting",
+                "cause": "dancing"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "signal to Linda",
+        "kind": "physical",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You signal to Linda.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "signalling",
+                "cause": "communication"
+              },
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "target_id": "linda",
+                "cause": "signalling"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "murmur 'Ready.'",
+        "kind": "physical",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You murmur 'Ready.'",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "target_id": "linda",
+                "cause": "murmuring"
+              },
+              {
+                "type": "status",
+                "actor_id": "linda",
+                "status": "attempted",
+                "activity": "hearing"
+              },
+              {
+                "type": "escort",
+                "actor_id": "linda",
+                "status": "attempted",
+                "activity": "responding"
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "linda"
+                ],
+                "quote": "Ready."
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "reactions": [
+      {
+        "text": "Linda looks at you in anticipation.",
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 2,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I pirouette, then ",
+      "response_id": "turn_c55faf0dfc29e4cea5b338af_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "signal to Linda and ",
+      "response_id": "turn_c55faf0dfc29e4cea5b338af_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_2",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "murmur \"Ready.\"",
+      "response_id": "turn_c55faf0dfc29e4cea5b338af_action_2_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_world_0",
+      "kind": "other",
+      "status": "resolved",
+      "request": "",
+      "response_id": "turn_c55faf0dfc29e4cea5b338af_world_0_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "pirouetting",
+      "cause": "dancing",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_0",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_0_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "signalling",
+      "cause": "communication",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_1",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "target_id": "linda",
+      "cause": "signalling",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_1",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "target_id": "linda",
+      "cause": "murmuring",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_2",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_2_p0"
+    },
+    {
+      "type": "status",
+      "actor_id": "linda",
+      "status": "attempted",
+      "activity": "hearing",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_2",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_2_p0"
+    },
+    {
+      "type": "escort",
+      "actor_id": "linda",
+      "status": "attempted",
+      "activity": "responding",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_2",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_2_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Ready.",
+      "action_id": "turn_c55faf0dfc29e4cea5b338af_action_2",
+      "passage_id": "turn_c55faf0dfc29e4cea5b338af_action_2_p0"
+    }
+  ]
+}

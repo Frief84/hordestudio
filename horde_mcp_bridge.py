@@ -44,6 +44,7 @@ from typing import Any
 from virtual_humans.backend.vh2_runtime import WorldService, Conflict as VH2Conflict
 from virtual_humans.backend.vh2_migration import inspect_archive
 from virtual_humans.backend.vh2_provider import RejectedOutput, UnknownOutcome
+import tts_management
 
 try:
     from virtual_humans.backend.kokoro_service import (
@@ -109,6 +110,47 @@ REMOTE_VH2_ALLOWED_ORIGINS = {
     if item.strip()
 }
 KOKORO_TTS_PROCESS: subprocess.Popen[Any] | None = None
+TTS_SELECTION_FILE = APP_DIR / ".tts" / "selection.json"
+TTS_SELECTION_LOCK = threading.RLock()
+
+
+def selected_tts_provider() -> str:
+    """The server owns the runtime switch so stale browser tabs cannot synthesize."""
+    try:
+        value = json.loads(TTS_SELECTION_FILE.read_text(encoding="utf-8")).get("provider")
+        return value if value in {"none", "kokoro", "ming", "local"} else "kokoro"
+    except (OSError, ValueError, TypeError):
+        # Existing installations used Kokoro with no provider switch.
+        return "kokoro"
+
+
+def selected_tts_model() -> str:
+    try:
+        model = json.loads(TTS_SELECTION_FILE.read_text(encoding="utf-8")).get("model")
+        return model if model in {"0.5b", "tiny"} else "0.5b"
+    except (OSError, ValueError, TypeError):
+        return "0.5b"
+
+
+def set_tts_provider(provider: str, model: str | None = None) -> None:
+    if provider not in {"none", "kokoro", "ming", "local"}:
+        raise ValueError("Unknown TTS provider.")
+    if model is not None and model not in {"0.5b", "tiny"}:
+        raise ValueError("Unknown Ming model.")
+    with TTS_SELECTION_LOCK:
+        previous_provider = selected_tts_provider()
+        previous_model = selected_tts_model()
+        model = model or previous_model
+        TTS_SELECTION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = TTS_SELECTION_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"provider": provider, "model": model}), encoding="utf-8")
+        temporary.replace(TTS_SELECTION_FILE)
+        if provider != previous_provider or (provider == "ming" and model != previous_model):
+            tts_management.stop_speech()
+        if provider != "kokoro":
+            stop_optional_kokoro_tts()
+        else:
+            start_optional_kokoro_tts()
 CALLBACK_URL = f"http://{HOST}:{PORT}/oauth/callback"
 CLIENT_NAME = "Horde Studio Local MCP Bridge"
 BRIDGE_BUILD = "20260908-mcp-" + hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:12]
@@ -167,6 +209,10 @@ def _find_kokoro_install() -> tuple[Path, Path] | None:
 def start_optional_kokoro_tts() -> None:
     """Start the idle local adapter only when a Kokoro install is present."""
     global KOKORO_TTS_PROCESS
+    if selected_tts_provider() != "kokoro":
+        return
+    if tts_management.status("kokoro")["installed"]:
+        return
     if os.environ.get("HORDE_KOKORO_TTS_DISABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
         return
     install = _find_kokoro_install()
@@ -186,7 +232,8 @@ def start_optional_kokoro_tts() -> None:
     environment.setdefault("HF_HOME", str(cache))
     environment.setdefault("TRANSFORMERS_CACHE", str(cache / "hub"))
     environment.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-    log_path = APP_DIR / "kokoro_tts_adapter.log"
+    log_path = APP_DIR / ".tts" / "kokoro_adapter.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("a", encoding="utf-8")
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     try:
@@ -237,12 +284,18 @@ STATIC_FILES = {
     "/docs/version.json": ("docs/version.json", "application/json"),
     "/docs/web.zip": ("docs/web.zip", "application/zip"),
     "/worlds/model-client.js": ("worlds/model-client.js", "text/javascript"),
+    "/worlds/resolved-intent.js": ("worlds/resolved-intent.js", "text/javascript"),
     "/worlds/working-state.js": ("worlds/working-state.js", "text/javascript"),
     "/worlds/effect-registry.js": ("worlds/effect-registry.js", "text/javascript"),
+    "/worlds/universal-checks.js": ("worlds/universal-checks.js", "text/javascript"),
+    "/worlds/dynamic-object-discovery.js": ("worlds/dynamic-object-discovery.js", "text/javascript"),
     "/worlds/linked-world-actions.js": ("worlds/linked-world-actions.js", "text/javascript"),
+    "/worlds/perception.js": ("worlds/perception.js", "text/javascript"),
+    "/worlds/npc-goal-actions.js": ("worlds/npc-goal-actions.js", "text/javascript"),
     "/worlds/scene-draft.js": ("worlds/scene-draft.js", "text/javascript"),
     "/worlds/turn-binding.js": ("worlds/turn-binding.js", "text/javascript"),
     "/worlds/turn-context.js": ("worlds/turn-context.js", "text/javascript"),
+    "/worlds/horde-client.js": ("worlds/horde-client.js", "text/javascript"),
     "/worlds/world-time.js": ("worlds/world-time.js", "text/javascript"),
     "/worlds/background-sim.js": ("worlds/background-sim.js", "text/javascript"),
     "/worlds/bgm-player.js": ("worlds/bgm-player.js", "text/javascript"),
@@ -253,6 +306,7 @@ STATIC_FILES = {
     "/vh-workspace.js": ("virtual_humans/frontend/vh-workspace.js", "text/javascript"),
     "/virtual_humans/frontend/kokoro-voice-designer.js": ("virtual_humans/frontend/kokoro-voice-designer.js", "text/javascript"),
     "/virtual_humans/frontend/kokoro-world-bridge.js": ("virtual_humans/frontend/kokoro-world-bridge.js", "text/javascript"),
+    "/virtual_humans/frontend/ming-world-bridge.js": ("virtual_humans/frontend/ming-world-bridge.js", "text/javascript"),
     "/vh-assistant-ui.js": ("virtual_humans/frontend/vh-assistant-ui.js", "text/javascript"),
     "/vh-setup-ui.js": ("virtual_humans/frontend/vh-setup-ui.js", "text/javascript"),
     "/vh-page-builder.js": ("virtual_humans/frontend/vh-page-builder.js", "text/javascript"),
@@ -4116,9 +4170,29 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             if not self.remote_surface_allowed(parsed.path):
                 return
+            if parsed.path == "/api/tts/status":
+                if not self.kokoro_local_allowed():
+                    return self.respond(403, {"error": "TTS management is local-only."})
+                if tts_management.status("kokoro")["installed"]:
+                    stop_optional_kokoro_tts()
+                model, voices = (None, None)
+                if KOKORO_AVAILABLE:
+                    from virtual_humans.backend.kokoro_service import find_model
+                    model, voices = find_model()
+                return self.respond(200, {"provider": selected_tts_provider(), "model": selected_tts_model(), "kokoro": {
+                    "installed": bool(KOKORO_AVAILABLE and model and voices) or tts_management.status("kokoro")["installed"],
+                    "managed": tts_management.status("kokoro")["installed"],
+                    "job": tts_management.status("kokoro"),
+                    "adapter_running": bool(KOKORO_TTS_PROCESS and KOKORO_TTS_PROCESS.poll() is None),
+                    "model": model, "error": None if KOKORO_AVAILABLE else KOKORO_IMPORT_ERROR},
+                    "ming": {"models": {name: tts_management.status("ming", name)
+                                         for name in ("0.5b", "tiny")},
+                             "synthesis_running": tts_management.speech_running()}})
             if parsed.path == "/api/tts/kokoro/voices":
                 if not self.kokoro_local_allowed():
                     return self.respond(403, {"error": "Kokoro TTS is local-only."})
+                if tts_management.status("kokoro")["installed"]:
+                    return self.respond(200, tts_management.kokoro_voices())
                 if not KOKORO_AVAILABLE:
                     return self.respond(200, {"available": False, "providers": [], "error": KOKORO_IMPORT_ERROR})
                 return self.respond(200, kokoro_list_voices())
@@ -4333,6 +4407,53 @@ class BridgeHandler(BaseHTTPRequestHandler):
             parsed_path = urllib.parse.urlparse(self.path).path
             if not self.remote_surface_allowed(parsed_path):
                 return
+            if parsed_path == "/api/tts/select":
+                if not self.kokoro_local_allowed():
+                    return self.respond(403, {"error": "TTS management is local-only."})
+                selection = self.read_json()
+                provider = selection.get("provider")
+                set_tts_provider(provider, selection.get("model"))
+                return self.respond(200, {"provider": provider, "model": selected_tts_model()})
+            if parsed_path in {"/api/tts/install", "/api/tts/uninstall", "/api/tts/ming/synthesize", "/api/tts/ming/reference", "/api/tts/ming/purge-references", "/api/tts/world-audio/delete"}:
+                if not self.kokoro_local_allowed():
+                    return self.respond(403, {"error": "TTS management is local-only."})
+                limit = 12 * 1024 * 1024 if parsed_path.endswith("/reference") else 16384
+                if int(self.headers.get("Content-Length", "0") or 0) > limit:
+                    return self.respond(413, {"error": "TTS request is too large."})
+                data = self.read_json()
+                if parsed_path == "/api/tts/world-audio/delete":
+                    return self.respond(200, {"deleted": tts_management.purge_world_audio(data.get("worldId"))})
+                if parsed_path.endswith("/purge-references"):
+                    return self.respond(200, {"deleted": tts_management.purge_references()})
+                if parsed_path.endswith("/reference"):
+                    return self.respond(200, {"referenceId": tts_management.save_reference(data.get("wav"))})
+                if parsed_path == "/api/tts/ming/synthesize":
+                    if selected_tts_provider() != "ming":
+                        return self.respond(409, {"error": "Ming is not the active TTS provider."})
+                    model = data.get("model", "0.5b")
+                    if model != selected_tts_model():
+                        return self.respond(409, {"error": "The requested Ming model is not selected."})
+                    if not tts_management.status("ming", model)["installed"]:
+                        return self.respond(503, {"error": f"Ming {model} is not installed and audio tested."})
+                    wav = tts_management.synthesize_ming(data.get("text"), data.get("profile"),
+                                                         model, data.get("worldId"))
+                    self.send_response(200)
+                    self.cors()
+                    self.send_header("Content-Type", "audio/wav")
+                    self.send_header("Content-Length", str(len(wav)))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    self.wfile.write(wav)
+                    return
+                provider, model = data.get("provider"), data.get("model", "0.5b")
+                if parsed_path == "/api/tts/install":
+                    return self.respond(200, tts_management.install(provider, model))
+                active_target = (selected_tts_provider() == provider
+                                 and (provider != "ming" or model == selected_tts_model()))
+                if active_target:
+                    set_tts_provider("none")
+                return self.respond(200, tts_management.uninstall(provider, model,
+                                                                 stop_active=active_target))
             if parsed_path == "/worlds/bind-turn":
                 if int(self.headers.get("Content-Length", "0") or 0) > 2 * 1024 * 1024:
                     return self.respond(413, {"error": "World turn binding exceeds 2 MB."})
@@ -4351,7 +4472,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                                "/api/tts/kokoro/synthesize"}:
                 if not self.kokoro_local_allowed():
                     return self.respond(403, {"error": "Kokoro TTS is local-only."})
-                if not KOKORO_AVAILABLE:
+                if not KOKORO_AVAILABLE and not tts_management.status("kokoro")["installed"]:
                     return self.respond(503, {"error": KOKORO_IMPORT_ERROR})
                 if int(self.headers.get("Content-Length", "0") or 0) > 16384:
                     return self.respond(413, {"error": "Kokoro request is too large."})
@@ -4369,6 +4490,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                             raise ValueError("character_id must be a non-empty string of at most 160 characters")
                         profile["character_id"] = character_id
                     return self.respond(200, profile)
+                if selected_tts_provider() != "kokoro":
+                    return self.respond(409, {"error": "Kokoro TTS is not the active provider."})
                 text = data.get("text", "")
                 if not isinstance(text, str) or not text.strip() or len(text) > 1000:
                     raise ValueError("text must be 1–1000 characters")
@@ -4380,7 +4503,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
                     raise ValueError("character_id must be a non-empty string of at most 160 characters")
                 try:
                     with KOKORO_SYNTH_LOCK:
-                        if tags:
+                        if tts_management.status("kokoro")["installed"]:
+                            if tags:
+                                from virtual_humans.backend.kokoro_text2voice import tags_to_formula
+                                data = {**data, **tags_to_formula(tags)}
+                            wav = tts_management.synthesize_kokoro(data)
+                        elif tags:
                             wav, _ = kokoro_synthesize_from_tags(
                                 text, tags, data.get("speed"), data.get("lang", "a"),
                                 gpu=gpu, pitch=data.get("pitch"),

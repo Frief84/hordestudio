@@ -47,7 +47,11 @@ const root = path.resolve(__dirname, '..');
                     persona: 'A thoughtful storycatcher with a dry sense of humour.' },
                     { id: 'aslan', type: 'npc', name: 'Aslan', startLocation: 'stone' },
                     { id: 'bronze_key', type: 'item', name: 'Bronze key', locationId: 'stone' }],
-                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true },
+                // Exercise the preserved pre-P0 receipt path explicitly; the
+                // ResolvedIntent contract and its full live matrix have their
+                // own companion browser audit.
+                kernel: { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
+                    resolveFirst: false },
                 hudConfig: { startTimeHours: 8, timeStep: 5 }, gameRules: { modules: { livingWorld: false } } };
             state.worlds = [world]; state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };
             state.activeWorldId = world.id;
@@ -437,7 +441,8 @@ He gives a soft, amused croak.
         assert.equal(result.outcomes.at(-5).calls, 1,
             'a segmented conversation needs no model reconciliation call');
         assert(result.outcomes.at(-5).receipt.audit.binding.repairs.some(item =>
-            item.type === 'merge_conversational_actions'));
+            ['merge_conversational_actions', 'partition_overlapping_requests'].includes(item.type)),
+        'segmented conversation source slices must be reconciled without another model call');
         assert.equal(result.outcomes.at(-4).calls, 1,
             'an unsupported optional deadline needs no model reconciliation call');
         assert(result.outcomes.at(-4).receipt.audit.binding.repairs.some(item =>

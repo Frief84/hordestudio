@@ -1,0 +1,1930 @@
+[
+  {
+    "id": "P43G_GARDEN",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "Linda, what happened in the garden with Cass?",
+    "background": {
+      "minute": 500,
+      "lindaLocation": "foyer",
+      "cassLocation": "garden",
+      "remoteObservations": [],
+      "lindaObservations": [
+        {
+          "id": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+          "eventId": "npc_goal_linda_480_0_event",
+          "text": "Linda takes can",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 480
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        },
+        {
+          "id": "obs_npc_action_npc_goal_cass_480_0_event_linda",
+          "eventId": "npc_goal_cass_480_0_event",
+          "text": "Cass takes gloves",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 480
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        },
+        {
+          "id": "obs_npc_action_npc_goal_linda_490_1_event_linda",
+          "eventId": "npc_goal_linda_490_1_event",
+          "text": "Linda goes to the foyer",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 490
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        }
+      ],
+      "cassObservations": [
+        {
+          "id": "obs_npc_action_npc_goal_linda_480_0_event_cass",
+          "eventId": "npc_goal_linda_480_0_event",
+          "text": "Linda takes can",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 480
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        },
+        {
+          "id": "obs_npc_action_npc_goal_cass_480_0_event_cass",
+          "eventId": "npc_goal_cass_480_0_event",
+          "text": "Cass takes gloves",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 480
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        },
+        {
+          "id": "obs_report_npc_goal_linda_480_1_cass",
+          "eventId": "npc_goal_linda_480_0_event",
+          "text": "Linda takes can",
+          "sourceType": "told",
+          "source": "told",
+          "sourceNpcId": "linda",
+          "sourceObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+          "originObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+          "originNpcId": "linda",
+          "reportedSourceType": "witnessed",
+          "deliveryActionId": "npc_goal_linda_480_1",
+          "deliveryEventId": "npc_goal_linda_480_1_event",
+          "deliveryLocationId": "garden",
+          "evidenceMode": "hearsay",
+          "confidence": 0.82,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 480
+          },
+          "sourceLocationId": "garden",
+          "tags": [],
+          "turn": 1
+        },
+        {
+          "id": "obs_npc_action_npc_goal_linda_490_1_event_cass",
+          "eventId": "npc_goal_linda_490_1_event",
+          "text": "Linda goes to the foyer",
+          "sourceType": "witnessed",
+          "source": "witnessed",
+          "sourceNpcId": "",
+          "sourceObservationId": "",
+          "originObservationId": "",
+          "originNpcId": "",
+          "reportedSourceType": "",
+          "deliveryActionId": "",
+          "deliveryEventId": "",
+          "deliveryLocationId": "",
+          "evidenceMode": "direct",
+          "confidence": 1,
+          "visibility": "private",
+          "contradicted": false,
+          "allowedToShare": true,
+          "learnedAt": {
+            "turn": 1,
+            "absoluteMinute": 490
+          },
+          "sourceLocationId": "garden",
+          "turn": 1
+        }
+      ],
+      "events": [
+        {
+          "id": "npc_goal_linda_480_0_event",
+          "action_id": "npc_goal_linda_480_0",
+          "passage_id": "npc_goal_linda_480_0_passage",
+          "actor_id": "linda",
+          "status": "completed",
+          "type": "inventory",
+          "action": "pickup",
+          "item": "can",
+          "turn": 1,
+          "location_id": "garden",
+          "world_time": {
+            "absolute_minute": 480
+          },
+          "world_state_version": 0,
+          "committed": true
+        },
+        {
+          "id": "npc_goal_cass_480_0_event",
+          "action_id": "npc_goal_cass_480_0",
+          "passage_id": "npc_goal_cass_480_0_passage",
+          "actor_id": "cass",
+          "status": "completed",
+          "type": "inventory",
+          "action": "pickup",
+          "item": "gloves",
+          "turn": 1,
+          "location_id": "garden",
+          "world_time": {
+            "absolute_minute": 480
+          },
+          "world_state_version": 0,
+          "committed": true
+        },
+        {
+          "id": "npc_goal_linda_480_1_event",
+          "action_id": "npc_goal_linda_480_1",
+          "passage_id": "npc_goal_linda_480_1_passage",
+          "actor_id": "linda",
+          "status": "completed",
+          "type": "dialogue",
+          "action": "report",
+          "target_id": "cass",
+          "turn": 1,
+          "location_id": "garden",
+          "committed": true,
+          "world_time": {
+            "absolute_minute": 480
+          }
+        },
+        {
+          "id": "npc_goal_linda_490_1_event",
+          "action_id": "npc_goal_linda_490_1",
+          "passage_id": "npc_goal_linda_490_1_passage",
+          "actor_id": "linda",
+          "status": "completed",
+          "type": "movement",
+          "from_location_id": "garden",
+          "to_location_id": "foyer",
+          "turn": 1,
+          "location_id": "garden",
+          "world_time": {
+            "absolute_minute": 490
+          },
+          "world_state_version": 0,
+          "committed": true
+        }
+      ]
+    },
+    "turns": [
+      {
+        "index": 1,
+        "input": "Linda, what happened in the garden with Cass?",
+        "durationMs": 6479,
+        "error": "",
+        "audit": {
+          "turn": 2,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "turn_5352a237e7206d1aba955632_action_0",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 0,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 1,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:linda",
+            "entity:cass",
+            "entity:remote",
+            "location:garden",
+            "history",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:worldClock",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "turn_5352a237e7206d1aba955632",
+            "diagnosticId": "turn_5352a237e7206d1aba955632_1_diag",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [],
+            "calls": [
+              {
+                "kind": "main",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "qwen2.5:14b-instruct-q4_K_M",
+                "status": 200,
+                "durationMs": 6278,
+                "usage": null
+              }
+            ]
+          },
+          "binding": {
+            "turnId": "turn_5352a237e7206d1aba955632",
+            "worldActionIds": [],
+            "gestureActionIds": [],
+            "repairs": [],
+            "actionSpans": [
+              {
+                "start": 0,
+                "end": 45,
+                "action_id": "turn_5352a237e7206d1aba955632_action_0"
+              }
+            ]
+          }
+        },
+        "receipt": {
+          "receipt": {
+            "summary": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here.",
+            "action_resolution": {
+              "kind": "speech",
+              "status": "resolved",
+              "outcome": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here."
+            },
+            "scene": {
+              "player_location_id": "foyer",
+              "player_location_changed": false,
+              "present_character_ids": [
+                "linda"
+              ]
+            },
+            "events": [],
+            "entity_updates": [],
+            "state_updates": {},
+            "action_results": [
+              {
+                "action_id": "turn_5352a237e7206d1aba955632_action_0",
+                "outcome": "succeeded"
+              }
+            ],
+            "confirmed_effects": [],
+            "check_results": [],
+            "speech_attributions": [],
+            "passage_speakers": [
+              {
+                "passage_id": "turn_5352a237e7206d1aba955632_action_0_p0",
+                "speaker_id": null
+              }
+            ],
+            "turn_id": "turn_5352a237e7206d1aba955632",
+            "passages": [
+              {
+                "id": "turn_5352a237e7206d1aba955632_action_0_p0",
+                "action_id": "turn_5352a237e7206d1aba955632_action_0",
+                "text": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here."
+              }
+            ],
+            "start_scene": {
+              "player_location_id": "foyer",
+              "actor_locations": {
+                "linda": "foyer",
+                "key": "foyer"
+              }
+            },
+            "clock": {
+              "absolute_minutes": 505
+            }
+          },
+          "audit": {
+            "turn": 2,
+            "protocol": "scene_draft_v3",
+            "actions": [
+              {
+                "action_id": "turn_5352a237e7206d1aba955632_action_0",
+                "outcome": "succeeded"
+              }
+            ],
+            "accepted": 0,
+            "informational": 0,
+            "rejected": [],
+            "world_state_version": 1,
+            "cast_checksum_match": true,
+            "dirtyKeys": [
+              "entity:linda",
+              "entity:cass",
+              "entity:remote",
+              "location:garden",
+              "history",
+              "session:playstyle",
+              "session:lastLivingWorldTick",
+              "time",
+              "session:lastNpcSimulationMinute",
+              "session:livingWorldActivity",
+              "session:worldClock",
+              "session:_worldEpoch",
+              "session:worldModelAttempts",
+              "session:worldModelTotals"
+            ],
+            "compilerRepairs": [],
+            "repairCount": 0,
+            "turnResolution": {
+              "status": "clean",
+              "turnId": "turn_5352a237e7206d1aba955632",
+              "diagnosticId": "turn_5352a237e7206d1aba955632_1_diag",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "originalFailure": null,
+              "failures": [],
+              "repairResults": [],
+              "discarded": null,
+              "confirmedEffects": [],
+              "calls": [
+                {
+                  "kind": "main",
+                  "provider": "local",
+                  "outcome": "ok",
+                  "model": "qwen2.5:14b-instruct-q4_K_M",
+                  "status": 200,
+                  "durationMs": 6278,
+                  "usage": null
+                }
+              ]
+            },
+            "binding": {
+              "turnId": "turn_5352a237e7206d1aba955632",
+              "worldActionIds": [],
+              "gestureActionIds": [],
+              "repairs": [],
+              "actionSpans": [
+                {
+                  "start": 0,
+                  "end": 45,
+                  "action_id": "turn_5352a237e7206d1aba955632_action_0"
+                }
+              ]
+            }
+          }
+        },
+        "inventory": [],
+        "playerLocation": "foyer",
+        "npcObservations": {
+          "linda": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_linda",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_linda",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_0_linda_what_happened_in_the_garden_with_cass",
+              "eventId": "",
+              "text": "Linda, what happened in the garden with Cass?",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_5352a237e7206d1aba955632_action_0",
+              "eventId": "",
+              "text": "Player said: Linda, what happened in the garden with Cass?",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 505
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ],
+          "cass": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_cass",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_report_npc_goal_linda_480_1_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "linda",
+              "sourceObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originNpcId": "linda",
+              "reportedSourceType": "witnessed",
+              "deliveryActionId": "npc_goal_linda_480_1",
+              "deliveryEventId": "npc_goal_linda_480_1_event",
+              "deliveryLocationId": "garden",
+              "evidenceMode": "hearsay",
+              "confidence": 0.82,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "tags": [],
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_cass",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            }
+          ],
+          "remote": []
+        }
+      }
+    ],
+    "turnDurationMs": 6483,
+    "error": "",
+    "audit": {
+      "turn": 2,
+      "protocol": "scene_draft_v3",
+      "actions": [
+        {
+          "action_id": "turn_5352a237e7206d1aba955632_action_0",
+          "outcome": "succeeded"
+        }
+      ],
+      "accepted": 0,
+      "informational": 0,
+      "rejected": [],
+      "world_state_version": 1,
+      "cast_checksum_match": true,
+      "dirtyKeys": [
+        "entity:linda",
+        "entity:cass",
+        "entity:remote",
+        "location:garden",
+        "history",
+        "session:playstyle",
+        "session:lastLivingWorldTick",
+        "time",
+        "session:lastNpcSimulationMinute",
+        "session:livingWorldActivity",
+        "session:worldClock",
+        "session:_worldEpoch",
+        "session:worldModelAttempts",
+        "session:worldModelTotals"
+      ],
+      "compilerRepairs": [],
+      "repairCount": 0,
+      "turnResolution": {
+        "status": "clean",
+        "turnId": "turn_5352a237e7206d1aba955632",
+        "diagnosticId": "turn_5352a237e7206d1aba955632_1_diag",
+        "model": "qwen2.5:14b-instruct-q4_K_M",
+        "originalFailure": null,
+        "failures": [],
+        "repairResults": [],
+        "discarded": null,
+        "confirmedEffects": [],
+        "calls": [
+          {
+            "kind": "main",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "qwen2.5:14b-instruct-q4_K_M",
+            "status": 200,
+            "durationMs": 6278,
+            "usage": null
+          }
+        ]
+      },
+      "binding": {
+        "turnId": "turn_5352a237e7206d1aba955632",
+        "worldActionIds": [],
+        "gestureActionIds": [],
+        "repairs": [],
+        "actionSpans": [
+          {
+            "start": 0,
+            "end": 45,
+            "action_id": "turn_5352a237e7206d1aba955632_action_0"
+          }
+        ]
+      }
+    },
+    "receipt": {
+      "receipt": {
+        "summary": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here.",
+        "action_resolution": {
+          "kind": "speech",
+          "status": "resolved",
+          "outcome": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "linda"
+          ]
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "turn_5352a237e7206d1aba955632_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "turn_5352a237e7206d1aba955632_action_0_p0",
+            "speaker_id": null
+          }
+        ],
+        "turn_id": "turn_5352a237e7206d1aba955632",
+        "passages": [
+          {
+            "id": "turn_5352a237e7206d1aba955632_action_0_p0",
+            "action_id": "turn_5352a237e7206d1aba955632_action_0",
+            "text": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here."
+          }
+        ],
+        "start_scene": {
+          "player_location_id": "foyer",
+          "actor_locations": {
+            "linda": "foyer",
+            "key": "foyer"
+          }
+        },
+        "clock": {
+          "absolute_minutes": 505
+        }
+      },
+      "audit": {
+        "turn": 2,
+        "protocol": "scene_draft_v3",
+        "actions": [
+          {
+            "action_id": "turn_5352a237e7206d1aba955632_action_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "accepted": 0,
+        "informational": 0,
+        "rejected": [],
+        "world_state_version": 1,
+        "cast_checksum_match": true,
+        "dirtyKeys": [
+          "entity:linda",
+          "entity:cass",
+          "entity:remote",
+          "location:garden",
+          "history",
+          "session:playstyle",
+          "session:lastLivingWorldTick",
+          "time",
+          "session:lastNpcSimulationMinute",
+          "session:livingWorldActivity",
+          "session:worldClock",
+          "session:_worldEpoch",
+          "session:worldModelAttempts",
+          "session:worldModelTotals"
+        ],
+        "compilerRepairs": [],
+        "repairCount": 0,
+        "turnResolution": {
+          "status": "clean",
+          "turnId": "turn_5352a237e7206d1aba955632",
+          "diagnosticId": "turn_5352a237e7206d1aba955632_1_diag",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "originalFailure": null,
+          "failures": [],
+          "repairResults": [],
+          "discarded": null,
+          "confirmedEffects": [],
+          "calls": [
+            {
+              "kind": "main",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "qwen2.5:14b-instruct-q4_K_M",
+              "status": 200,
+              "durationMs": 6278,
+              "usage": null
+            }
+          ]
+        },
+        "binding": {
+          "turnId": "turn_5352a237e7206d1aba955632",
+          "worldActionIds": [],
+          "gestureActionIds": [],
+          "repairs": [],
+          "actionSpans": [
+            {
+              "start": 0,
+              "end": 45,
+              "action_id": "turn_5352a237e7206d1aba955632_action_0"
+            }
+          ]
+        }
+      }
+    },
+    "callAudit": {
+      "main": 1,
+      "providerFallback": 0,
+      "receiptRepair": 0,
+      "narrativeFollowUp": 0,
+      "narrativeRescue": 0,
+      "chronicleClassifier": 0,
+      "metrics": {
+        "loreCharacters": 3965,
+        "mainPromptCharacters": 79100,
+        "repairPromptCharacters": 0,
+        "firstTokenMs": 6276,
+        "firstContentMs": 6276,
+        "localValidationMs": 3,
+        "generationMs": 6278,
+        "outputCharacters": 370,
+        "estimatedInputTokens": 24719,
+        "tokenEstimateMethod": "characters / 3.2",
+        "earlyAbortReason": null,
+        "contextSources": {
+          "lore": 3965,
+          "locationDescription": 42,
+          "npcPerspectives": 1678,
+          "ledgerAndArchive": 0,
+          "memoryMatrix": 0,
+          "sourceLinkedRecall": 0,
+          "recentHistory": 45,
+          "schema": 40666,
+          "sceneGuidance": 11739
+        },
+        "contextBudget": {
+          "basis": "estimated_from_characters",
+          "tokenDivisor": 3.2,
+          "parts": {
+            "lore": {
+              "characters": 3965,
+              "estimatedTokens": 1240
+            },
+            "locationDescription": {
+              "characters": 42,
+              "estimatedTokens": 14
+            },
+            "npcPerspectives": {
+              "characters": 1678,
+              "estimatedTokens": 525
+            },
+            "ledgerAndArchive": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "memoryMatrix": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "sourceLinkedRecall": {
+              "characters": 0,
+              "estimatedTokens": 0
+            },
+            "recentHistory": {
+              "characters": 45,
+              "estimatedTokens": 15
+            },
+            "schema": {
+              "characters": 40666,
+              "estimatedTokens": 12709
+            },
+            "sceneGuidance": {
+              "characters": 11739,
+              "estimatedTokens": 3669
+            }
+          },
+          "estimatedTokens": 18172
+        }
+      },
+      "protocol": "scene_draft_v3",
+      "calls": [
+        {
+          "kind": "main",
+          "provider": "local",
+          "outcome": "ok",
+          "model": "qwen2.5:14b-instruct-q4_K_M",
+          "status": 200,
+          "durationMs": 6278,
+          "usage": null
+        }
+      ]
+    },
+    "narrative": "Cass was there, taking gloves and leaving. I just collected the watering can and came back here.",
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_linda",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_linda",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_0_linda_what_happened_in_the_garden_with_cass",
+              "eventId": "",
+              "text": "Linda, what happened in the garden with Cass?",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_5352a237e7206d1aba955632_action_0",
+              "eventId": "",
+              "text": "Player said: Linda, what happened in the garden with Cass?",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 505
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ],
+          "goal": "Take the watering can and return to the foyer",
+          "goalProgress": 100,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "completed",
+          "goalSteps": [],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": [],
+          "goalActionGoal": "Take the watering can and return to the foyer",
+          "goalActionIndex": 2,
+          "goalStates": {
+            "Take the watering can and return to the foyer": {
+              "goal": "Take the watering can and return to the foyer",
+              "goalStatus": "completed",
+              "goalProgress": 100,
+              "goalDifficulty": 50,
+              "goalAutonomy": "medium",
+              "goalSteps": [],
+              "goalStepIndex": 0,
+              "goalStepReported": -1,
+              "goalActionIndex": 2,
+              "goalActionGoal": "Take the watering can and return to the foyer",
+              "goalActionProgress": {
+                "npcId": "linda",
+                "goal": "Take the watering can and return to the foyer",
+                "index": 2,
+                "effect": {
+                  "type": "actor_move",
+                  "payload": {
+                    "actor_id": "linda",
+                    "to_location_id": "foyer"
+                  }
+                },
+                "actorId": "linda",
+                "targetId": "foyer",
+                "status": "completed",
+                "lastResult": "confirmed",
+                "blockedReason": "",
+                "lastCheckedTurn": 1,
+                "key": "{\"goal\":\"Take the watering can and return to the foyer\",\"effect\":{\"type\":\"actor_move\",\"payload\":{\"actor_id\":\"linda\",\"to_location_id\":\"foyer\"}},\"location\":\"garden\",\"inventory\":[\"Watering can\"],\"target\":{},\"exit\":{\"targetLocationId\":\"foyer\",\"travelTime\":5,\"doorId\":\"door:foyer::garden\"},\"unlocked\":false}",
+                "eventId": "npc_goal_linda_490_1_event"
+              },
+              "goalBlockedReason": "",
+              "goalCompletionProof": {
+                "eventId": "npc_goal_linda_490_1_event",
+                "condition": {
+                  "type": "authored_final_step"
+                }
+              },
+              "goalResolvedTurn": 1
+            }
+          },
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          },
+          "goalActionProgress": {
+            "npcId": "linda",
+            "goal": "Take the watering can and return to the foyer",
+            "index": 2,
+            "effect": {
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "linda",
+                "to_location_id": "foyer"
+              }
+            },
+            "actorId": "linda",
+            "targetId": "foyer",
+            "status": "completed",
+            "lastResult": "confirmed",
+            "blockedReason": "",
+            "lastCheckedTurn": 1,
+            "key": "{\"goal\":\"Take the watering can and return to the foyer\",\"effect\":{\"type\":\"actor_move\",\"payload\":{\"actor_id\":\"linda\",\"to_location_id\":\"foyer\"}},\"location\":\"garden\",\"inventory\":[\"Watering can\"],\"target\":{},\"exit\":{\"targetLocationId\":\"foyer\",\"travelTime\":5,\"doorId\":\"door:foyer::garden\"},\"unlocked\":false}",
+            "eventId": "npc_goal_linda_490_1_event"
+          },
+          "inventory": [
+            "Watering can"
+          ],
+          "goalBlockedReason": "",
+          "goalResolvedTurn": 1,
+          "goalCompletionProof": {
+            "eventId": "npc_goal_linda_490_1_event",
+            "condition": {
+              "type": "authored_final_step"
+            }
+          }
+        },
+        "cass": {
+          "location": "garden",
+          "observations": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_cass",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_report_npc_goal_linda_480_1_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "linda",
+              "sourceObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originNpcId": "linda",
+              "reportedSourceType": "witnessed",
+              "deliveryActionId": "npc_goal_linda_480_1",
+              "deliveryEventId": "npc_goal_linda_480_1_event",
+              "deliveryLocationId": "garden",
+              "evidenceMode": "hearsay",
+              "confidence": 0.82,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "tags": [],
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_cass",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            }
+          ],
+          "goal": "Take the gloves",
+          "goalProgress": 100,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "completed",
+          "goalSteps": [],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": [],
+          "goalActionGoal": "Take the gloves",
+          "goalActionIndex": 1,
+          "goalStates": {
+            "Take the gloves": {
+              "goal": "Take the gloves",
+              "goalStatus": "completed",
+              "goalProgress": 100,
+              "goalDifficulty": 50,
+              "goalAutonomy": "medium",
+              "goalSteps": [],
+              "goalStepIndex": 0,
+              "goalStepReported": -1,
+              "goalActionIndex": 1,
+              "goalActionGoal": "Take the gloves",
+              "goalActionProgress": {
+                "npcId": "cass",
+                "goal": "Take the gloves",
+                "index": 1,
+                "effect": {
+                  "type": "item_transfer",
+                  "payload": {
+                    "actor_id": "cass",
+                    "item_id": "gloves",
+                    "from_id": "garden",
+                    "to_id": "cass"
+                  }
+                },
+                "actorId": "cass",
+                "targetId": "gloves",
+                "status": "completed",
+                "lastResult": "confirmed",
+                "blockedReason": "",
+                "lastCheckedTurn": 1,
+                "key": "{\"goal\":\"Take the gloves\",\"effect\":{\"type\":\"item_transfer\",\"payload\":{\"actor_id\":\"cass\",\"item_id\":\"gloves\",\"from_id\":\"garden\",\"to_id\":\"cass\"}},\"location\":\"garden\",\"target\":{\"location\":\"garden\",\"observations\":[]},\"unlocked\":null}",
+                "eventId": "npc_goal_cass_480_0_event"
+              },
+              "goalBlockedReason": "",
+              "goalCompletionProof": {
+                "eventId": "npc_goal_cass_480_0_event",
+                "condition": {
+                  "type": "authored_final_step"
+                }
+              },
+              "goalResolvedTurn": 1
+            }
+          },
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          },
+          "goalActionProgress": {
+            "npcId": "cass",
+            "goal": "Take the gloves",
+            "index": 1,
+            "effect": {
+              "type": "item_transfer",
+              "payload": {
+                "actor_id": "cass",
+                "item_id": "gloves",
+                "from_id": "garden",
+                "to_id": "cass"
+              }
+            },
+            "actorId": "cass",
+            "targetId": "gloves",
+            "status": "completed",
+            "lastResult": "confirmed",
+            "blockedReason": "",
+            "lastCheckedTurn": 1,
+            "key": "{\"goal\":\"Take the gloves\",\"effect\":{\"type\":\"item_transfer\",\"payload\":{\"actor_id\":\"cass\",\"item_id\":\"gloves\",\"from_id\":\"garden\",\"to_id\":\"cass\"}},\"location\":\"garden\",\"target\":{\"location\":\"garden\",\"observations\":[]},\"unlocked\":null}",
+            "eventId": "npc_goal_cass_480_0_event"
+          },
+          "inventory": [
+            "Gloves"
+          ],
+          "goalBlockedReason": "",
+          "goalResolvedTurn": 1,
+          "goalCompletionProof": {
+            "eventId": "npc_goal_cass_480_0_event",
+            "condition": {
+              "type": "authored_final_step"
+            }
+          }
+        },
+        "remote": {
+          "location": "round",
+          "observations": [],
+          "goalStates": {},
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          }
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        },
+        "can": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        },
+        "gloves": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        }
+      },
+      "historyLength": 2
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_linda",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_linda",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_0_linda_what_happened_in_the_garden_with_cass",
+              "eventId": "",
+              "text": "Linda, what happened in the garden with Cass?",
+              "sourceType": "unknown",
+              "source": "unknown",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "inference",
+              "confidence": 0.55,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 0,
+                "absoluteMinute": 0
+              },
+              "turn": 0
+            },
+            {
+              "id": "obs_player_speech_turn_5352a237e7206d1aba955632_action_0",
+              "eventId": "",
+              "text": "Player said: Linda, what happened in the garden with Cass?",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "player",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "hearsay",
+              "confidence": 0.72,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 2,
+                "absoluteMinute": 505
+              },
+              "sourceLocationId": "foyer",
+              "turn": 2
+            }
+          ],
+          "goal": "Take the watering can and return to the foyer",
+          "goalProgress": 100,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "completed",
+          "goalSteps": [],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": [],
+          "goalActionGoal": "Take the watering can and return to the foyer",
+          "goalActionIndex": 2,
+          "goalStates": {
+            "Take the watering can and return to the foyer": {
+              "goal": "Take the watering can and return to the foyer",
+              "goalStatus": "completed",
+              "goalProgress": 100,
+              "goalDifficulty": 50,
+              "goalAutonomy": "medium",
+              "goalSteps": [],
+              "goalStepIndex": 0,
+              "goalStepReported": -1,
+              "goalActionIndex": 2,
+              "goalActionGoal": "Take the watering can and return to the foyer",
+              "goalActionProgress": {
+                "npcId": "linda",
+                "goal": "Take the watering can and return to the foyer",
+                "index": 2,
+                "effect": {
+                  "type": "actor_move",
+                  "payload": {
+                    "actor_id": "linda",
+                    "to_location_id": "foyer"
+                  }
+                },
+                "actorId": "linda",
+                "targetId": "foyer",
+                "status": "completed",
+                "lastResult": "confirmed",
+                "blockedReason": "",
+                "lastCheckedTurn": 1,
+                "key": "{\"goal\":\"Take the watering can and return to the foyer\",\"effect\":{\"type\":\"actor_move\",\"payload\":{\"actor_id\":\"linda\",\"to_location_id\":\"foyer\"}},\"location\":\"garden\",\"inventory\":[\"Watering can\"],\"target\":{},\"exit\":{\"targetLocationId\":\"foyer\",\"travelTime\":5,\"doorId\":\"door:foyer::garden\"},\"unlocked\":false}",
+                "eventId": "npc_goal_linda_490_1_event"
+              },
+              "goalBlockedReason": "",
+              "goalCompletionProof": {
+                "eventId": "npc_goal_linda_490_1_event",
+                "condition": {
+                  "type": "authored_final_step"
+                }
+              },
+              "goalResolvedTurn": 1
+            }
+          },
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          },
+          "goalActionProgress": {
+            "npcId": "linda",
+            "goal": "Take the watering can and return to the foyer",
+            "index": 2,
+            "effect": {
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "linda",
+                "to_location_id": "foyer"
+              }
+            },
+            "actorId": "linda",
+            "targetId": "foyer",
+            "status": "completed",
+            "lastResult": "confirmed",
+            "blockedReason": "",
+            "lastCheckedTurn": 1,
+            "key": "{\"goal\":\"Take the watering can and return to the foyer\",\"effect\":{\"type\":\"actor_move\",\"payload\":{\"actor_id\":\"linda\",\"to_location_id\":\"foyer\"}},\"location\":\"garden\",\"inventory\":[\"Watering can\"],\"target\":{},\"exit\":{\"targetLocationId\":\"foyer\",\"travelTime\":5,\"doorId\":\"door:foyer::garden\"},\"unlocked\":false}",
+            "eventId": "npc_goal_linda_490_1_event"
+          },
+          "inventory": [
+            "Watering can"
+          ],
+          "goalBlockedReason": "",
+          "goalResolvedTurn": 1,
+          "goalCompletionProof": {
+            "eventId": "npc_goal_linda_490_1_event",
+            "condition": {
+              "type": "authored_final_step"
+            }
+          }
+        },
+        "cass": {
+          "location": "garden",
+          "observations": [
+            {
+              "id": "obs_npc_action_npc_goal_linda_480_0_event_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_cass_480_0_event_cass",
+              "eventId": "npc_goal_cass_480_0_event",
+              "text": "Cass takes gloves",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            },
+            {
+              "id": "obs_report_npc_goal_linda_480_1_cass",
+              "eventId": "npc_goal_linda_480_0_event",
+              "text": "Linda takes can",
+              "sourceType": "told",
+              "source": "told",
+              "sourceNpcId": "linda",
+              "sourceObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originObservationId": "obs_npc_action_npc_goal_linda_480_0_event_linda",
+              "originNpcId": "linda",
+              "reportedSourceType": "witnessed",
+              "deliveryActionId": "npc_goal_linda_480_1",
+              "deliveryEventId": "npc_goal_linda_480_1_event",
+              "deliveryLocationId": "garden",
+              "evidenceMode": "hearsay",
+              "confidence": 0.82,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 480
+              },
+              "sourceLocationId": "garden",
+              "tags": [],
+              "turn": 1
+            },
+            {
+              "id": "obs_npc_action_npc_goal_linda_490_1_event_cass",
+              "eventId": "npc_goal_linda_490_1_event",
+              "text": "Linda goes to the foyer",
+              "sourceType": "witnessed",
+              "source": "witnessed",
+              "sourceNpcId": "",
+              "sourceObservationId": "",
+              "originObservationId": "",
+              "originNpcId": "",
+              "reportedSourceType": "",
+              "deliveryActionId": "",
+              "deliveryEventId": "",
+              "deliveryLocationId": "",
+              "evidenceMode": "direct",
+              "confidence": 1,
+              "visibility": "private",
+              "contradicted": false,
+              "allowedToShare": true,
+              "learnedAt": {
+                "turn": 1,
+                "absoluteMinute": 490
+              },
+              "sourceLocationId": "garden",
+              "turn": 1
+            }
+          ],
+          "goal": "Take the gloves",
+          "goalProgress": 100,
+          "goalDifficulty": 50,
+          "goalAutonomy": "medium",
+          "goalStatus": "completed",
+          "goalSteps": [],
+          "goalStepIndex": 0,
+          "goalStepReported": -1,
+          "goalHistory": [],
+          "goalActionGoal": "Take the gloves",
+          "goalActionIndex": 1,
+          "goalStates": {
+            "Take the gloves": {
+              "goal": "Take the gloves",
+              "goalStatus": "completed",
+              "goalProgress": 100,
+              "goalDifficulty": 50,
+              "goalAutonomy": "medium",
+              "goalSteps": [],
+              "goalStepIndex": 0,
+              "goalStepReported": -1,
+              "goalActionIndex": 1,
+              "goalActionGoal": "Take the gloves",
+              "goalActionProgress": {
+                "npcId": "cass",
+                "goal": "Take the gloves",
+                "index": 1,
+                "effect": {
+                  "type": "item_transfer",
+                  "payload": {
+                    "actor_id": "cass",
+                    "item_id": "gloves",
+                    "from_id": "garden",
+                    "to_id": "cass"
+                  }
+                },
+                "actorId": "cass",
+                "targetId": "gloves",
+                "status": "completed",
+                "lastResult": "confirmed",
+                "blockedReason": "",
+                "lastCheckedTurn": 1,
+                "key": "{\"goal\":\"Take the gloves\",\"effect\":{\"type\":\"item_transfer\",\"payload\":{\"actor_id\":\"cass\",\"item_id\":\"gloves\",\"from_id\":\"garden\",\"to_id\":\"cass\"}},\"location\":\"garden\",\"target\":{\"location\":\"garden\",\"observations\":[]},\"unlocked\":null}",
+                "eventId": "npc_goal_cass_480_0_event"
+              },
+              "goalBlockedReason": "",
+              "goalCompletionProof": {
+                "eventId": "npc_goal_cass_480_0_event",
+                "condition": {
+                  "type": "authored_final_step"
+                }
+              },
+              "goalResolvedTurn": 1
+            }
+          },
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          },
+          "goalActionProgress": {
+            "npcId": "cass",
+            "goal": "Take the gloves",
+            "index": 1,
+            "effect": {
+              "type": "item_transfer",
+              "payload": {
+                "actor_id": "cass",
+                "item_id": "gloves",
+                "from_id": "garden",
+                "to_id": "cass"
+              }
+            },
+            "actorId": "cass",
+            "targetId": "gloves",
+            "status": "completed",
+            "lastResult": "confirmed",
+            "blockedReason": "",
+            "lastCheckedTurn": 1,
+            "key": "{\"goal\":\"Take the gloves\",\"effect\":{\"type\":\"item_transfer\",\"payload\":{\"actor_id\":\"cass\",\"item_id\":\"gloves\",\"from_id\":\"garden\",\"to_id\":\"cass\"}},\"location\":\"garden\",\"target\":{\"location\":\"garden\",\"observations\":[]},\"unlocked\":null}",
+            "eventId": "npc_goal_cass_480_0_event"
+          },
+          "inventory": [
+            "Gloves"
+          ],
+          "goalBlockedReason": "",
+          "goalResolvedTurn": 1,
+          "goalCompletionProof": {
+            "eventId": "npc_goal_cass_480_0_event",
+            "condition": {
+              "type": "authored_final_step"
+            }
+          }
+        },
+        "remote": {
+          "location": "round",
+          "observations": [],
+          "goalStates": {},
+          "goalSelection": {
+            "turn": 505,
+            "selectedGoal": "",
+            "candidates": []
+          }
+        },
+        "key": {
+          "location": "foyer",
+          "observations": []
+        },
+        "can": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        },
+        "gloves": {
+          "location": "",
+          "observations": [],
+          "quantity": 0
+        }
+      },
+      "historyLength": 2
+    },
+    "calls": [
+      {
+        "durationMs": 6254,
+        "status": 200,
+        "maxTokens": 7049,
+        "promptCharacters": 38402,
+        "contextCharacters": 37196,
+        "schemaCharacters": 40666,
+        "reasoningEffort": null,
+        "responseCharacters": 21746,
+        "contentCharacters": 370,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "rawResponse": "data: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"{\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"protocol\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"scene\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"_draft\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"_v\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"3\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"actions\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" [\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"   \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" {\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"request\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"L\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"inda\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\",\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" what\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" happened\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" in\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" the\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" garden\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" with\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" Cass\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"?\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"kind\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"speech\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"status\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"resolved\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\",\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"response\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" [\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"       \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" {\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"         \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"text\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"C\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ass\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" was\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" there\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\",\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" taking\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" gloves\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" and\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" leaving\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\".\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" I\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" just\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" collected\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" the\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" watering\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" can\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" and\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" came\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" back\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" here\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\".\\\"\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"       \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" }\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" ],\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"     \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \\\"\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"effects\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\\\":\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" []\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"   \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" }\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" ]\\n\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"}\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-768\",\"object\":\"chat.completion.chunk\",\"created\":1793224170,\"model\":\"qwen2.5:14b-instruct-q4_K_M\",\"system_fingerprint\":\"fp_ollama\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+        "providerTiming": null
+      }
+    ],
+    "bindingResponses": [
+      {
+        "request": "{\"draft\":{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"request\":\"Linda, what happened in the garden with Cass?\",\"kind\":\"speech\",\"status\":\"resolved\",\"response\":[{\"text\":\"Cass was there, taking gloves and leaving. I just collected the watering can and came back here.\"}],\"effects\":[]}]},\"canonical\":{\"type\":\"object\",\"properties\":{\"protocol\":{\"type\":\"string\",\"enum\":[\"scene_draft_v3\"]},\"narrative\":{\"type\":\"array\",\"minItems\":1,\"maxItems\":16,\"description\":\"Ordered scene continuation, starting with a consequence or NPC response; never repeat the player input. Reference passage IDs without repeating prose.\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.\",\"maxLength\":80},\"text\":{\"type\":\"string\",\"description\":\"One paragraph of new player-facing narrative or attributed NPC dialogue, never a player-action preamble.\",\"maxLength\":4000},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"id\",\"text\"],\"additionalProperties\":false}},\"actions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"request\":{\"type\":\"string\",\"description\":\"Required for this compound input. Copy contiguous excerpts covering every step in order, including negations. Use separate actions for independently executable steps; do not omit or merge one.\",\"maxLength\":16000},\"kind\":{\"type\":\"string\",\"enum\":[\"physical\",\"speech\",\"question\",\"observation\",\"travel\",\"wait\",\"other\"]},\"status\":{\"type\":\"string\",\"enum\":[\"resolved\",\"answered\",\"attempted\",\"pending_check\",\"blocked\",\"needs_clarification\"],\"description\":\"pending_check means one real unresolved engine check in this action's action_effects.checks; no check means use the actual resolved, attempted, blocked or clarification status. A requested NPC decision is not a check.\"},\"response_id\":{\"type\":\"string\",\"description\":\"Passage that RESPONDS to this request: the answer, refusal, result or check setup. Not a passage merely repeating the player’s question.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80},\"depends_on\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"action_id\":{\"type\":\"string\",\"description\":\"Exact ID of an earlier action.\",\"maxLength\":80},\"outcome\":{\"type\":\"string\",\"enum\":[\"succeeded\",\"failed\",\"blocked\"]}},\"required\":[\"action_id\",\"outcome\"],\"additionalProperties\":false},\"maxItems\":32},\"state_conditions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"fact\":{\"type\":\"string\",\"description\":\"Registered read-only fact name, never a sentence or an action result.\",\"maxLength\":80,\"enum\":[\"actor_at\",\"following_player\",\"has_item\",\"interactable_state\",\"condition\",\"relation\"]},\"subject_id\":{\"type\":\"string\",\"description\":\"Exact entity or location ID.\",\"maxLength\":120},\"target_id\":{\"type\":\"string\",\"description\":\"Exact second actor or faction ID for a relation fact.\",\"maxLength\":120},\"operator\":{\"type\":\"string\",\"enum\":[\"equals\",\"not_equals\",\"exists\"]},\"value\":{\"type\":\"string\",\"description\":\"Expected value; omit for exists.\",\"maxLength\":200}},\"required\":[\"fact\",\"subject_id\",\"operator\"],\"additionalProperties\":false},\"maxItems\":32},\"action_effects\":{\"type\":\"object\",\"properties\":{\"time_skip_minutes\":{\"type\":\"integer\"},\"stat_changes\":{\"type\":\"object\",\"properties\":{}},\"stat_change_cause\":{\"type\":\"string\"},\"transactions\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\",\"enum\":[\"buy\",\"sell\"]},\"item\":{\"type\":\"string\"},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100},\"price\":{\"type\":\"number\"},\"location_id\":{\"type\":\"string\"}},\"required\":[\"type\",\"item\",\"price\"],\"additionalProperties\":false}},\"checks\":{\"type\":\"array\",\"maxItems\":1,\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"label\":{\"type\":\"string\"},\"stat_id\":{\"type\":\"string\"},\"capability_id\":{\"type\":\"string\"},\"difficulty\":{\"type\":\"integer\",\"minimum\":2,\"maximum\":30},\"modifier\":{\"type\":\"integer\",\"minimum\":-5,\"maximum\":5},\"failure_cost\":{\"type\":\"object\",\"properties\":{\"stat_changes\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"number\"}},\"inventory_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"time_skip_minutes\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":14400},\"condition\":{\"type\":\"string\"},\"cause\":{\"type\":\"string\"}},\"additionalProperties\":false},\"on_success\":{\"type\":\"object\",\"additionalProperties\":true},\"on_failure\":{\"type\":\"object\",\"additionalProperties\":true}},\"required\":[\"label\",\"difficulty\"],\"additionalProperties\":false}},\"ledger_update\":{\"type\":\"string\"},\"quests_update\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"giver\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"completed\",\"failed\",\"abandoned\"]},\"completion_note\":{\"type\":\"string\"},\"objectives\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"type\":{\"type\":\"string\",\"enum\":[\"manual\",\"location\",\"inventory\",\"stat\",\"secret\",\"npc_status\",\"thread\"]},\"target\":{\"type\":\"string\"},\"expected\":{\"type\":\"string\"},\"required\":{\"type\":\"number\"},\"current\":{\"type\":\"number\"},\"progress_change\":{\"type\":\"number\"},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"completed\",\"failed\"]},\"optional\":{\"type\":\"boolean\"}},\"additionalProperties\":false}},\"rewards\":{\"type\":\"object\",\"properties\":{\"items\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"stat_changes\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"number\"}},\"faction_reputation\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"faction_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"}},\"required\":[\"faction_id\",\"change\"],\"additionalProperties\":false}}},\"additionalProperties\":false}},\"additionalProperties\":false}},\"access_grants\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"grantor_npc_id\":{\"type\":\"string\"},\"recipient_npc_id\":{\"type\":\"string\"},\"location_id\":{\"type\":\"string\"},\"action\":{\"type\":\"string\",\"enum\":[\"grant\",\"revoke\"]}},\"required\":[\"grantor_npc_id\",\"recipient_npc_id\",\"location_id\",\"action\"],\"additionalProperties\":false}},\"npc_status_changes\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"npc_id\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"alive\",\"dead\",\"gone\"]},\"cause\":{\"type\":\"string\"}},\"required\":[\"npc_id\",\"status\"],\"additionalProperties\":false}},\"threads_update\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"text\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"open\",\"resolved\"]}},\"required\":[\"id\",\"text\"],\"additionalProperties\":false}},\"npc_goal_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"npc_id\":{\"type\":\"string\"},\"goal\":{\"type\":\"string\"},\"motivation\":{\"type\":\"string\"},\"steps\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"progress_change\":{\"type\":\"number\"},\"deadline_in_turns\":{\"type\":\"integer\"},\"difficulty\":{\"type\":\"integer\"},\"autonomy\":{\"type\":\"string\",\"enum\":[\"paused\",\"low\",\"medium\",\"high\"]},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"completed\",\"failed\",\"blocked\"]}},\"required\":[\"npc_id\",\"goal\"],\"additionalProperties\":false}},\"location_state_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"location_id\":{\"type\":\"string\"},\"set_conditions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"add_conditions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"remove_conditions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"condition_duration_turns\":{\"type\":\"integer\"},\"control_faction_id\":{\"type\":\"string\"},\"danger_change\":{\"type\":\"number\"},\"prosperity_change\":{\"type\":\"number\"},\"resource_changes\":{\"type\":\"object\",\"additionalProperties\":{\"type\":\"number\"}}},\"required\":[\"location_id\"],\"additionalProperties\":false}},\"npc_relationship_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"source_npc_id\":{\"type\":\"string\"},\"target_npc_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"},\"label\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"source_npc_id\",\"target_npc_id\"],\"additionalProperties\":false}},\"faction_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"reputation_change\":{\"type\":\"number\"},\"influence_change\":{\"type\":\"number\"},\"resources_change\":{\"type\":\"number\"},\"goal\":{\"type\":\"string\"},\"goal_progress_change\":{\"type\":\"number\"},\"status\":{\"type\":\"string\",\"enum\":[\"active\",\"weakened\",\"defeated\",\"disbanded\"]},\"territory_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"territory_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"relations\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"faction_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"}},\"required\":[\"faction_id\",\"change\"],\"additionalProperties\":false}}},\"additionalProperties\":false}},\"economy_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"location_id\":{\"type\":\"string\"},\"item\":{\"type\":\"string\"},\"quantity_change\":{\"type\":\"number\"},\"set_quantity\":{\"type\":\"number\"},\"price\":{\"type\":\"number\"},\"regen_per_turn\":{\"type\":\"number\"},\"max_quantity\":{\"type\":\"number\"}},\"required\":[\"location_id\",\"item\"],\"additionalProperties\":false}},\"player_identity_update\":{\"type\":\"object\",\"properties\":{\"role\":{\"type\":\"string\"},\"social_rank\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"legal_status\":{\"type\":\"string\"},\"faction_id\":{\"type\":\"string\"},\"privileges_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"privileges_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"obligations_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"obligations_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"holdings_add\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"holdings_remove\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"heat_change\":{\"type\":\"number\"},\"crime\":{\"type\":\"string\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"reason\"],\"additionalProperties\":false},\"player_preference_updates\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"key\":{\"type\":\"string\"},\"value\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\"},\"source\":{\"type\":\"string\"}},\"required\":[\"key\",\"value\"],\"additionalProperties\":false}},\"npc_disposition_changes\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"npc_id\":{\"type\":\"string\"},\"change\":{\"type\":\"integer\"},\"reason\":{\"type\":\"string\"}},\"required\":[\"npc_id\",\"change\"],\"additionalProperties\":false}},\"npc_introduced\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"persona\":{\"type\":\"string\"},\"home_location\":{\"type\":\"string\"}},\"required\":[\"id\",\"name\",\"persona\"],\"additionalProperties\":false}},\"location_introduced\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"description\":{\"type\":\"string\"},\"region\":{\"type\":\"string\"},\"connects_to\":{\"type\":\"string\"},\"map_type\":{\"type\":\"string\",\"enum\":[\"region\",\"route\",\"building\",\"outdoor\",\"room\",\"area\"]},\"parent_location_id\":{\"type\":\"string\"},\"floor\":{\"type\":\"string\"}},\"required\":[\"id\",\"name\",\"connects_to\"],\"additionalProperties\":false}},\"actor_move\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"to_location_id\":{\"type\":\"string\",\"maxLength\":120},\"mode\":{\"type\":\"string\",\"enum\":[\"journey\",\"teleport\"]},\"explore\":{\"type\":\"boolean\"},\"companion_ids\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"maxLength\":120},\"maxItems\":32}},\"required\":[\"actor_id\",\"to_location_id\"],\"additionalProperties\":false},\"maxItems\":32},\"npc_follow\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"following\":{\"type\":\"boolean\"}},\"required\":[\"actor_id\",\"following\"],\"additionalProperties\":false},\"maxItems\":32},\"npc_goal_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"goal\":{\"type\":\"string\",\"maxLength\":200}},\"required\":[\"actor_id\",\"goal\"],\"additionalProperties\":false},\"maxItems\":32},\"interactable_transition\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"to_state\":{\"type\":\"string\",\"maxLength\":80},\"actor_id\":{\"type\":\"string\",\"maxLength\":120}},\"required\":[\"target_id\",\"to_state\"],\"additionalProperties\":false},\"maxItems\":32},\"item_transfer\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"item_id\":{\"type\":\"string\",\"maxLength\":120},\"from_id\":{\"type\":\"string\",\"maxLength\":120},\"to_id\":{\"type\":\"string\",\"maxLength\":120},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"container_id\":{\"type\":\"string\",\"maxLength\":120},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}},\"required\":[\"item_id\",\"from_id\",\"to_id\"],\"additionalProperties\":false},\"maxItems\":32},\"item_consume\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"item_id\":{\"type\":\"string\",\"maxLength\":120},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100}},\"required\":[\"item_id\",\"actor_id\"],\"additionalProperties\":false},\"maxItems\":32},\"item_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"location_id\":{\"type\":\"string\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"maxLength\":500},\"quantity\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":100},\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"cause\":{\"type\":\"string\",\"enum\":[\"discovery\",\"crafting\",\"conjuration\",\"transmutation\",\"replication\"]},\"category\":{\"type\":\"string\",\"maxLength\":120},\"rule_id\":{\"type\":\"string\",\"maxLength\":120},\"source_item_id\":{\"type\":\"string\",\"maxLength\":120},\"duration_minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080}},\"required\":[\"id\",\"name\",\"location_id\"],\"additionalProperties\":false},\"maxItems\":32},\"entity_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"location_id\":{\"type\":\"string\",\"maxLength\":120},\"persona\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"name\",\"location_id\",\"persona\"],\"additionalProperties\":false},\"maxItems\":32},\"location_introduce\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"name\":{\"type\":\"string\",\"maxLength\":160},\"connects_to\":{\"type\":\"string\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"name\",\"connects_to\"],\"additionalProperties\":false},\"maxItems\":32},\"condition_change\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"condition\":{\"type\":\"string\",\"maxLength\":160},\"action\":{\"type\":\"string\",\"enum\":[\"add\",\"remove\"]}},\"required\":[\"target_id\",\"condition\",\"action\"],\"additionalProperties\":false},\"maxItems\":32},\"relation_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"subject_id\":{\"type\":\"string\",\"maxLength\":120},\"target_id\":{\"type\":\"string\",\"maxLength\":120},\"value\":{\"type\":\"integer\",\"minimum\":-100,\"maximum\":100}},\"required\":[\"subject_id\",\"target_id\",\"value\"],\"additionalProperties\":false},\"maxItems\":32},\"event_emit\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"maxLength\":120},\"type\":{\"type\":\"string\",\"maxLength\":80},\"description\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"id\",\"type\",\"description\"],\"additionalProperties\":false},\"maxItems\":32},\"knowledge_share\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"recipient_id\":{\"type\":\"string\",\"maxLength\":120},\"observation_id\":{\"type\":\"string\",\"maxLength\":120}},\"required\":[\"actor_id\",\"recipient_id\",\"observation_id\"],\"additionalProperties\":false},\"maxItems\":32},\"time_advance\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"minutes\":{\"type\":\"integer\",\"minimum\":1,\"maximum\":10080}},\"required\":[\"minutes\"],\"additionalProperties\":false},\"maxItems\":32},\"outfit_set\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"actor_id\":{\"type\":\"string\",\"maxLength\":120},\"outfit\":{\"type\":\"string\",\"maxLength\":500}},\"required\":[\"actor_id\",\"outfit\"],\"additionalProperties\":false},\"maxItems\":32}},\"required\":[],\"additionalProperties\":false}},\"required\":[\"kind\",\"status\",\"response_id\",\"action_id\",\"request\"],\"additionalProperties\":false},\"maxItems\":32},\"events\":{\"type\":\"array\",\"description\":\"Canonical events. Every physical or durable change needs an actor and completion status. 'toward', 'tries', plans and starts are intended/attempted/in_progress, never completed.\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"},\"type\":{\"type\":\"string\",\"enum\":[\"movement\",\"escort\",\"activity\",\"interaction\",\"outfit\",\"inventory\",\"condition\",\"time\",\"observation\",\"status\",\"relationship\",\"quest\",\"discovery\",\"environment\",\"dialogue\",\"other\"],\"description\":\"Canonical event type. Movement changes mapped places; gestures and showing held items do not. Escort means an NPC joins/leaves as a continuing follower: actor_id must be that NPC, never player. Taking or dragging a person to a named room is travel, not escort; the engine may already have committed both arrivals. Use inventory for transfers, activity for lasting poses, condition only with a named lasting condition, status only for alive/dead/gone.\"},\"actor_id\":{\"type\":\"string\",\"description\":\"Exact NPC ID, or 'player'. Required for actor actions. NPC movement can never move the player.\"},\"participants\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"status\":{\"type\":\"string\",\"enum\":[\"intended\",\"attempted\",\"in_progress\",\"completed\",\"cancelled\",\"failed\"]},\"from_location_id\":{\"type\":\"string\",\"description\":\"Movement only: exact current location ID for this actor, as shown in WORLD LORE movementOptions.\"},\"to_location_id\":{\"type\":\"string\",\"description\":\"Required only when changing mapped places: exact allowed destination ID from this actor’s WORLD LORE movementOptions. Ordinary movement within the current room/place needs no movement event.\"},\"movement_mode\":{\"type\":\"string\",\"enum\":[\"voluntary\",\"forced\",\"carried\",\"vehicle\",\"fall\",\"teleport\"]},\"explore\":{\"type\":\"boolean\",\"description\":\"NPC only: deliberate search into one adjacent unknown place.\"},\"caused_by_actor_id\":{\"type\":\"string\",\"description\":\"Required with a non-voluntary player movement.\"},\"activity\":{\"type\":\"string\",\"description\":\"For type activity: the player or NPC actor’s resulting ongoing activity or completed lasting pose, e.g. sitting at the desk. No chair or target object is required for simply sitting. Momentary posture and gestures belong in narrative without a state event.\"},\"action\":{\"type\":\"string\",\"description\":\"Inventory: add/gain/take or remove/lose/consume/give/drop. Condition: explicit add/remove/clear/recover and an exact lasting condition name. Gestures, mood and momentary poses are not conditions. Never record an offered-but-unaccepted item as gained.\"},\"target_id\":{\"type\":\"string\"},\"change\":{\"type\":\"number\"},\"label\":{\"type\":\"string\"},\"item\":{\"type\":\"string\"},\"outfit\":{\"type\":\"string\",\"description\":\"Required for an outfit event. Describe the resulting complete outfit. If no outfit is established and the scene establishes or changes clothing, invent a plausible outfit consistent with the character, setting, weather and story; never leave blank.\"},\"condition\":{\"type\":\"string\",\"description\":\"Required for type condition: exact named lasting condition. For remove/clear/recover, name an existing condition of this actor. Loosening a tether without freeing its wearer does not remove cuffs.\"},\"minutes_elapsed\":{\"type\":\"integer\"},\"observation\":{\"type\":\"string\"},\"place_id\":{\"type\":\"string\",\"description\":\"For a verified told observation: exact ID of a place the NPC learns exists.\"},\"source_type\":{\"type\":\"string\",\"enum\":[\"witnessed\",\"told\",\"public\",\"suspected\",\"believed\"]},\"source_npc_id\":{\"type\":\"string\"},\"confidence\":{\"type\":\"number\"},\"visibility\":{\"type\":\"string\",\"enum\":[\"public\",\"private\"]},\"contradicted\":{\"type\":\"boolean\"},\"allowed_to_share\":{\"type\":\"boolean\"},\"next_status\":{\"type\":\"string\",\"enum\":[\"alive\",\"dead\",\"gone\"],\"description\":\"Only for type status: the NPC lifecycle value alive, dead or gone. Do not use a status event for an activity, pose, mood or temporary condition.\"},\"witnessed_by\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"IDs of characters who directly witnessed this event. Include 'player' when applicable.\"},\"cause\":{\"type\":\"string\"},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"type\",\"status\",\"actor_id\",\"passage_id\"],\"additionalProperties\":false}},\"effects\":{\"type\":\"object\",\"properties\":{},\"required\":[],\"additionalProperties\":false,\"description\":\"Changed enabled fields only. Omit when nothing changes.\"},\"speech\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"speaker\":{\"type\":\"string\",\"description\":\"Exact present NPC ID or player\",\"maxLength\":120},\"listeners\":{\"type\":\"array\",\"items\":{\"type\":\"string\",\"description\":\"Exact present listener ID or player\",\"maxLength\":120},\"maxItems\":32},\"quote\":{\"type\":\"string\",\"description\":\"Exact spoken words contained in the linked passage; omit only when the entire passage is speech.\",\"maxLength\":1200},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"speaker\",\"listeners\",\"passage_id\"],\"additionalProperties\":false},\"maxItems\":32},\"commitments\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"Stable event ID; reuse to acknowledge an existing commitment\",\"maxLength\":80},\"title\":{\"type\":\"string\",\"description\":\"Player-facing commitment\",\"maxLength\":120},\"description\":{\"type\":\"string\",\"description\":\"What is due and why\",\"maxLength\":500},\"day\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"Absolute world day, starting at 1. Never a relative duration.\"},\"minute_of_day\":{\"type\":\"integer\",\"minimum\":0,\"maximum\":1439,\"description\":\"24-hour time: 17:00 is 1020.\"},\"location_id\":{\"type\":\"string\",\"description\":\"Registered location ID\",\"maxLength\":120},\"status\":{\"type\":\"string\",\"enum\":[\"scheduled\",\"cancelled\"]},\"reschedule\":{\"type\":\"boolean\",\"description\":\"True only for an explicitly agreed change, not when repeating a deadline.\"},\"passage_id\":{\"type\":\"string\",\"description\":\"Copy the exact, case-sensitive id from one narrative[].id. Never invent, rename, or paraphrase passage IDs; do not repeat passage text.\",\"maxLength\":80},\"action_id\":{\"type\":\"string\",\"description\":\"Stable unique action ID. Required for compound or linked actions.\",\"maxLength\":80}},\"required\":[\"id\",\"title\",\"day\",\"minute_of_day\",\"location_id\",\"status\",\"passage_id\"],\"additionalProperties\":false},\"maxItems\":32,\"description\":\"Only a newly agreed future deadline with a time expressly stated in the current player message or its linked passage. Wishes, offers, open-ended plans, aspirations and attribution requests are not timed commitments; use [] for them. Never manufacture day or minute_of_day from the World clock.\"}},\"required\":[\"protocol\",\"narrative\",\"actions\"],\"additionalProperties\":false},\"context\":{\"worldId\":\"gemma_live_P43G_GARDEN\",\"sessionId\":\"wsess_1793224165874\",\"version\":0,\"nonce\":\"19a23818-ce1c-4628-b8f6-08401065d772\",\"input\":\"Linda, what happened in the garden with Cass?\",\"singleRequest\":false,\"questIds\":[],\"commitmentIds\":[],\"references\":[{\"id\":\"linda\",\"name\":\"Linda\",\"type\":\"npc\"},{\"id\":\"cass\",\"name\":\"Cass\",\"type\":\"npc\"},{\"id\":\"remote\",\"name\":\"Remote\",\"type\":\"npc\"},{\"id\":\"key\",\"name\":\"Bronze key\",\"type\":\"item\",\"locationId\":\"foyer\",\"reachable\":true},{\"id\":\"can\",\"name\":\"Watering can\",\"type\":\"item\",\"locationId\":\"\",\"reachable\":true},{\"id\":\"gloves\",\"name\":\"Gloves\",\"type\":\"item\",\"locationId\":\"\",\"reachable\":true},{\"id\":\"foyer\",\"name\":\"Foyer\",\"type\":\"location\"},{\"id\":\"round\",\"name\":\"Round Room\",\"type\":\"location\"},{\"id\":\"garden\",\"name\":\"Garden\",\"type\":\"location\"}],\"playerLocation\":\"foyer\",\"prepareCertainEffects\":true,\"universalCheckRules\":[],\"allowCommitments\":true,\"now\":505}}",
+        "response": "{\"ok\":true,\"draft\":{\"protocol\":\"scene_draft_v3\",\"actions\":[{\"action_id\":\"turn_5352a237e7206d1aba955632_action_0\",\"kind\":\"speech\",\"status\":\"resolved\",\"request\":\"Linda, what happened in the garden with Cass?\",\"response_id\":\"turn_5352a237e7206d1aba955632_action_0_p0\",\"action_effects\":{}}],\"narrative\":[{\"id\":\"turn_5352a237e7206d1aba955632_action_0_p0\",\"action_id\":\"turn_5352a237e7206d1aba955632_action_0\",\"text\":\"Cass was there, taking gloves and leaving. I just collected the watering can and came back here.\"}],\"events\":[],\"effects\":{},\"speech\":[],\"commitments\":[],\"resolutions\":[]},\"binding\":{\"turnId\":\"turn_5352a237e7206d1aba955632\",\"worldActionIds\":[],\"gestureActionIds\":[],\"repairs\":[],\"actionSpans\":[{\"start\":0,\"end\":45,\"action_id\":\"turn_5352a237e7206d1aba955632_action_0\"}]}}",
+        "error": "",
+        "status": 0
+      }
+    ],
+    "pageErrors": []
+  }
+]

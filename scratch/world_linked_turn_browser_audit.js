@@ -32,6 +32,7 @@ const root = path.resolve(__dirname, '..');
         const result = await page.evaluate(async () => {
             clearInterval(companionAgencyTimer);
             clearInterval(companionAlwaysOnTimer);
+            localStorage.setItem('horde_world_debug_enabled_v1', 'true');
             state.apiKey = 'offline';
             state.globalSettings.apiProvider = 'local';
             state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
@@ -103,8 +104,14 @@ const root = path.resolve(__dirname, '..');
                 ?.find(item => item.id === sess.id);
             const visibleAfterFailure = document.getElementById('world-messages-container').innerText;
             window.fetch = realFetch;
+            const debug = worldDebugEntries(world, sess);
+            renderWorldDirectorPanel(world, sess);
             return { calls, providerNames, hasNotation,
-                nativeNames: [...HordeEffectRegistry.technicalEffects.keys()],
+                debugSummary: document.querySelector('#world-director-receipts summary')?.textContent,
+                debug: debug.map(entry => ({ status: entry.commitStatus,
+                    input: entry.input, version: entry.end?.version,
+                    calls: entry.calls?.length || 0 })),
+                nativeNames: HordeEffectRegistry.capabilities().nativeNames,
                 beforeCommit: firstBeforeCommit, firstState,
                 outfit: sess.outfit, savedOutfit: saved?.outfit,
                 savedAfterFailure: savedAfterFailure?.outfit,
@@ -123,9 +130,16 @@ const root = path.resolve(__dirname, '..');
         });
         assert.deepEqual(errors, [], JSON.stringify(errors));
         assert(result.calls >= 2 && result.calls <= 4, JSON.stringify(result));
+        assert.deepEqual(result.debug.map(entry => entry.status), ['failed', 'committed'],
+            JSON.stringify(result.debug));
+        assert.match(result.debugSummary || '', /^failed/);
+        assert.equal(result.debug[0].input, 'I put on the violet cloak.');
+        assert.equal(result.debug[1].input, 'I put on the red coat.');
         assert.equal(result.hasNotation, true, JSON.stringify(result));
         assert(result.nativeNames.every(name => result.providerNames.includes(name)),
             JSON.stringify({ providerNames: result.providerNames, nativeNames: result.nativeNames }));
+        assert.equal(result.providerNames.includes('resource_cost'), false,
+            'engine-owned resource costs must not enter the provider schema');
         assert(result.providerNames.includes('npc_relationship_updates'),
             JSON.stringify(result.providerNames));
         assert(result.beforeCommit, JSON.stringify(result));
@@ -511,7 +525,8 @@ const root = path.resolve(__dirname, '..');
             const sess = getCurrentWorldSession();
             const direct = processStructuredActions({ stat_changes: { energy: 2000000000 } },
                 world, structuredClone(sess), { deferFeedback: true });
-            const before = sess.history.length;
+            const beforeVersion = sess.worldStateVersion;
+            const beforeReceipts = sess.worldTurnReceipts.length;
             const realFetch = window.fetch;
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
@@ -530,12 +545,15 @@ const root = path.resolve(__dirname, '..');
             await executeWorldTurn();
             window.fetch = realFetch;
             return { directReason: direct.statResult?.rejected?.[0]?.reason,
-                committed: sess.history.length > before,
+                committed: sess.worldStateVersion !== beforeVersion
+                    || sess.worldTurnReceipts.length !== beforeReceipts,
+                outcome: sess.lastTurnAudit?.actions?.at(-1)?.outcome,
                 falseSuccess: sess.history.some(message => message.role === 'dm'
                     && message.text?.includes('Your energy surges.')) };
         });
         assert.equal(invalidStat.directReason, 'invalid_amount', JSON.stringify(invalidStat));
-        assert.equal(invalidStat.committed, false, JSON.stringify(invalidStat));
+        assert.equal(invalidStat.committed, true, JSON.stringify(invalidStat));
+        assert.equal(invalidStat.outcome, 'blocked', JSON.stringify(invalidStat));
         assert.equal(invalidStat.falseSuccess, false, JSON.stringify(invalidStat));
         const eventBridge = await page.evaluate(async () => {
             clearInterval(companionAgencyTimer);
@@ -809,6 +827,24 @@ const root = path.resolve(__dirname, '..');
         assert(authoredRuleReload.guide?.includes('alerted'), JSON.stringify(authoredRuleReload));
         assert(authoredRuleReload.watcher?.includes('alerted'), JSON.stringify(authoredRuleReload));
         assert.equal(authoredRuleReload.rules, 1, JSON.stringify(authoredRuleReload));
+        const debugBounds = await page.evaluate(() => {
+            const world = state.worlds.find(item => item.id === 'event_rule_fixture');
+            const sess = state.worldInstances.event_rule_fixture.sessions.at(-1);
+            const before = JSON.stringify({ world, sess });
+            localStorage.setItem('horde_world_debug_enabled_v1', 'true');
+            for (let index = 0; index < 25; index++) recordWorldDebugTurn(world, sess, {
+                input: `test ${index}`, commitStatus: 'failed',
+                start: { version: index }, end: { version: index }
+            });
+            const entries = worldDebugEntries(world, sess);
+            localStorage.setItem('horde_world_debug_enabled_v1', 'false');
+            recordWorldDebugTurn(world, sess, { input: 'should not be retained' });
+            return { count: entries.length, newest: entries[0]?.input,
+                disabledCount: worldDebugEntries(world, sess).length,
+                canonicalUnchanged: before === JSON.stringify({ world, sess }) };
+        });
+        assert.deepEqual(debugBounds, { count: 20, newest: 'test 24',
+            disabledCount: 20, canonicalUnchanged: true });
         console.log('PASS linked V3 receipt, two NPC event-rule turns, scene memory, rollback and reload');
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

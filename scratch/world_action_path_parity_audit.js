@@ -604,6 +604,9 @@ const root = path.resolve(__dirname, '..');
                 scheduleLocation: scheduled.entityStates.n.location,
                 scheduleJourneyMinutes: scheduled.entityStates.n.journey?.legTravelMinutes,
                 linkedOk: linked.ok, linkedErrors: linked.errors,
+                linkedLocation: linked.ok ? linked.working.getEntity('n').state?.location : null,
+                linkedTime: linked.ok ? getWorldTimeData(world, linked.working.prepare().session).currentTotalMinutes : null,
+                linkedOutcomes: [...linked.outcomes], linkedActionFailures: linked.actionFailures,
                 journeyOk: journey.ok, journeyErrors: journey.errors,
                 journeyLocation: journey.ok && journey.working.getEntity('n').state.location,
                 journeyMinutes: journey.ok && journey.working.getEntity('n').state.journey?.legTravelMinutes,
@@ -635,6 +638,7 @@ const root = path.resolve(__dirname, '..');
                     && directDuringJourney.working.getEntity('n').state.journey || null,
                 directAcrossLockOk: directAcrossLock.ok,
                 directAcrossDenialOk: directAcrossDenial.ok,
+                directAcrossDenialOutcome: directAcrossDenial.outcomes.get('move_n'),
                 directWithoutCauseOk: directWithoutCause.ok,
                 keyedLinkedOk: keyedLinked.ok, keyedLinkedErrors: keyedLinked.errors,
                 exploredOk: explored.ok, exploredErrors: explored.errors,
@@ -648,6 +652,7 @@ const root = path.resolve(__dirname, '..');
                 wrongCompanionActionOk: wrongCompanionAction.ok,
                 wrongCompanionActionReason: wrongCompanionAction.errors[0]?.reason,
                 unavailableCompanionOk: unavailableCompanion.ok,
+                unavailableCompanionOutcome: unavailableCompanion.outcomes.get('move_n'),
                 unavailableCompanionLocations: [unavailableCompanionSession.playerLocation,
                     unavailableCompanionSession.entityStates.c.location],
                 keyedCompanionOk: keyedCompanion.ok,
@@ -656,6 +661,7 @@ const root = path.resolve(__dirname, '..');
                 multiLinkedOk: multiLinked.ok, multiLinkedErrors: multiLinked.errors,
                 multiLinkedLegs: multiLinked.ok && multiLinked.working.getEntity('n').state.journey?.legTravelMinutes,
                 earlySecondLegOk: earlySecondLeg.ok,
+                earlySecondLegOutcomes: [...earlySecondLeg.outcomes],
                 completedTwoLegsOk: completedTwoLegs.ok,
                 completedTwoLegsErrors: completedTwoLegs.errors,
                 completedTwoLegsLocation: completedTwoLegs.ok && completedTwoLegs.working.getEntity('n').state.location,
@@ -663,12 +669,15 @@ const root = path.resolve(__dirname, '..');
                 noWitnessOk: noWitness.ok, noWitnessErrors: noWitness.errors,
                 unknownAgentRejections: unknownAgent.moduleRejections,
                 unknownLinkedOk: unknownLinked.ok,
+                unknownLinkedOutcome: unknownLinked.outcomes.get('move_n'),
                 deniedAgentRejections: deniedAgent.moduleRejections,
                 deniedLinkedOk: deniedLinked.ok,
+                deniedLinkedOutcome: deniedLinked.outcomes.get('move_n'),
                 blockedJourneyOk: blockedJourney.ok,
                 blockedJourneyOutcome: blockedJourney.outcomes.get('move_n'),
                 lockedAgentRejections: lockedAgent.moduleRejections,
                 lockedLinkedOk: lockedLinked.ok,
+                lockedLinkedOutcome: lockedLinked.outcomes.get('move_n'),
                 dependentOk: dependent.ok,
                 dependentOutcomes: [...dependent.outcomes],
                 dependentRelation: dependent.ok && dependent.working.getSession('npcRelationships')['m|n'],
@@ -756,7 +765,9 @@ const root = path.resolve(__dirname, '..');
         assert.deepEqual(result.agentJourneyMinutes, [60]);
         assert.equal(result.scheduleLocation, null, 'the scheduler starts the same timed journey');
         assert.deepEqual(result.scheduleJourneyMinutes, [60]);
-        assert.equal(result.linkedOk, false, 'a timed arrival without elapsed time is rejected');
+        assert.equal(result.linkedOk, true, 'the linked turn remains valid when its timed move is blocked');
+        assert.deepEqual(result.linkedOutcomes, [['move_n', 'blocked']]);
+        assert.equal(result.linkedLocation, 'a', 'a timed arrival without elapsed time does not move the actor');
         assert.equal(result.journeyOk, true, JSON.stringify(result.journeyErrors));
         assert.deepEqual([result.journeyLocation, result.journeyMinutes], [null, [60]]);
         assert.equal(result.journeyAtThirty, null);
@@ -780,7 +791,8 @@ const root = path.resolve(__dirname, '..');
         assert.deepEqual([result.directDuringJourneyLocation,
             result.directDuringJourneyPending], ['b', null]);
         assert.equal(result.directAcrossLockOk, true, 'explicit teleport can bypass a physical lock');
-        assert.equal(result.directAcrossDenialOk, false, 'teleport still respects NPC access');
+        assert.deepEqual([result.directAcrossDenialOk, result.directAcrossDenialOutcome],
+            [true, 'blocked'], 'teleport still respects NPC access');
         assert.equal(result.directWithoutCauseOk, false);
         assert.equal(result.keyedLinkedOk, true, JSON.stringify(result.keyedLinkedErrors));
         assert.equal(result.exploredOk, true, JSON.stringify(result.exploredErrors));
@@ -798,20 +810,24 @@ const root = path.resolve(__dirname, '..');
         assert.deepEqual(result.multiScheduleLegs, [60, 30]);
         assert.equal(result.multiLinkedOk, true, JSON.stringify(result.multiLinkedErrors));
         assert.deepEqual(result.multiLinkedLegs, [60, 30]);
-        assert.equal(result.earlySecondLegOk, false, 'elapsed time cannot pay for two legs twice');
+        assert.deepEqual([result.earlySecondLegOk, result.earlySecondLegOutcomes.at(-1)],
+            [true, ['move_c', 'blocked']], 'elapsed time cannot pay for two legs twice');
         assert.equal(result.completedTwoLegsOk, true, JSON.stringify(result.completedTwoLegsErrors));
         assert.equal(result.completedTwoLegsLocation, 'c');
         assert.equal(result.canonicalLocation, 'a');
         assert.equal(result.noWitnessOk, false);
         assert.equal(result.noWitnessErrors[0].reason, 'unverified_journey_start');
         assert(result.unknownAgentRejections.some(item => item.reason === 'npc_access_denied'));
-        assert.equal(result.unknownLinkedOk, false, 'linked travel checks personal place knowledge');
+        assert.deepEqual([result.unknownLinkedOk, result.unknownLinkedOutcome],
+            [true, 'blocked'], 'linked travel checks personal place knowledge');
         assert(result.deniedAgentRejections.some(item => item.reason === 'npc_access_denied'));
-        assert.equal(result.deniedLinkedOk, false, 'both paths refuse explicit NPC access denial');
+        assert.deepEqual([result.deniedLinkedOk, result.deniedLinkedOutcome],
+            [true, 'blocked'], 'both paths refuse explicit NPC access denial');
         assert.deepEqual([result.blockedJourneyOk, result.blockedJourneyOutcome], [true, 'blocked']);
         assert(result.lockedAgentRejections.some(item => ['npc_access_denied',
             'unreachable_npc_destination'].includes(item.reason)));
-        assert.equal(result.lockedLinkedOk, false, 'linked travel checks the required item');
+        assert.deepEqual([result.lockedLinkedOk, result.lockedLinkedOutcome],
+            [true, 'blocked'], 'linked travel checks the required item');
         assert.equal(result.dependentOk, true);
         assert.deepEqual(result.dependentOutcomes, [['move_n', 'blocked'], ['after_move', 'skipped']]);
         assert.equal(result.dependentRelation, undefined);

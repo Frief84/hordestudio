@@ -72,10 +72,13 @@ const root = path.resolve(__dirname, '..');
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 calls++;
                 modelSchemaContainsCost ||= String(options.body || '').includes('"resource_cost"');
-                const payload = { choices: [{ delta: { content: JSON.stringify(draft) },
-                    finish_reason: 'stop' }] };
-                return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`,
-                    { headers: { 'Content-Type': 'text/event-stream' } });
+                const body = JSON.parse(options.body || '{}');
+                const content = body.response_format?.json_schema?.name === 'resolved_intent_v1'
+                    ? JSON.stringify({ protocol: 'resolved_intent_v1', steps: [{
+                        source_quote: 'I focus on the inscription', kind: 'other' }] })
+                    : 'The inscription comes into focus.';
+                return new Response(JSON.stringify({ choices: [{ message: { content } }] }),
+                    { headers: { 'Content-Type': 'application/json' } });
             };
             document.getElementById('world-user-input').value = 'I focus on the inscription';
             await executeWorldTurn();
@@ -89,7 +92,7 @@ const root = path.resolve(__dirname, '..');
                 card: document.querySelector('.world-check-card')?.textContent || '' };
         });
         assert.deepEqual(errors, []);
-        assert.equal(result.calls, 1, JSON.stringify(result));
+        assert.equal(result.calls, 2, JSON.stringify(result));
         assert.equal(result.modelSchemaContainsCost, false);
         assert.equal(result.importedCost, 2);
         assert.equal(result.energy, 3);
@@ -114,21 +117,25 @@ const root = path.resolve(__dirname, '..');
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 calls++;
-                const payload = { choices: [{ delta: { content: JSON.stringify(draft) },
-                    finish_reason: 'stop' }] };
-                return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`,
-                    { headers: { 'Content-Type': 'text/event-stream' } });
+                const body = JSON.parse(options.body || '{}');
+                const content = body.response_format?.json_schema?.name === 'resolved_intent_v1'
+                    ? JSON.stringify({ protocol: 'resolved_intent_v1', steps: [{
+                        source_quote: 'I focus on the inscription', kind: 'other' }] })
+                    : 'The inscription remains unclear.';
+                return new Response(JSON.stringify({ choices: [{ message: { content } }] }),
+                    { headers: { 'Content-Type': 'application/json' } });
             };
             document.getElementById('world-user-input').value = 'I focus on the inscription';
             await executeWorldTurn();
             window.fetch = realFetch;
+            const current = getCurrentWorldSession();
             const saved = (await HordeDB.get('worldInstance:p42_cost'))?.sessions
                 ?.find(item => item.id === sess.id);
-            return { calls, energy: sess.playerStats.energy,
-                receipt: sess.worldTurnReceipts?.at(-1)?.receipt,
+            return { calls, energy: current.playerStats.energy,
+                receipt: current.worldTurnReceipts?.at(-1)?.receipt,
                 savedEnergy: saved?.playerStats?.energy };
         });
-        assert.equal(failedTurn.calls, 1, JSON.stringify(failedTurn));
+        assert.equal(failedTurn.calls, 2, JSON.stringify(failedTurn));
         assert.equal(failedTurn.energy, 2);
         assert.equal(failedTurn.savedEnergy, 2);
         assert.equal(failedTurn.receipt?.check_results?.[0]?.kind, 'failure');

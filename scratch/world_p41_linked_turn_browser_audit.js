@@ -60,24 +60,36 @@ const root = path.resolve(__dirname, '..');
             effects: {}, speech: [], commitments: [] };
             const realFetch = window.fetch;
             let calls = 0;
+            const callKinds = [];
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 calls++;
-                const payload = { choices: [{ delta: { content: JSON.stringify(draft) }, finish_reason: 'stop' }] };
-                return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`,
-                    { headers: { 'Content-Type': 'text/event-stream' } });
+                const body = JSON.parse(options.body || '{}');
+                const kind = body.response_format?.json_schema?.name || 'narration';
+                callKinds.push(kind);
+                const content = kind === 'resolved_intent_v1' ? JSON.stringify({
+                    protocol: 'resolved_intent_v1', steps: [{
+                        source_quote: 'I focus on the inscription', kind: 'other' }]
+                }) : 'The inscription comes into focus.';
+                return new Response(JSON.stringify({ choices: [{ message: { content } }] }),
+                    { headers: { 'Content-Type': 'application/json' } });
             };
             document.getElementById('world-user-input').value = 'I focus on the inscription';
             await executeWorldTurn();
             window.fetch = realFetch;
+            const currentSession = getCurrentWorldSession();
             const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions
                 ?.find(item => item.id === sess.id);
-            return { calls, receipt: sess.worldTurnReceipts?.at(-1)?.receipt,
-                message: sess.history?.at(-1), saved: saved?.worldTurnReceipts?.at(-1)?.receipt,
-                card: document.querySelector('.world-check-card')?.textContent || '' };
+            return { calls, callKinds, currentSession: currentSession?.worldTurnReceipts?.at(-1),
+                receipt: currentSession?.worldTurnReceipts?.at(-1)?.receipt,
+                message: currentSession?.history?.at(-1), saved: saved?.worldTurnReceipts?.at(-1)?.receipt,
+                card: document.querySelector('.world-check-card')?.textContent || '',
+                error: document.getElementById('world-turn-error-text')?.textContent,
+                diagnostics: sess.worldCallDiagnostics?.slice(-3) };
         });
         assert.deepEqual(errors, []);
-        assert.equal(result.calls, 1, JSON.stringify(result));
+        assert.equal(result.calls, 2, JSON.stringify(result));
+        assert.deepEqual(result.callKinds, ['resolved_intent_v1', 'narration']);
         assert.equal(result.receipt?.check_results?.[0]?.result_id, 'pass', JSON.stringify(result));
         assert.equal(result.saved?.check_results?.[0]?.result_id, 'pass', JSON.stringify(result));
         assert.equal(result.message?.checkResults?.[0]?.rule_id, 'focus', JSON.stringify(result));

@@ -156,7 +156,8 @@ const host = 'world-negated-movement-receipt.test';
         assert.equal(result.after.location, 'square', JSON.stringify(result.after));
         assert.equal(result.after.persistedLocation, 'square');
         assert.equal(result.after.source, 'frozen_no_receipt');
-        assert.match(result.after.lastText, /story text was discarded/);
+        assert.match(result.after.lastText,
+            /story text was discarded|Erzähltext wurde verworfen|récit a été écarté|Se descartó el relato/);
         assert.equal(result.after.savedLastText, result.after.lastText);
         assert.equal(result.after.receiptScene?.player_location_id, 'square');
         assert.equal(result.after.receiptScene?.player_location_changed, false);

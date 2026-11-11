@@ -1,0 +1,78 @@
+[
+  {
+    "input": "Ich schaue mich um.",
+    "ms": 3187,
+    "status": 200,
+    "data": {
+      "id": "chatcmpl-761",
+      "object": "chat.completion",
+      "created": 1794352104,
+      "model": "gemma4:31b-it-q4_K_M",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Ich schaue mich um.\",\"kind\":\"observation\"}]}",
+            "reasoning": "*   Input: `Ich schaue mich um.` (I look around.)\n    *   World References: `currentLocation` is `hall`.\n    *   Intent: The player wants to observe their surroundings.\n\n    *   \"Ich schaue mich um.\" -> `observation`\n\n    *   Step 1: `observation`\n    *   `source_quote`: \"Ich schaue mich um.\""
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 444,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 122,
+        "total_tokens": 566
+      }
+    },
+    "validation": {
+      "ok": true,
+      "errors": [],
+      "intent": {
+        "protocol": "resolved_intent_v1",
+        "steps": [
+          {
+            "source_quote": "Ich schaue mich um.",
+            "kind": "observation"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "input": "Ich gehe in die Küche zu Jonas, begrüße ihn und frage, was er heute vorhat. Währenddessen schaue ich mich in der Küche um.",
+    "ms": 16326,
+    "status": 200,
+    "data": {
+      "id": "chatcmpl-575",
+      "object": "chat.completion",
+      "created": 1794352121,
+      "model": "gemma4:31b-it-q4_K_M",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "",
+            "reasoning": "*   Input: Player message \"Ich gehe in die Küche zu Jonas, begrüße ihn und frage, was er heute vorhat. Währenddessen schaue ich mich in der Küche um.\"\n    *   World References:\n        *   Current location: `hall`\n        *   Exits: `hall` -> `kitchen`\n        *   Locations: `hall`, `kitchen`\n        *   Items: None\n        *   Player Inventory: Empty\n        *   Interactables: Empty\n\n    *   \"Ich gehe in die Küche zu Jonas\" -> Travel to `kitchen`.\n    *   \"begrüße ihn\" -> Speech to Jonas. (Wait, Jonas is not in the WORLD REFERENCES. I must check if he's there. He's not listed in `people` for `hall` or `kitchen`. However, the prompt says \"Resolve IDs only from WORLD REFERENCES\". If Jonas isn't there, I can't resolve his ID. But usually, in these tasks, if a person is mentioned but not in the list, I might have to omit the ID or handle it. Let's re-read: \"Resolve IDs only from WORLD REFERENCES\". If Jonas is not in the WORLD REFERENCES, I cannot provide a `target_id` for him. But I should still represent the intent.)\n    *   \"frage, was er heute vorhat\" -> Question to Jonas.\n    *   \"Währenddessen schaue ich mich in der Küche um\" -> Observation of the kitchen.\n\n    *   Step 1: Travel to `kitchen`.\n        *   Source quote: \"Ich gehe in die Küche zu Jonas\"\n        *   Type: `travel`\n        *   Destination: `kitchen`\n    *   Step 2: Greet Jonas.\n        *   Source quote: \"begrüße ihn\"\n        *   Type: `speech`\n        *   Utterance: \"begrüße ihn\" (Wait, the prompt says \"For speech or questions, include only words explicitly supplied as spoken content; never invent or elaborate a quotation.\" \"begrüße ihn\" is the action, not the quote. But \"If the player asks someone about a topic without specifying exact words, use the exact request phrase as utterance.\" This applies to questions. For greetings, if no quote is provided, I use the phrase.)\n        *   Target: Jonas (ID not found in WORLD REFERENCES).\n    *   Step 3: Ask Jonas what he's doing today.\n        *   Source quote: \"frage, was er heute vorhat\"\n        *   Type: `question`\n        *   Utterance: \"was er heute vorhat\"\n        *   Target: Jonas (ID not found).\n    *   Step 4: Look around the kitchen.\n        *   Source quote: \"Währenddessen schaue ich mich in der Küche um\"\n        *   Type: `observation`\n        *   Target: `kitchen`\n\n    *   Step 1: `travel` to `kitchen`.\n    *   Step 2: `speech` to Jonas. `depends_on` Step 1.\n    *   Step 3: `question` to Jonas. `depends_on` Step 1.\n    *   Step 4: `observation` of `kitchen`. `depends_on` Step 1.\n\n    *Wait*, the prompt says \"Resolve IDs only from WORLD REFERENCES\". Jonas is not in the WORLD REFERENCES. I cannot put a `target_id` for him. I will omit the `target_id` or leave it out if it's not in the list.\n\n    Let's refine the quotes:\n    1. \"Ich gehe in die Küche zu Jonas\" -> `travel`, `destination_id`: \"kitchen\"\n    2. \"begrüße ihn\" -> `speech`, `utterance`: \"begrüße ihn\" (since no specific words are given)\n    3. \"frage, was er heute vorhat\" -> `question`, `utterance`: \"was er heute vorhat\"\n    4. \"Währenddessen schaue ich mich in der Küche um\" -> `observation`, `target_id`: \"kitchen\"\n\n    Wait, \"Währenddessen\" implies simultaneity, but the system requires ordered steps. I'll place it at the end or interleaved. Usually, movement comes first.\n\n    Check for Jonas again. He is not in the `people` list of `hall` or `kitchen`.\n    If the target is not in WORLD REFERENCES, I cannot resolve the ID.\n\n    Let's double check the \"speech\" and \"question\" rules.\n    \""
+          },
+          "finish_reason": "length"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 471,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 1000,
+        "total_tokens": 1471
+      }
+    },
+    "validation": null
+  }
+]

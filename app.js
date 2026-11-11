@@ -1314,6 +1314,15 @@ function companionImageProviderId(companion) {
 /** Turn opaque fetch failures into actionable guidance (esp. local CORS/PNA). */
 function humanizeApiError(err, providerId = state.globalSettings.apiProvider) {
     const msg = err?.message || String(err);
+    if (err?.code === 'WORLD_TURN_PERSISTENCE_FAILED') return 'Saving the World turn failed. Check available storage and retry.';
+    if (err?.code === 'WORLD_INTENT_INVALID_JSON') return `The intent model returned invalid JSON: ${msg}`;
+    if (/^(?:WORLD_INTENT_|RESOLVED_INTENT_)/.test(err?.code || '')) return msg;
+    if (err?.code === 'WORLD_MODEL_PROVIDER_ERROR') return err.status
+        ? `The model provider rejected the request (HTTP ${err.status}). Check the model and provider settings.`
+        : 'The model provider reported an error. Check the model and provider settings.';
+    if (err?.code === 'WORLD_MODEL_UNAVAILABLE') return 'The requested model is unavailable. Check that it is installed and selected correctly.';
+    if (err?.code === 'WORLD_MODEL_LOAD_FAILED') return 'The local model could not be loaded. Check the model server and available memory.';
+    if (err?.name === 'TimeoutError' || err?.code === 'WORLD_MODEL_TIMEOUT') return 'Model request timed out. Check the model server and retry.';
     const provider = normalizedProviderId(providerId);
     if (provider === 'nanogpt' && /invalid session/i.test(msg)) {
         return 'NanoGPT rejected the credential used for generation. Its model catalog is public, so a catalog-only test can still pass with a missing, stale or non-API credential. Create or copy an API key from NanoGPT (sk-nano-… or a legacy UUID), paste it in Settings → Connections, run the live connection test, then Save Settings.';
@@ -1573,6 +1582,8 @@ let state = {
         embeddingApiKey: '',
         localTtsBaseUrl: 'http://127.0.0.1:8000/v1',
         localTtsApiKey: '',
+        ttsProvider: 'kokoro',
+        mingModel: '0.5b',
         evolinkBaseUrl: 'https://api.evolink.ai/v1',
         wavespeedBaseUrl: 'https://api.wavespeed.ai/api/v3',
         mcpBridgeUrl: HORDE_MCP_BRIDGE_DEFAULT,
@@ -2023,6 +2034,16 @@ function validateWorldData(value, label = 'World', { clone = true } = {}) {
             requireString(exit.text, `${label} location ${index + 1} exit ${exitIndex + 1} text`, { max: 1000 });
             if (exit.travelTime !== undefined && (!Number.isFinite(Number(exit.travelTime)) || Number(exit.travelTime) < 0)) {
                 throw new Error(`${label} location ${index + 1} exit ${exitIndex + 1} travel time is invalid`);
+            }
+            if (exit.fare !== undefined) {
+                requirePlainObject(exit.fare, `${label} location ${index + 1} exit ${exitIndex + 1} fare`);
+                requireString(exit.fare.resourceId, `${label} location ${index + 1} exit ${exitIndex + 1} fare resourceId`, { max: 120 });
+                if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(exit.fare.resourceId)
+                    || !Number.isSafeInteger(exit.fare.amount) || exit.fare.amount <= 0
+                    || Object.keys(exit.fare).some(key => !['resourceId', 'amount'].includes(key)))
+                    throw new Error(`${label} location ${index + 1} exit ${exitIndex + 1} fare is invalid`);
+                if (String(exit.cost || '').trim())
+                    throw new Error(`${label} location ${index + 1} exit ${exitIndex + 1} cannot combine a typed fare with legacy cost text`);
             }
         });
     });
@@ -2480,6 +2501,10 @@ function repairLoadedState() {
     state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
         state.globalSettings.localTtsBaseUrl, 'http://127.0.0.1:8000/v1');
     state.globalSettings.localTtsApiKey = String(state.globalSettings.localTtsApiKey || '').slice(0, 500);
+    state.globalSettings.ttsProvider = ['none', 'kokoro', 'ming', 'local'].includes(state.globalSettings.ttsProvider)
+        ? state.globalSettings.ttsProvider : 'kokoro';
+    state.globalSettings.mingModel = ['0.5b', 'tiny'].includes(state.globalSettings.mingModel)
+        ? state.globalSettings.mingModel : '0.5b';
     state.globalSettings.falRate480 = Math.max(0, Math.min(100, Number(state.globalSettings.falRate480) || 0.05));
     state.globalSettings.falRate768 = Math.max(0, Math.min(100, Number(state.globalSettings.falRate768) || 0.08));
     state.globalSettings.falSafetyChecker = state.globalSettings.falSafetyChecker !== false;
@@ -3332,7 +3357,10 @@ async function persistPreparedWorldTurn(world, sess, workingState) {
         lastPersistedWorldManifests = safeJsonClone(snapshot.storedWorlds);
         if (migrated) persistedWorldInstanceIds = new Set(snapshot.instanceIds);
         state.worldRecoverySnapshots = snapshot.recoverySnapshots;
-    }, expectedVersion);
+    }, expectedVersion).catch(error => {
+        error.code ||= 'WORLD_TURN_PERSISTENCE_FAILED';
+        throw error;
+    });
 }
 
 async function saveWorldsState({ worldId = null } = {}) {
@@ -8943,7 +8971,8 @@ function appendMessageUI(role, content, index = null, charId = null, isStreaming
         };
     }
     
-    if (role === 'ai' && index !== null && window.HordeKokoro) {
+    if (role === 'ai' && index !== null && window.HordeKokoro
+        && state.globalSettings.ttsProvider === 'kokoro') {
         const character = state.characters.find(item => item.id === (charId || state.activeCharId));
         window.HordeKokoro.attachButton(div.querySelector('.message-actions') || div,
             {text:content}, character, null, null);
@@ -12305,8 +12334,8 @@ function stripWorldCheckScaffolding(text) {
     return `${visible ? `${visible}\n\n` : ''}A check is ready. Use the 🎲 Check button to roll before continuing.`;
 }
 
-function worldUnverifiedTurnNotice() {
-    return 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.';
+function worldUnverifiedTurnNotice(world) {
+    return worldMovementFallback('unverified_turn', '', world);
 }
 
 function parseExplicitWorldWaitMinutes(input, currentTotalMinutes = null) {
@@ -12624,8 +12653,8 @@ function settleWorldCheckStateOutcome(sess, result, before, world) {
         stateConsequences:safeJsonClone(changes),narrativeOutcome:result.narrativeOutcome});
 }
 
-function worldConflictingNarrativeNotice() {
-    return 'The DM’s final scene conflicted with the saved world state, so its story text was discarded. The verified state changes remain; check the current World state, then Reroll this response if needed.';
+function worldConflictingNarrativeNotice(world) {
+    return worldMovementFallback('conflicting_narrative', '', world);
 }
 
 function worldInventoryUnits(session, query, exact = true) {
@@ -13060,9 +13089,37 @@ function worldFinalNarrativeConflicts(world, beforeSession, afterSession, narrat
     }
     const presentNpcs = sessionNpcs(world, afterSession);
     const visibleProse = stripSpokenDialogue(narrative);
+    const sceneObjectSupport = [
+        getLocationRef(world, beforeSession.playerLocation)?.description,
+        getLocationRef(world, afterSession.playerLocation)?.description,
+        ...(afterSession.inventory || []).map(item =>
+            globalThis.HordeRpgMechanics?.itemName(item) || item?.name || String(item || '')),
+        ...(world.entities || []).filter(entity => [beforeSession.playerLocation,
+            afterSession.playerLocation].includes(afterSession.entityStates?.[entity.id]?.location
+                || entity.locationId || entity.startLocation)).map(entity => entity.name)
+    ].join(' ').toLocaleLowerCase();
+    for (const [term, form] of [
+        ['lampe', 'lampe'], ['lamp', 'lamp'], ['vorhang', 'vorhang'],
+        ['curtain', 'curtain'], ['kamin', 'kamin(?:s)?'], ['fireplace', 'fireplace'],
+        ['marmorboden', 'marmorboden'], ['marble floor', 'marble floor']
+    ]) {
+        const objectClaim = new RegExp(`(?:^|[.!?]\\s+|\\s+)(?:der|die|das|den|dem|des|ein|eine|einen|einem|eines|the|a|an)\\s+(?:[\\p{L}-]+\\s+){0,2}${form}(?:$|[^\\p{L}])`, 'iu');
+        const hit = objectClaim.exec(visibleProse);
+        if (hit && !sceneObjectSupport.includes(term)
+            && !/\b(?:wie|als ob|like|as if)\s+$/iu.test(visibleProse.slice(
+                Math.max(0, hit.index - 15), hit.index)))
+            conflicts.push({ reason: 'unsupported_scene_object', detail: term });
+    }
     presentNpcs.forEach(npc => {
         const npcState = afterSession.entityStates?.[npc.id];
-        if (!npcState || npcState.followingPlayer === true) return;
+        if (!npcState) return;
+        const unsupportedGermanArrival = npcState.location !== afterSession.playerLocation
+            && narratedNpcNameVariants(world, afterSession, npc).some(variant =>
+                new RegExp(`\\b${variant}\\b[^.!?\\n]{0,65}\\b(?:folgt\\s+(?:dir|dich|ihm|ihr)|begleitet\\s+(?:dich|ihn|sie)|geht\\s+mit\\s+(?:dir|ihm|ihr)|tritt[^.!?\\n]{0,30}hinein|kommt[^.!?\\n]{0,30}mit|(?:steht|tritt|erscheint)[^.!?\\n]{0,24}\\bneben\\s+dir|neben\\s+dir\\s+(?:steht|tritt|erscheint)|(?:dir|dich)[^.!?\\n]{0,16}\\bgefolgt\\s+(?:ist|sein))\\b`, 'iu')
+                    .test(visibleProse));
+        if (unsupportedGermanArrival) conflicts.push({ reason: 'uncommitted_npc_escort',
+            detail: npc.id });
+        if (npcState.followingPlayer === true) return;
         const escorted = narratedNpcNameVariants(world, afterSession, npc).some(variant =>
             new RegExp(`\\b${variant}\\b[^.!?\\n]{0,60}\\b(?:follows? you (?:to|into|through|out|down|up)|agrees? to (?:come|go|leave) with you)\\b`, 'i')
                 .test(visibleProse));
@@ -14753,6 +14810,157 @@ function setupGlobalSettings() {
             if (kokoroStatus) kokoroStatus.textContent = `Kokoro unavailable: ${error.message}`;
         } finally { testKokoro.disabled = false; }
     };
+    const ttsProviderSelect = document.getElementById('tts-provider');
+    const mingModelSelect = document.getElementById('ming-model');
+    const providerStatus = document.getElementById('tts-provider-status');
+    const mingStatus = document.getElementById('ming-install-status');
+    const localSpeechUrl = document.getElementById('global-local-tts-url');
+    const localSpeechKey = document.getElementById('global-local-tts-key');
+    const updateLocalSpeechConnection = () => {
+        state.globalSettings.localTtsBaseUrl = normalizeOpenAICompatibleBase(
+            localSpeechUrl.value.trim(), 'http://127.0.0.1:8000/v1');
+        state.globalSettings.localTtsApiKey = localSpeechKey.value.trim().slice(0,500);
+    };
+    localSpeechUrl.oninput = updateLocalSpeechConnection;
+    localSpeechKey.oninput = updateLocalSpeechConnection;
+    localSpeechUrl.onchange = async () => { updateLocalSpeechConnection(); await saveState(); };
+    localSpeechKey.onchange = async () => { updateLocalSpeechConnection(); await saveState(); };
+    const ttsRequest = async (path, body) => {
+        const response = await fetch(path, body ? {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)} : {});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+    };
+    const drawTtsStatus = info => {
+        const provider = state.globalSettings.ttsProvider;
+        document.getElementById('kokoro-provider-settings').hidden = provider !== 'kokoro';
+        document.getElementById('ming-provider-settings').hidden = provider !== 'ming';
+        document.getElementById('local-provider-tts-settings').hidden = provider !== 'local';
+        ttsProviderSelect.value = provider;
+        mingModelSelect.value = state.globalSettings.mingModel;
+        const kokoroInstalled = info?.kokoro?.installed === true;
+        document.getElementById('install-kokoro-btn').hidden = kokoroInstalled;
+        document.getElementById('uninstall-kokoro-btn').hidden = info?.kokoro?.managed !== true;
+        kokoroStatus.textContent = info?.kokoro?.job?.state === 'installing'
+            ? `${info.kokoro.job.step} · ${info.kokoro.job.progress || 0}%`
+            : info?.kokoro?.job?.error || (kokoroInstalled
+                ? info?.kokoro?.managed ? 'Managed Kokoro is installed.' : 'Existing external Kokoro installation detected and preserved.'
+                : 'Kokoro is not installed.');
+        const modelInfo = info?.ming?.models?.[state.globalSettings.mingModel] || {};
+        document.getElementById('install-ming-btn').hidden = modelInfo.installed === true;
+        document.getElementById('uninstall-ming-btn').hidden = modelInfo.installed !== true;
+        const selectedJob = provider === 'kokoro' ? info?.kokoro?.job : modelInfo;
+        const selectedInstalled = provider === 'kokoro' ? kokoroInstalled : modelInfo.installed === true;
+        const stateLabel = selectedJob?.state === 'installing' ? 'Installation running'
+            : selectedJob?.state === 'uninstalling' ? 'Uninstallation running'
+            : selectedJob?.state === 'error' && !selectedInstalled ? 'Error'
+            : selectedInstalled ? info?.ming?.synthesis_running && provider === 'ming' ? 'Starting / generating' : 'Ready'
+            : 'Not installed';
+        providerStatus.textContent = provider === 'none' ? 'Speech disabled. Installed models are retained.'
+            : provider === 'local' ? 'Local Neural TTS selected · connect and test your external speech server below.'
+            : `${provider === 'kokoro' ? 'Kokoro' : `Ming ${state.globalSettings.mingModel}`} selected · ${stateLabel}`;
+        mingStatus.textContent = modelInfo.state === 'installing'
+            ? `${modelInfo.step} · ${modelInfo.progress || 0}%${modelInfo.download_bytes
+                ? ` · ${Math.round(modelInfo.downloaded_bytes / 1048576)} / ${Math.round(modelInfo.download_bytes / 1048576)} MiB` : ''}`
+            : modelInfo.error || modelInfo.step || (modelInfo.installed ? 'Installed and tested' : 'Not installed. The 0.5B checkpoint requires about 3 GB plus dependencies.');
+        return modelInfo.state === 'installing' || info?.kokoro?.job?.state === 'installing';
+    };
+    const refreshTtsStatus = async () => {
+        try {
+            const info = await ttsRequest('/api/tts/status');
+            state.globalSettings.ttsProvider = info.provider;
+            if (info.model === '0.5b' || info.model === 'tiny') state.globalSettings.mingModel = info.model;
+            const installing = drawTtsStatus(info);
+            if (installing) setTimeout(refreshTtsStatus, 1500);
+        } catch (error) { providerStatus.textContent = `TTS status unavailable: ${error.message}`; }
+    };
+    ttsProviderSelect.onchange = async () => {
+        const previous = state.globalSettings.ttsProvider;
+        try {
+            const result = await ttsRequest('/api/tts/select', {provider:ttsProviderSelect.value,
+                model:state.globalSettings.mingModel});
+            state.globalSettings.ttsProvider = result.provider;
+            stopWorldSpeech();
+            if ('speechSynthesis' in window) speechSynthesis.cancel();
+            companionActiveAudio?.pause();
+            await saveState();
+            await refreshTtsStatus();
+            if (state.editingWorld) renderWorldEntities();
+        } catch (error) { ttsProviderSelect.value = previous; providerStatus.textContent = error.message; }
+    };
+    mingModelSelect.onchange = async () => {
+        const previous = state.globalSettings.mingModel;
+        try {
+            const result = await ttsRequest('/api/tts/select', {provider:state.globalSettings.ttsProvider,
+                model:mingModelSelect.value});
+            state.globalSettings.mingModel = result.model;
+            stopWorldSpeech();
+            await saveState();
+            await refreshTtsStatus();
+            if (state.editingWorld) renderWorldEntities();
+        } catch (error) {
+            mingModelSelect.value = previous;
+            mingStatus.textContent = error.message;
+        }
+    };
+    document.getElementById('install-ming-btn').onclick = async () => {
+        if (!confirm(`Install Ming 3.0 ${mingModelSelect.value}? The 0.5B model downloads about 3 GB of weights plus dependencies.`)) return;
+        try { await ttsRequest('/api/tts/install',{provider:'ming',model:mingModelSelect.value}); await refreshTtsStatus(); }
+        catch (error) { mingStatus.textContent = error.message; }
+    };
+    const deleteStoredTtsProfiles = async provider => {
+        const worlds = [...state.worlds, ...(state.editingWorld ? [state.editingWorld] : [])];
+        worlds.forEach(world => {
+            (world.entities || []).forEach(entity => {
+                if (provider === 'ming' && entity.tts_profiles) delete entity.tts_profiles.ming;
+                if (provider === 'kokoro' && entity.voice_profile?.engine === 'kokoro') {
+                    delete entity.voice_profile;
+                    delete entity.voice_source;
+                }
+            });
+            if (provider === 'kokoro' && world.voice_settings) {
+                delete world.voice_settings.kokoro_profiles;
+                if (world.voice_settings.default_profile?.engine === 'kokoro') delete world.voice_settings.default_profile;
+                if (world.voice_settings.narrator_profile?.engine === 'kokoro') delete world.voice_settings.narrator_profile;
+            }
+        });
+        await saveState();
+    };
+    document.getElementById('uninstall-ming-btn').onclick = async () => {
+        if (!confirm(`Uninstall the managed Ming ${mingModelSelect.value} model? Saved NPC voice profiles are retained.`)) return;
+        const deleteProfiles = document.getElementById('delete-ming-profiles').checked;
+        if (deleteProfiles && !confirm('Also permanently delete all saved Ming NPC profiles and local reference WAV recordings?')) return;
+        try {
+            await ttsRequest('/api/tts/uninstall',{provider:'ming',model:mingModelSelect.value});
+            if (deleteProfiles) {
+                await ttsRequest('/api/tts/ming/purge-references',{});
+                await deleteStoredTtsProfiles('ming');
+                document.getElementById('delete-ming-profiles').checked = false;
+            }
+            await refreshTtsStatus();
+        }
+        catch (error) { mingStatus.textContent = error.message; }
+    };
+    document.getElementById('install-kokoro-btn').onclick = async () => {
+        if (!confirm('Install Kokoro ONNX? This downloads about 355 MB of model files plus isolated dependencies.')) return;
+        try { await ttsRequest('/api/tts/install',{provider:'kokoro'}); await refreshTtsStatus(); }
+        catch (error) { kokoroStatus.textContent = error.message; }
+    };
+    document.getElementById('uninstall-kokoro-btn').onclick = async () => {
+        if (!confirm('Uninstall only the Kokoro files managed by Horde Studio? External Kokoro installations and saved profiles will be kept.')) return;
+        const deleteProfiles = document.getElementById('delete-kokoro-profiles').checked;
+        if (deleteProfiles && !confirm('Also permanently delete all saved Kokoro NPC and world voice profiles?')) return;
+        try {
+            await ttsRequest('/api/tts/uninstall',{provider:'kokoro'});
+            if (deleteProfiles) {
+                await deleteStoredTtsProfiles('kokoro');
+                document.getElementById('delete-kokoro-profiles').checked = false;
+            }
+            await refreshTtsStatus();
+        }
+        catch (error) { kokoroStatus.textContent = error.message; }
+    };
+    void refreshTtsStatus();
     const testLocalImages = document.getElementById('test-local-image-engines-btn');
     if (testLocalImages) testLocalImages.onclick = async () => {
         const result = document.getElementById('local-image-engines-result');
@@ -16219,6 +16427,7 @@ function createNewWorld() {
         lorebook: [],
         startingQuests: [],
         authorNote: '',
+        outputLanguage: 'auto',
         // Blank means "inherit Settings". A World pins a model only when its
         // creator explicitly chooses one in AI Configuration.
         model: '',
@@ -16917,6 +17126,9 @@ window.HordeKokoroInterpretVoiceText = async (description, selectedTags = []) =>
 
 function renderWorldVoiceSettings(world) {
     const enabled = document.getElementById('world-kokoro-enable');
+    enabled?.closest('.form-section')?.toggleAttribute('hidden',state.globalSettings.ttsProvider !== 'kokoro');
+    document.getElementById('world-narrator-enable')?.closest('.form-section')
+        ?.toggleAttribute('hidden',state.globalSettings.ttsProvider !== 'kokoro');
     const container = document.getElementById('world-voice-designer');
     const narratorEnabled = document.getElementById('world-narrator-enable');
     const narratorContainer = document.getElementById('world-narrator-designer');
@@ -17001,6 +17213,8 @@ function openWorldStudio(worldId = null) {
     document.getElementById('w-studio-intro').value = w.intro || '';
     renderWorldVoiceSettings(w);
     document.getElementById('w-studio-note').value = w.authorNote || '';
+    document.getElementById('w-output-language').value = ['auto', 'en', 'de', 'fr', 'es']
+        .includes(w.outputLanguage) ? w.outputLanguage : 'auto';
     
     const bannerPreview = document.getElementById('w-banner-preview');
     if (w.banner) {
@@ -17103,6 +17317,7 @@ async function saveWorld() {
     w.dmPrompt = document.getElementById('w-studio-dm-prompt').value.trim();
     w.intro = document.getElementById('w-studio-intro').value.trim();
     w.authorNote = document.getElementById('w-studio-note').value.trim();
+    w.outputLanguage = document.getElementById('w-output-language').value;
     w.model = document.getElementById('w-studio-model').value.trim();
     w.worldAgent = normalizeWorldAgentConfig({
         worldAgent: {
@@ -17203,10 +17418,11 @@ async function saveWorld() {
 
 async function deleteWorld() {
     if (!state.editingWorld) return;
-    if (!confirm(`Are you sure you want to delete "${state.editingWorld.name}"? This cannot be undone.`)) return;
+    if (!confirm(`Are you sure you want to delete "${state.editingWorld.name}" and its generated speech WAV files? This cannot be undone.`)) return;
 
     const deletedWorldId = state.editingWorld.id;
     const deletedWorldName = state.editingWorld.name;
+    if (worldSpeechRun?.worldId === deletedWorldId) stopWorldSpeech();
     state.worlds = state.worlds.filter(w => w.id !== deletedWorldId);
     // Recovery snapshots are for interrupted/corrupt saves, not an undo layer
     // for an explicit deletion. Remove the previous manifest before saveState()
@@ -17225,7 +17441,19 @@ async function deleteWorld() {
     state.editingWorld = null;
     
     await saveState();
-    showToast(`Deleted "${deletedWorldName}" and its safety copy.`, 'success');
+    let audioCleanupError = '';
+    try {
+        const response = await fetch('/api/tts/world-audio/delete', {
+            method:'POST',headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({worldId:deletedWorldId})
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
+    } catch (error) { audioCleanupError = error.message || String(error); }
+    showToast(audioCleanupError
+        ? `World deleted, but speech WAV cleanup failed: ${audioCleanupError}`
+        : `Deleted "${deletedWorldName}", its safety copy and generated speech WAV files.`,
+        audioCleanupError ? 'error' : 'success');
     renderWorlds();
     switchView('worlds');
 }
@@ -17614,9 +17842,10 @@ function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = 
     // links. A heap keeps large, sparse worlds responsive on the main thread.
     let sequence = 0;
     const heap = [];
-    const less = (a, b) => a.minutes < b.minutes
-        || (a.minutes === b.minutes && (a.hops < b.hops
-            || (a.hops === b.hops && a.order < b.order)));
+    const less = (a, b) => a.paidEdges < b.paidEdges
+        || (a.paidEdges === b.paidEdges && (a.minutes < b.minutes
+            || (a.minutes === b.minutes && (a.hops < b.hops
+                || (a.hops === b.hops && a.order < b.order)))));
     const push = entry => {
         heap.push(entry);
         let index = heap.length - 1;
@@ -17644,12 +17873,13 @@ function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = 
         return first;
     };
     const previous = new Map([[from.id, null]]);
-    const best = new Map([[from.id, { minutes: 0, hops: 0 }]]);
-    push({ id: from.id, minutes: 0, hops: 0, order: sequence++ });
+    const best = new Map([[from.id, { paidEdges: 0, minutes: 0, hops: 0 }]]);
+    push({ id: from.id, paidEdges: 0, minutes: 0, hops: 0, order: sequence++ });
     while (heap.length) {
         const step = pop();
         const known = best.get(step.id);
-        if (step.minutes !== known.minutes || step.hops !== known.hops) continue;
+        if (step.paidEdges !== known.paidEdges || step.minutes !== known.minutes
+            || step.hops !== known.hops) continue;
         if (step.id === to.id) {
             const path = [];
             for (let id = to.id; id != null; id = previous.get(id)) path.push(id);
@@ -17660,24 +17890,38 @@ function findWorldTravelPathCore(world, fromLocationId, toLocationId, options = 
         const neighbors = new Map();
         for (const exit of current.exits || []) {
             if (!options.ignoreRequirements && !worldExitRequirement(options.session, exit, current.id, options.npcId).ok) continue;
+            if (!options.ignoreRequirements && String(exit?.cost || '').trim()) continue;
+            if (!options.ignoreRequirements && exit?.fare) {
+                const fare = exit.fare;
+                const balance = options.npcId
+                    ? options.session?.entityStates?.[options.npcId]?.resources?.[fare.resourceId]
+                    : options.session?.playerStats?.[fare.resourceId];
+                if (!Number.isSafeInteger(fare.amount) || fare.amount <= 0
+                    || !Number.isFinite(balance) || balance < fare.amount) continue;
+            }
             const key = String(getExitTargetName(exit) || '').trim().toLowerCase();
             const target = locationById.has(key) ? locationById.get(key) : locationsByName.get(key);
             if (!target) continue;
             const minutes = typeof exit === 'object' ? Math.max(0, Number(exit?.travelTime) || 0) : 0;
-            if (!neighbors.has(target.id) || minutes < neighbors.get(target.id).minutes) {
-                neighbors.set(target.id, { target, minutes });
+            const paidEdges = exit?.fare ? 1 : 0;
+            const previousEdge = neighbors.get(target.id);
+            if (!previousEdge || paidEdges < previousEdge.paidEdges
+                || paidEdges === previousEdge.paidEdges && minutes < previousEdge.minutes) {
+                neighbors.set(target.id, { target, minutes, paidEdges });
             }
         }
-        for (const { target, minutes } of neighbors.values()) {
+        for (const { target, minutes, paidEdges } of neighbors.values()) {
             if (options.npcId && !worldNpcAccess(world, options.npcId, target.id, options.session).ok) continue;
             if (options.npcId && globalThis.HordeWorldLore
                 && !globalThis.HordeWorldLore.placeAwareness(world, options.npcId, target.id, options.session).known
                 && !(options.explore === true && current.id === from.id && target.id === to.id)) continue;
             if (!options.ignoreRequirements && worldLocationTravelBlock(options.session, target.id)) continue;
-            const candidate = { minutes: step.minutes + minutes, hops: step.hops + 1 };
+            const candidate = { paidEdges: step.paidEdges + paidEdges,
+                minutes: step.minutes + minutes, hops: step.hops + 1 };
             const old = best.get(target.id);
-            if (old && (old.minutes < candidate.minutes
-                || (old.minutes === candidate.minutes && old.hops <= candidate.hops))) continue;
+            if (old && (old.paidEdges < candidate.paidEdges
+                || old.paidEdges === candidate.paidEdges && (old.minutes < candidate.minutes
+                    || old.minutes === candidate.minutes && old.hops <= candidate.hops))) continue;
             best.set(target.id, candidate);
             previous.set(target.id, step.id);
             push({ id: target.id, ...candidate, order: sequence++ });
@@ -21712,7 +21956,7 @@ function renderWorldEntities(mode = 'people') {
                         <label class="form-label" style="font-size:0.75rem; color:var(--red);">Persona &amp; voice</label>
                         <textarea class="form-textarea ent-persona" rows="6" placeholder="Temperament, values, contradictions, mannerisms, speech rhythm, boundaries and how they behave under pressure…">${escapeHTML(ent.persona || '')}</textarea>
                         <p class="form-hint">Every person has a persona. Simulation depth controls priority—not whether their personality exists.</p>
-                        <div class="ent-voice-settings" style="margin-top:16px; padding:14px; border:1px solid var(--border); border-radius:12px;">
+                        <div class="ent-voice-settings" ${state.globalSettings.ttsProvider !== 'kokoro' ? 'hidden' : ''} style="margin-top:16px; padding:14px; border:1px solid var(--border); border-radius:12px;">
                             <h3 style="margin:0 0 8px;">Voice designer · Kokoro</h3>
                             <label class="form-label">Voice source</label>
                             <select class="form-select ent-voice-source">
@@ -21728,7 +21972,46 @@ function renderWorldEntities(mode = 'people') {
                                 <span class="ent-voice-world-status" role="status" style="margin-left:8px;"></span>
                             </div>
                             <div class="ent-voice-designer" hidden style="margin-top:12px;"></div>
+                            <div class="ent-kokoro-library" style="margin-top:10px;">
+                                <label class="form-label">Saved Kokoro voice<select class="form-select ent-kokoro-saved"><option value="">Choose saved voice…</option></select></label>
+                                <label class="form-label">Voice name<input class="form-input ent-kokoro-name" maxlength="80" placeholder="Name this voice"></label>
+                                <button class="btn btn-ghost ent-kokoro-save" type="button">Save voice for reuse</button>
+                                <div class="ent-kokoro-mix" style="margin-top:10px;">
+                                    <label class="form-label">Mix voice A<select class="form-select ent-kokoro-mix-a"></select></label>
+                                    <label class="form-label">Mix voice B<select class="form-select ent-kokoro-mix-b"></select></label>
+                                    <label class="form-label">Voice A share (%)<input class="form-input ent-kokoro-mix-weight" type="number" min="1" max="99" value="50"></label>
+                                    <label class="form-label">Speed<input class="form-input ent-kokoro-mix-speed" type="number" min="0.5" max="2" step="0.05" value="1"></label>
+                                    <label class="form-label">Test text<input class="form-input ent-kokoro-mix-text" maxlength="1000" value="Hello from Horde Studio."></label>
+                                    <button class="btn btn-ghost ent-kokoro-mix-preview" type="button">Preview mixture</button>
+                                    <button class="btn btn-ghost ent-kokoro-mix-assign" type="button">Assign mixture</button>
+                                    <span class="ent-kokoro-mix-status form-hint" role="status"></span>
+                                </div>
+                            </div>
                         </div>
+                        ${state.globalSettings.ttsProvider === 'ming' ? `<div class="ent-ming-settings" style="margin-top:16px; padding:14px; border:1px solid var(--border); border-radius:12px;">
+                            <h3>NPC voice – Ming 3.0</h3>
+                            <label class="form-label">Profile name<input class="form-input ent-ming-name" maxlength="80" placeholder="e.g. ${escapeHTML(ent.name)} voice"></label>
+                            <label class="form-label">Model<select class="form-select ent-ming-model"><option value="0.5b">Ming 3.0 0.5B</option><option value="tiny">Ming 3.0 Tiny</option></select></label>
+                            <label class="form-label">Voice mode<select class="form-select ent-ming-mode"><option value="design">Design from description</option><option value="reference">Reference recording</option><option value="builtin">Built-in voice</option></select></label>
+                            <label class="form-label ent-ming-design">Voice description<textarea class="form-textarea ent-ming-description" rows="3" placeholder="A calm, warm, slightly rough voice…"></textarea></label>
+                            <div class="ent-ming-reference" hidden><label class="form-label">Reference WAV<input class="form-input ent-ming-file" type="file" accept="audio/wav,.wav"></label><label class="form-label">Exact transcript<input class="form-input ent-ming-transcript" maxlength="500"></label><p class="form-hint">Use only your own recording or a voice supplied with consent.</p></div>
+                            <label class="form-label ent-ming-builtin" hidden>Built-in voice<select class="form-select ent-ming-voice"><option value="US_Emma">US Emma</option><option value="UK_George">UK George</option></select></label>
+                            <label class="form-label">Test text<input class="form-input ent-ming-test" maxlength="1000" value="Hello from Horde Studio."></label>
+                            <button class="btn btn-ghost ent-ming-preview" type="button">Generate preview</button>
+                            <button class="btn btn-ghost ent-ming-save" type="button">Save and assign voice</button>
+                            <div class="ent-ming-status form-hint" role="status"></div>
+                        </div>` : ''}
+                        ${state.globalSettings.ttsProvider === 'local' ? `<div class="ent-local-tts-settings" style="margin-top:16px; padding:14px; border:1px solid var(--border); border-radius:12px;">
+                            <h3>NPC voice – Local Neural TTS</h3>
+                            <p class="form-hint">Uses the OpenAI-compatible speech server selected in Text-to-Speech settings.</p>
+                            <label class="form-label">Profile name<input class="form-input ent-local-name" maxlength="80" placeholder="e.g. ${escapeHTML(ent.name)} voice"></label>
+                            <label class="form-label">Model ID<input class="form-input ent-local-model" maxlength="160" placeholder="Server model ID"></label>
+                            <label class="form-label">Voice ID<input class="form-input ent-local-voice" maxlength="160" placeholder="Server voice ID"></label>
+                            <label class="form-label">Test text<input class="form-input ent-local-test" maxlength="1000" value="Hello from Horde Studio."></label>
+                            <button class="btn btn-ghost ent-local-preview" type="button">Generate preview</button>
+                            <button class="btn btn-ghost ent-local-save" type="button">Save and assign voice</button>
+                            <div class="ent-local-status form-hint" role="status"></div>
+                        </div>` : ''}
                     </div>
                 ` : ''}
                 ${ent.type === 'npc' ? `
@@ -21945,6 +22228,95 @@ function renderWorldEntities(mode = 'people') {
                 const worldPlay = voiceSection.querySelector('.ent-voice-world-play');
                 const worldStatus = voiceSection.querySelector('.ent-voice-world-status');
                 const hint = voiceSection.querySelector('.ent-voice-hint');
+                const savedVoiceSelect = voiceSection.querySelector('.ent-kokoro-saved');
+                const voiceName = voiceSection.querySelector('.ent-kokoro-name');
+                const saveVoiceButton = voiceSection.querySelector('.ent-kokoro-save');
+                const savedVoices = Array.isArray(world.voice_settings?.kokoro_profiles)
+                    ? world.voice_settings.kokoro_profiles : [];
+                savedVoices.forEach(item => {
+                    if (item?.profile?.engine !== 'kokoro') return;
+                    const option = document.createElement('option');
+                    option.value = item.id;
+                    option.textContent = item.name;
+                    savedVoiceSelect.append(option);
+                });
+                voiceName.value = ent.voice_profile?.name || '';
+                savedVoiceSelect.onchange = () => {
+                    const selected = savedVoices.find(item => item.id === savedVoiceSelect.value);
+                    if (!selected) return;
+                    ent.voice_profile = {...safeJsonClone(selected.profile),character_id:String(ent.id)};
+                    ent.voice_source = 'custom';
+                    void saveWorld();
+                    renderWorldEntities();
+                };
+                saveVoiceButton.onclick = async () => {
+                    const name = voiceName.value.trim();
+                    const profile = ent.voice_profile;
+                    if (!name || profile?.engine !== 'kokoro' || !profile.formula) {
+                        hint.textContent = 'Name and configure a custom Kokoro voice first.';
+                        return;
+                    }
+                    world.voice_settings ||= {};
+                    world.voice_settings.kokoro_profiles ||= [];
+                    const id = `kokoro_${Date.now()}_${Math.random().toString(36).slice(2,8)}`;
+                    profile.name = name;
+                    world.voice_settings.kokoro_profiles.push({id,name,profile:safeJsonClone(profile)});
+                    if (await saveWorld() === false) {
+                        world.voice_settings.kokoro_profiles.pop();
+                        hint.textContent = 'World save failed.';
+                        return;
+                    }
+                    const option = document.createElement('option');
+                    option.value = id; option.textContent = name;
+                    savedVoiceSelect.append(option);
+                    savedVoiceSelect.value = id;
+                    hint.textContent = `Saved “${name}” for reuse in this world.`;
+                };
+                const mix = name => voiceSection.querySelector(`.ent-kokoro-mix-${name}`);
+                const catalog = window.KokoroTagDesigner?.VOICE_CATALOG || [];
+                for (const name of ['a','b']) {
+                    catalog.forEach(voice => {
+                        const option = document.createElement('option');
+                        option.value = voice; option.textContent = voice;
+                        mix(name).append(option);
+                    });
+                }
+                mix('a').value = 'af_heart';
+                mix('b').value = 'af_sarah';
+                let mixPreview = '';
+                const mixProfile = () => {
+                    const a = mix('a').value, b = mix('b').value;
+                    const weight = Number(mix('weight').value), speed = Number(mix('speed').value);
+                    if (!a || !b || a === b || !Number.isInteger(weight) || weight < 1 || weight > 99
+                        || !Number.isFinite(speed) || speed < 0.5 || speed > 2) throw new Error('Choose two distinct voices, a 1–99% mix and a speed of 0.5–2.');
+                    return {engine:'kokoro',formula:`${a}:${weight},${b}:${100-weight}`,
+                        parts:[[a,weight],[b,100-weight]],tags:[],speed,lang:'a',pitch:0,
+                        character_id:String(ent.id)};
+                };
+                voiceSection.querySelector('.ent-kokoro-mix').oninput = () => { mixPreview = ''; };
+                voiceSection.querySelector('.ent-kokoro-mix').onchange = () => { mixPreview = ''; };
+                mix('preview').onclick = async () => {
+                    mix('preview').disabled = true;
+                    try {
+                        const profile = mixProfile();
+                        const text = mix('text').value.trim();
+                        if (!text) throw new Error('Enter test text.');
+                        await window.HordeKokoro.play(text,profile);
+                        mixPreview = JSON.stringify(profile);
+                        mix('status').textContent = 'Mixture previewed; assign it, then name and save it for reuse.';
+                    } catch (error) { mix('status').textContent = error.message; }
+                    finally { mix('preview').disabled = false; }
+                };
+                mix('assign').onclick = () => {
+                    try {
+                        const profile = mixProfile();
+                        if (mixPreview !== JSON.stringify(profile)) throw new Error('Preview the current mixture first.');
+                        ent.voice_profile = profile;
+                        ent.voice_source = 'custom';
+                        void saveWorld();
+                        renderWorldEntities();
+                    } catch (error) { mix('status').textContent = error.message; }
+                };
                 if (!window.KokoroTagDesigner) {
                     source.disabled = true;
                     aiButton.disabled = true;
@@ -22062,6 +22434,117 @@ function renderWorldEntities(mode = 'people') {
                     };
                     updateVoiceMode();
                 }
+            }
+            const mingSection = div.querySelector('.ent-ming-settings');
+            if (mingSection) {
+                const saved = ent.tts_profiles?.ming || {};
+                const field = name => mingSection.querySelector(`.ent-ming-${name}`);
+                field('name').value = saved.name || '';
+                field('model').value = saved.model || state.globalSettings.mingModel || '0.5b';
+                field('mode').value = saved.mode || 'design';
+                field('description').value = saved.description || '';
+                field('transcript').value = saved.referenceText || '';
+                field('voice').value = saved.voice || 'US_Emma';
+                const updateMode = () => {
+                    field('design').hidden = field('mode').value !== 'design';
+                    field('reference').hidden = field('mode').value !== 'reference';
+                    field('builtin').hidden = field('mode').value !== 'builtin';
+                };
+                field('mode').onchange = updateMode;
+                updateMode();
+                let previewed = '';
+                let uploadedReference = saved.referenceId || '';
+                let previewAudio = null;
+                const candidate = () => ({engine:'ming',name:field('name').value.trim(),
+                    model:field('model').value,mode:field('mode').value,
+                    description:field('description').value.trim(),
+                    referenceId:uploadedReference,referenceText:field('transcript').value.trim(),
+                    voice:field('voice').value});
+                mingSection.oninput = () => { previewed = ''; };
+                mingSection.onchange = () => { previewed = ''; };
+                field('preview').onclick = async () => {
+                    if (previewAudio) { previewAudio.pause(); previewAudio = null; return; }
+                    const profile = candidate();
+                    const testText = field('test').value.trim();
+                    if (!testText) { field('status').textContent = 'Enter test text.'; return; }
+                    if (profile.mode === 'design' && !profile.description) { field('status').textContent = 'Describe the voice first.'; return; }
+                    field('preview').disabled = true;
+                    field('status').textContent = 'Generating preview…';
+                    try {
+                        const file = field('file').files?.[0];
+                        if (profile.mode === 'reference' && file) {
+                            if (!profile.referenceText) throw new Error('Enter the exact reference transcript.');
+                            if (file.size > 8 * 1024 * 1024) throw new Error('Reference WAV exceeds 8 MB.');
+                            const bytes = new Uint8Array(await file.arrayBuffer());
+                            let binary = '';
+                            for (const byte of bytes) binary += String.fromCharCode(byte);
+                            const response = await fetch('/api/tts/ming/reference',{
+                                method:'POST',headers:{'Content-Type':'application/json'},
+                                body:JSON.stringify({wav:btoa(binary)})});
+                            const result = await response.json();
+                            if (!response.ok) throw new Error(result.error || 'Reference upload failed.');
+                            uploadedReference = result.referenceId;
+                            profile.referenceId = uploadedReference;
+                        }
+                        if (profile.mode === 'reference' && !profile.referenceId) throw new Error('Choose a reference WAV.');
+                        previewAudio = await window.HordeMing.play(testText,profile,{worldId:world.id});
+                        previewed = JSON.stringify(candidate());
+                        field('status').textContent = 'Preview ready. Save to assign this voice.';
+                        previewAudio.addEventListener('ended',() => { previewAudio = null; },{once:true});
+                    } catch (error) { field('status').textContent = error.message; }
+                    finally { field('preview').disabled = false; }
+                };
+                field('save').onclick = async () => {
+                    const profile = candidate();
+                    if (!profile.name) { field('status').textContent = 'Name the voice profile.'; return; }
+                    if (previewed !== JSON.stringify(profile)) { field('status').textContent = 'Preview this voice before saving.'; return; }
+                    ent.tts_profiles = isPlainObject(ent.tts_profiles) ? ent.tts_profiles : {};
+                    ent.tts_profiles.ming = profile;
+                    if (await saveWorld() === false) { field('status').textContent = 'World save failed.'; return; }
+                    field('status').textContent = 'Ming voice saved and assigned to this NPC.';
+                };
+            }
+            const localSection = div.querySelector('.ent-local-tts-settings');
+            if (localSection) {
+                const saved = ent.tts_profiles?.local || {};
+                const field = name => localSection.querySelector(`.ent-local-${name}`);
+                field('name').value = saved.name || '';
+                field('model').value = saved.model || '';
+                field('voice').value = saved.voice || '';
+                const candidate = () => ({engine:'local', name:field('name').value.trim(),
+                    model:field('model').value.trim(), voice:field('voice').value.trim()});
+                let previewed = '';
+                let previewAudio = null;
+                localSection.oninput = () => { previewed = ''; };
+                field('preview').onclick = async () => {
+                    if (previewAudio) { previewAudio.pause(); previewAudio = null; return; }
+                    const profile = candidate();
+                    const text = field('test').value.trim();
+                    if (!profile.model || !profile.voice || !text) {
+                        field('status').textContent = 'Enter a model ID, voice ID and test text.';
+                        return;
+                    }
+                    field('preview').disabled = true;
+                    field('status').textContent = 'Generating preview…';
+                    try {
+                        previewAudio = await worldLocalTTS.play(text,profile);
+                        previewed = JSON.stringify(candidate());
+                        field('status').textContent = 'Preview ready. Save to assign this voice.';
+                        previewAudio.addEventListener('ended',() => { previewAudio = null; },{once:true});
+                    } catch (error) { field('status').textContent = error.message; }
+                    finally { field('preview').disabled = false; }
+                };
+                field('save').onclick = async () => {
+                    const profile = candidate();
+                    if (!profile.name) { field('status').textContent = 'Name the voice profile.'; return; }
+                    if (previewed !== JSON.stringify(profile)) {
+                        field('status').textContent = 'Preview this voice before saving.'; return;
+                    }
+                    ent.tts_profiles = isPlainObject(ent.tts_profiles) ? ent.tts_profiles : {};
+                    ent.tts_profiles.local = profile;
+                    if (await saveWorld() === false) { field('status').textContent = 'World save failed.'; return; }
+                    field('status').textContent = 'Local voice saved and assigned to this NPC.';
+                };
             }
             div.querySelector('.ent-goal').oninput = (e) => { ent.goal = e.target.value; updateWorldTokenCount(); };
             div.querySelector('.ent-goal-autonomy').onchange = (e) => { ent.goalAutonomy = e.target.value; };
@@ -25094,6 +25577,53 @@ function renderWorldNpcDebugger(world, sess) {
     if (!relevantMovement.length) line(movement, 'Movement errors', '—');
 }
 
+const WORLD_DEBUG_ENABLED_KEY = 'horde_world_debug_enabled_v1';
+const WORLD_DEBUG_LIMIT = 20;
+function worldDebugEnabled() {
+    try { return localStorage.getItem(WORLD_DEBUG_ENABLED_KEY) === 'true'; }
+    catch { return false; }
+}
+function worldDebugKey(world, sess) {
+    return `horde_world_debug_v1:${world?.id || ''}:${sess?.id || ''}`;
+}
+function worldDebugEntries(world, sess) {
+    try {
+        const value = JSON.parse(localStorage.getItem(worldDebugKey(world, sess)) || '[]');
+        return Array.isArray(value) ? value.slice(0, WORLD_DEBUG_LIMIT) : [];
+    } catch { return []; }
+}
+function recordWorldDebugTurn(world, sess, entry) {
+    if (!worldDebugEnabled() || !world || !sess) return;
+    try {
+        const compact = (value, limit = 32000) => {
+            const json = JSON.stringify(value ?? null);
+            return json.length > limit ? { truncated: true, length: json.length,
+                preview: json.slice(0, limit) } : JSON.parse(json);
+        };
+        const record = { ...entry, at: new Date().toISOString(),
+            input: String(entry.input || '').slice(0, 8000),
+            proposal: compact(entry.proposal, 32000),
+            receipt: compact(entry.receipt, 32000),
+            failures: compact(entry.failures, 16000),
+            calls: compact(entry.calls, 8000),
+            binding: compact(entry.binding, 8000),
+            validation: compact(entry.validation, 8000),
+            repairs: compact(entry.repairs, 8000),
+            metrics: compact(entry.metrics, 4000) };
+        const records = [record, ...worldDebugEntries(world, sess)].slice(0, WORLD_DEBUG_LIMIT);
+        for (let count = records.length; count > 0; count--) {
+            try {
+                localStorage.setItem(worldDebugKey(world, sess),
+                    JSON.stringify(records.slice(0, count)));
+                return;
+            } catch (error) {
+                if (count === 1) throw error;
+            }
+        }
+    } catch (error) {
+        console.warn('World debug record could not be stored:', error);
+    }
+}
 function renderWorldDirectorPanel(world, sess) {
     if (document.getElementById('world-play-view')?.classList.contains('multiplayer-guest-view')) return;
     renderWorldNpcDebugger(world, sess);
@@ -25202,8 +25732,63 @@ function renderWorldDirectorPanel(world, sess) {
     };
     const empty = value => text('p', value, 'world-insight-empty');
     receiptsList.replaceChildren();
-    const receipts = (Array.isArray(sess.worldTurnReceipts) ? sess.worldTurnReceipts : []).slice(-10).reverse();
-    const failedAttempts = Array.isArray(sess.worldCallDiagnostics) ? sess.worldCallDiagnostics.slice(-5).reverse() : [];
+    let debugControls = document.getElementById('world-director-debug-controls');
+    if (!debugControls) {
+        debugControls = document.createElement('div');
+        debugControls.id = 'world-director-debug-controls';
+        receiptsList.before(debugControls);
+    }
+    debugControls.replaceChildren();
+    const debugToggle = text('button', worldDebugEnabled() ? 'World Debug Mode: on' : 'World Debug Mode: off');
+    debugToggle.type = 'button';
+    debugToggle.className = 'tool-btn';
+    debugToggle.setAttribute('aria-pressed', String(worldDebugEnabled()));
+    debugToggle.onclick = () => {
+        try { localStorage.setItem(WORLD_DEBUG_ENABLED_KEY, String(!worldDebugEnabled())); }
+        catch (error) { console.warn('World debug preference could not be saved:', error); }
+        renderWorldDirectorPanel(world, sess);
+    };
+    debugControls.appendChild(debugToggle);
+    if (worldDebugEnabled()) {
+        const exportButton = text('button', 'Export debug JSON');
+        exportButton.type = 'button';
+        exportButton.className = 'tool-btn';
+        exportButton.onclick = () => {
+            const blob = new Blob([JSON.stringify(worldDebugEntries(world, sess), null, 2)],
+                { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `world-debug-${String(world.id).replace(/[^a-z0-9_-]/gi, '_')}.json`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        };
+        debugControls.appendChild(exportButton);
+        const clearButton = text('button', 'Clear debug records');
+        clearButton.type = 'button';
+        clearButton.className = 'tool-btn';
+        clearButton.onclick = () => {
+            try { localStorage.removeItem(worldDebugKey(world, sess)); }
+            catch (error) { console.warn('World debug records could not be cleared:', error); }
+            renderWorldDirectorPanel(world, sess);
+        };
+        debugControls.appendChild(clearButton);
+        const debugEntries = worldDebugEntries(world, sess);
+        if (!debugEntries.length) receiptsList.appendChild(empty('Debug recording is on. The next turn will appear here.'));
+        debugEntries.forEach(entry => {
+            const details = document.createElement('details');
+            details.className = 'world-director-receipt';
+            details.appendChild(text('summary', `${entry.commitStatus || 'unknown'} · ${new Date(entry.at).toLocaleString()} · ${entry.turnId || '?'} · ${entry.model || 'model unknown'}`));
+            details.appendChild(text('p', `Provider ${entry.provider || 'unknown'} · state v${entry.start?.version ?? '?'} → v${entry.end?.version ?? '?'} · ${Math.max(0, Number(entry.durationMs) || 0)}ms`, 'world-director-fact'));
+            const payload = document.createElement('pre');
+            payload.className = 'world-director-fact';
+            payload.textContent = JSON.stringify(entry, null, 2);
+            details.appendChild(payload);
+            receiptsList.appendChild(details);
+        });
+    }
+    const receipts = worldDebugEnabled() ? [] : (Array.isArray(sess.worldTurnReceipts) ? sess.worldTurnReceipts : []).slice(-10).reverse();
+    const failedAttempts = worldDebugEnabled() ? [] : Array.isArray(sess.worldCallDiagnostics) ? sess.worldCallDiagnostics.slice(-5).reverse() : [];
     failedAttempts.forEach(attempt => {
         const details = document.createElement('details');
         details.className = 'world-director-receipt';
@@ -25221,11 +25806,11 @@ function renderWorldDirectorPanel(world, sess) {
             `Original draft: ${failure.reason}${failure.detail ? ` · ${failure.detail}` : ''}`, 'world-director-fact')));
         (attempt.calls || []).forEach(call => {
             const usage = call.usage?.total != null ? `${call.usage.total} reported tokens` : 'token usage not reported';
-            details.appendChild(text('p', `${call.kind} · ${call.model || 'model not reported'} · HTTP ${call.status || 'network error'} · ${(Math.max(0, Number(call.durationMs) || 0) / 1000).toFixed(1)}s · ${usage}`, 'world-director-fact'));
+            details.appendChild(text('p', `${call.kind} · ${call.model || 'model not reported'} · ${call.status ? `HTTP ${call.status}` : call.outcome || 'network error'} · ${(Math.max(0, Number(call.durationMs) || 0) / 1000).toFixed(1)}s · ${usage}`, 'world-director-fact'));
         });
         receiptsList.appendChild(details);
     });
-    if (!receipts.length && !failedAttempts.length) receiptsList.appendChild(empty('Receipts appear after the first played turn.'));
+    if (!worldDebugEnabled() && !receipts.length && !failedAttempts.length) receiptsList.appendChild(empty('Receipts appear after the first played turn.'));
     const eventsByTurn = new Map();
     (Array.isArray(sess.turnEvents) ? sess.turnEvents : []).forEach(event => {
         const turn = Number(event.turn);
@@ -25308,7 +25893,7 @@ function renderWorldDirectorPanel(world, sess) {
                 usage.total != null && Number.isFinite(Number(usage.total)) ? `${usage.total} total tokens` : ''
             ].filter(Boolean).join(' · ') : '';
             details.appendChild(text('p', `${String(call.kind || 'model call').replace(/([a-z])([A-Z])/g, '$1 $2')}
-                · ${call.model || 'model not reported'} · ${call.status || 'network error'}
+                · ${call.model || 'model not reported'} · ${call.status ? `HTTP ${call.status}` : call.outcome || 'network error'}
                 · ${(Math.max(0, Number(call.durationMs) || 0) / 1000).toFixed(1)}s
                 · ${reported || 'token usage not reported by provider'}`.replace(/\s+/g, ' '), 'world-director-fact'));
         });
@@ -28421,7 +29006,7 @@ function enterWorld(worldId) {
     }
 }
 
-async function travelThroughWorldExit(world, sess, exit) {
+async function travelThroughWorldExit(world, sess, exit, selectedExitIndex = null) {
     if (worldTurnInProgress || worldMutationInProgress) {
         showToast('Finish the current World action before travelling.', 'info');
         return { ok: false, reason: 'busy' };
@@ -28444,6 +29029,37 @@ async function travelThroughWorldExit(world, sess, exit) {
     if (!target) {
         showToast('This exit no longer resolves to one place. Repair it in World Studio.', 'error');
         return { ok: false, reason: 'broken_exit' };
+    }
+
+    if (sess.setupComplete === true && world.kernel?.enabled !== false
+        && world.kernel?.sceneDrafts !== false
+        && world.kernel?.sceneDraftProtocol === 'scene_draft_v3') {
+        const view = worldForSession(world, sess);
+        const source = getLocationRef(view, sess.playerLocation);
+        const matching = Number.isInteger(selectedExitIndex)
+            && JSON.stringify(source?.exits?.[selectedExitIndex]) === JSON.stringify(exit)
+            ? [selectedExitIndex]
+            : (source?.exits || []).flatMap((candidate, index) =>
+                JSON.stringify(candidate) === JSON.stringify(exit) ? [index] : []);
+        if (matching.length === 1) {
+            const action = { type: 'world_exit_move', fromId: source.id,
+                toId: target.id, exitIndex: matching[0] };
+            const preflight = resolveWorldStructuredExitIntentP0(world, sess, action);
+            if (preflight.path === 'deterministic' || preflight.status === 'executable'
+                && buildWorldDeterministicMoveDraft(world, sess, preflight,
+                    `I go to ${target.name}.`, !!world.kernel?.serverBindings)) {
+                const beforeVersion = Number(sess.worldStateVersion) || 0;
+                const beforeLocation = sess.playerLocation;
+                await executeWorldTurn(action);
+                const outcome = sess.history.at(-1)?.actionOutcomes?.[0];
+                const committed = Number(sess.worldStateVersion) > beforeVersion;
+                const moved = committed && outcome?.status === 'succeeded'
+                    && sess.playerLocation === target.id;
+                return { ok: moved, moved, linkedTurn: true,
+                    path: moved ? [beforeLocation, target.id] : [],
+                    reason: committed ? outcome?.reason || outcome?.status : 'save_failed' };
+            }
+        }
     }
 
     worldMutationInProgress = true;
@@ -28470,6 +29086,7 @@ async function travelThroughWorldExit(world, sess, exit) {
                 : reason === 'impassable_destination' ? `${attempt.result.blockedLocationName || target.name} is impassable: ${attempt.result.blockedLabel || 'route closed'}.`
                 : reason === 'required_item' ? `You need ${attempt.result.requiredItem} to use this exit${attempt.result.allowCheckUnlock ? ', or you can try to open it with a check' : ''}.`
                 : reason === 'locked_exit' ? 'This exit is locked. Describe how you try to open it in chat.'
+                : reason === 'unpriced_route_cost' ? 'This route has a fare, but this World has no rule for paying it yet.'
                 : reason === 'invalid_exit' ? 'This exit changed while the map was open. Refresh the world view and try again.'
                 : `${target.name} is not reachable from here.`, 'info');
             return { ok: false, reason };
@@ -28788,13 +29405,14 @@ function renderWorldPlayState() {
     const exitCount = Array.isArray(loc?.exits) ? loc.exits.length : 0;
     document.getElementById('world-mobile-exit-count').textContent = `${exitCount} exit${exitCount === 1 ? '' : 's'}${exitCount > 4 ? ' · scroll for more' : ''}`;
     if (loc && loc.exits) {
-        loc.exits.forEach(exit => {
+        loc.exits.forEach((exit, exitIndex) => {
             const isObj = typeof exit === 'object';
             const exitText = isObj ? (exit.text || "") : exit;
             const oneWay = isObj ? exit.isOneWay : false;
             const requirement = worldExitRequirement(sess, exit, loc.id);
             const destination = resolveWorldExitTarget(playWorldView, exit);
             const travelBlock = destination && worldLocationTravelBlock(sess, destination.id);
+            const unresolvedFare = typeof exit === 'object' && String(exit.cost || '').trim();
 
             const btn = document.createElement('button');
             btn.className = 'btn btn-ghost btn-full';
@@ -28807,6 +29425,8 @@ function renderWorldPlayState() {
                 : `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check' : ''}`);
             else if (requirement.allowCheckUnlock || exit?.lockState === 'locked') exitDetails.push('Door locked');
             if (travelBlock) exitDetails.push(`Route closed: ${travelBlock.label}`);
+            if (unresolvedFare) exitDetails.push(`Fare: ${unresolvedFare}`);
+            else if (exit?.fare) exitDetails.push(`Fare: ${exit.fare.amount} ${exit.fare.resourceId}`);
             if (exitDetails.length) {
                 btn.classList.add('world-exit-lock-indicator');
                 if (requirement.unlocked) btn.classList.add('is-unlocked');
@@ -28815,8 +29435,9 @@ function renderWorldPlayState() {
             }
             
             btn.onclick = async () => {
-                const movement = await travelThroughWorldExit(sourceWorld, sourceSess, exit);
-                if (movement.ok && movement.moved && state.activeWorldId === sourceWorld.id
+                const movement = await travelThroughWorldExit(sourceWorld, sourceSess, exit, exitIndex);
+                if (movement.ok && movement.moved && !movement.linkedTurn
+                    && state.activeWorldId === sourceWorld.id
                     && getCurrentWorldSession() === sourceSess) void executeWorldTurn('look');
             };
             const currentPlayerState = normalizePlayerRulesState(world, sess);
@@ -28831,6 +29452,9 @@ function renderWorldPlayState() {
                 btn.title = requirement.requiredItem
                     ? `Requires ${requirement.requiredItem}${requirement.allowCheckUnlock ? ' or a successful check; describe how you try to open it in chat' : ''}`
                     : 'Locked; describe how you try to open it in chat';
+            } else if (unresolvedFare) {
+                btn.disabled = true;
+                btn.title = 'This World has no rule for paying this route fare yet.';
             } else if (currentPlayerState.status !== 'active') {
                 btn.disabled = true;
                 btn.title = currentPlayerState.status === 'dead' ? 'Timeline ended' : 'Recover before travelling';
@@ -29455,7 +30079,7 @@ function worldNarrativeSegments(world, text, speechAttributions = []) {
             if (speaker) {
                 carriedSpeaker = speaker;
                 carryAge = 0;
-                segments.push({kind:'dialogue',speaker,text:screenplay[2]});
+                segments.push({kind:'dialogue',speaker,text:screenplay[2],confirmed:hasStructuredSpeech});
                 return;
             }
         }
@@ -29498,7 +30122,8 @@ function worldNarrativeSegments(world, text, speechAttributions = []) {
             // A quote without a reliable speaker stays in the narrator's
             // voice; never attribute it to a nearby NPC by guessing.
             segments.push(speaker
-                ? {kind:'dialogue',speaker,text:match[1] ?? match[2] ?? ''}
+                ? {kind:'dialogue',speaker,text:match[1] ?? match[2] ?? '',
+                    confirmed:!!(passageSpeaker || speechIndex >= 0)}
                 : {kind:'narration',text:match[0]});
             cursor = end;
             if (speaker) { carriedSpeaker = speaker; carryAge = 0; }
@@ -29556,9 +30181,83 @@ function worldSpeechChunks(text) {
     return chunks;
 }
 
+function worldMingEmotion(speaker, text) {
+    const evidence = [String(text || ''), ...(Array.isArray(speaker?.conditions)
+        ? speaker.conditions.map(item => typeof item === 'string' ? item : item?.name || '') : [])]
+        .join(' ').toLowerCase();
+    if (/\b(angry|furious|rage|wütend|zornig)\b/.test(evidence)) return '愤怒';
+    if (/\b(sad|grief|crying|traurig|weint)\b/.test(evidence)) return '悲伤';
+    if (/\b(afraid|terrified|scared|ängstlich|fürchtet)\b/.test(evidence)) return '恐惧';
+    if (/\b(happy|delighted|joyful|fröhlich|glücklich)\b/.test(evidence)) return '高兴';
+    if (/\b(surprised|astonished|überrascht)\b/.test(evidence)) return '惊讶';
+    return '中性';
+}
+
+const worldLocalTTS = {
+    getProfileFor(speaker) {
+        const profile = speaker?.tts_profiles?.local;
+        return profile?.engine === 'local' && profile.model && profile.voice ? profile : null;
+    },
+    async play(text, profile, options = {}) {
+        if (state.globalSettings.ttsProvider !== 'local') throw new Error('Local Neural TTS is not selected.');
+        const response = await fetch(localTTSApiBase() + '/audio/speech', {
+            method:'POST', signal:options.signal,
+            headers:{'Content-Type':'application/json',...localTTSAuthHeaders()},
+            body:JSON.stringify({model:profile.model,voice:profile.voice,
+                input:String(text || '').slice(0,1000),response_format:'wav'})
+        });
+        if (!response.ok) {
+            const detail = await response.text();
+            throw new Error(`Local speech server HTTP ${response.status}: ${detail.slice(0,300)}`);
+        }
+        const blob = await response.blob();
+        if (!blob.size) throw new Error('Local speech server returned no audio.');
+        if (options.signal?.aborted) throw new DOMException('Playback cancelled.','AbortError');
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        let released = false;
+        const release = () => {
+            if (released) return;
+            released = true;
+            URL.revokeObjectURL(url);
+            options.signal?.removeEventListener('abort',onAbort);
+        };
+        const onAbort = () => { audio.pause(); release(); };
+        options.signal?.addEventListener('abort',onAbort,{once:true});
+        audio.addEventListener('ended',release,{once:true});
+        audio.addEventListener('error',release,{once:true});
+        audio.addEventListener('pause',release,{once:true});
+        try { await audio.play(); } catch (error) { release(); throw error; }
+        return audio;
+    }
+};
+
 function worldSpeechParts(world,text,speechAttributions = []) {
+    const provider = state.globalSettings.ttsProvider;
+    if (provider === 'none') return [];
+    if (provider === 'local') return worldNarrativeSegments(world,text,speechAttributions)
+        .filter(segment => segment.kind === 'dialogue' && segment.speaker && segment.confirmed)
+        .flatMap(segment => {
+            const profile = worldLocalTTS.getProfileFor(segment.speaker);
+            return profile ? worldSpeechChunks(segment.text).map(chunk => ({
+                text:chunk,profile,label:segment.speaker.name,kind:'dialogue',
+                speakerId:segment.speaker.id
+            })) : [];
+        });
+    if (provider === 'ming') return worldNarrativeSegments(world,text,speechAttributions)
+        .filter(segment => segment.kind === 'dialogue' && segment.speaker && segment.confirmed)
+        .flatMap(segment => {
+            const profile = window.HordeMing?.getProfileFor(segment.speaker)
+                || {engine:'ming',model:state.globalSettings.mingModel || '0.5b',
+                    mode:'emotion',emotion:worldMingEmotion(segment.speaker,segment.text)};
+            return profile ? worldSpeechChunks(segment.text).map(chunk => ({
+                text:chunk,profile,label:segment.speaker.name,kind:'dialogue',
+                speakerId:segment.speaker.id
+            })) : [];
+        });
     if (!window.HordeKokoro) return [];
-    return worldNarrativeSegments(world,text,speechAttributions).flatMap(segment => {
+    return worldNarrativeSegments(world,text,speechAttributions)
+        .filter(segment => segment.kind !== 'dialogue' || segment.confirmed).flatMap(segment => {
         const profile = segment.kind === 'dialogue'
             ? window.HordeKokoro.getWorldTurnProfileFor(segment.speaker,world)
             : window.HordeKokoro.getNarratorProfile(world);
@@ -29581,7 +30280,7 @@ function worldPlayerMessageForReply(sess, replyIndex) {
 }
 
 function worldPlayerSpeechParts(world,sess,message) {
-    if (!message || !window.HordeKokoro) return [];
+    if (!message || !window.HordeKokoro || state.globalSettings.ttsProvider !== 'kokoro') return [];
     const persona = state.personas.find(item => item.id === (sess?.personaId || state.activePersonaId));
     const player = {id:`player:${persona?.id || sess?.personaId || 'default'}`,
         name:persona?.name || 'Player',
@@ -29620,7 +30319,11 @@ function worldTurnSpeechParts(world,sess,message,replyIndex) {
 }
 
 async function playWorldSpeechParts(parts,worldId,sessionId,button = null) {
-    if (!parts.length || !window.HordeKokoro) return;
+    const provider = state.globalSettings.ttsProvider;
+    if (!parts.length || provider === 'none') return;
+    const speech = provider === 'ming' ? window.HordeMing
+        : provider === 'local' ? worldLocalTTS : window.HordeKokoro;
+    if (!speech) return;
     if (state.globalSettings.worldAudioMuted === true) {
         if (button) showToast('Unmute world sounds to play voices.', 'info');
         return;
@@ -29633,11 +30336,13 @@ async function playWorldSpeechParts(parts,worldId,sessionId,button = null) {
     if (button) button.textContent = '■ Stop voice';
     const current = () => worldSpeechRun === run && !run.controller.signal.aborted
         && state.view === 'worldPlay' && state.activeWorldId === worldId
-        && getCurrentWorldSession()?.id === sessionId && state.globalSettings.worldAudioMuted !== true;
+        && getCurrentWorldSession()?.id === sessionId && state.globalSettings.worldAudioMuted !== true
+        && state.globalSettings.ttsProvider === provider;
     try {
         for (const part of parts) {
             if (!current()) break;
-            const audio = await window.HordeKokoro.play(part.text,part.profile,{signal:run.controller.signal});
+            const audio = await speech.play(part.text,part.profile,
+                {signal:run.controller.signal,worldId});
             if (!current()) { audio.pause(); break; }
             run.audio = audio;
             await new Promise(resolve => {
@@ -29658,7 +30363,7 @@ async function playWorldSpeechParts(parts,worldId,sessionId,button = null) {
         if (error.name !== 'AbortError' && current()) {
             showToast(error.name === 'NotAllowedError'
                 ? 'Autoplay was blocked. Click a voice button to enable speech.'
-                : `Kokoro speech failed: ${error.message}`, 'error');
+                : `${provider === 'ming' ? 'Ming' : 'Kokoro'} speech failed: ${error.message}`, 'error');
         }
     } finally {
         if (worldSpeechRun === run) worldSpeechRun = null;
@@ -30090,7 +30795,7 @@ function appendWorldMessageUI(msg, index = null) {
         };
     }
 
-    if (msg.role === 'dm' && world && window.HordeKokoro) {
+    if (msg.role === 'dm' && world && state.globalSettings.ttsProvider !== 'none') {
         const speechWorld = activeSession ? worldForSession(world,activeSession) : world;
         const fullTurnParts = worldTurnSpeechParts(speechWorld,activeSession,msg,index);
         if (fullTurnParts.length) {
@@ -31306,6 +32011,584 @@ function candidateEvidenceMovementPhrase(candidate) {
 
 const WORLD_TURN_MAX_DURATION_MS = 5 * 60 * 1000;
 
+// Worlds previously had no explicit output-language control. Keep one World
+// setting for both the normal DM and the short confirmed-result writer; auto
+// inherits the browser locale instead of guessing from the latest action.
+function worldOutputLanguage(world) {
+    const configured = String(world?.outputLanguage || 'auto').toLowerCase();
+    const browser = String(globalThis.navigator?.languages?.[0]
+        || globalThis.navigator?.language || 'en').toLowerCase().split('-')[0];
+    const selected = configured === 'auto' ? browser : configured.split('-')[0];
+    return ['en', 'de', 'fr', 'es'].includes(selected) ? selected : 'en';
+}
+
+function worldMovementFallback(status, targetName, world) {
+    const name = String(targetName || '').trim();
+    const templates = {
+        en: { succeeded: `You reach ${name}.`, blocked: `The way to ${name} is not accessible right now.`,
+            blocked_action: 'The action is not possible under the current conditions.',
+            unresolved_action: 'The result of this action is not confirmed.',
+            already_satisfied: `You are already here: ${name}.`,
+            needs_clarification: 'Please clarify which destination you mean.',
+            unresolved: 'Your movement could not be confirmed.',
+            unverified_turn: 'The DM reply could not be verified against the world state, so its story text was discarded. No unverified events from that reply became canon. Check the current World state, then Reroll this response to try again.',
+            conflicting_narrative: 'The DM’s final scene conflicted with the saved world state, so its story text was discarded. The verified state changes remain; check the current World state, then Reroll this response if needed.',
+            no_readable_scene: 'The world state was committed, but the DM sent no readable scene. Review the World state and continue or Reroll.',
+            provider_timeout: ' The provider timed out while verifying the reply.' },
+        de: { succeeded: `Du erreichst ${name}.`, blocked: `Der Weg nach ${name} ist derzeit nicht zugänglich.`,
+            blocked_action: 'Die Handlung ist unter den aktuellen Bedingungen nicht möglich.',
+            unresolved_action: 'Das Ergebnis dieser Handlung ist nicht bestätigt.',
+            already_satisfied: `Du bist bereits hier: ${name}.`,
+            needs_clarification: 'Bitte kläre, welchen Zielort du meinst.',
+            unresolved: 'Deine Bewegung konnte nicht bestätigt werden.',
+            unverified_turn: 'Die Antwort des Spielleiters konnte nicht mit dem Weltzustand abgeglichen werden. Ihr Erzähltext wurde verworfen; ungeprüfte Ereignisse wurden nicht kanonisch. Prüfe den aktuellen Weltzustand und würfle die Antwort bei Bedarf neu.',
+            conflicting_narrative: 'Die letzte Szene widersprach dem gespeicherten Weltzustand und wurde verworfen. Bestätigte Änderungen bleiben erhalten; prüfe den Weltzustand und würfle die Antwort bei Bedarf neu.',
+            no_readable_scene: 'Der Weltzustand wurde gespeichert, aber der Spielleiter lieferte keine lesbare Szene. Prüfe den Weltzustand und fahre fort oder würfle die Antwort neu.',
+            provider_timeout: ' Beim Prüfen der Antwort ist der Modellanbieter abgelaufen.' },
+        fr: { succeeded: `Vous arrivez à ${name}.`, blocked: `Le chemin vers ${name} est inaccessible pour le moment.`,
+            blocked_action: 'Cette action est impossible dans les conditions actuelles.',
+            unresolved_action: 'Le résultat de cette action n’a pas été confirmé.',
+            already_satisfied: `Vous êtes déjà ici : ${name}.`,
+            needs_clarification: 'Précisez le lieu que vous souhaitez atteindre.',
+            unresolved: 'Votre déplacement n’a pas pu être confirmé.',
+            unverified_turn: 'La réponse du maître du jeu n’a pas pu être vérifiée avec l’état du monde. Son récit a été écarté et aucun événement non vérifié n’est devenu canonique. Vérifiez l’état du monde, puis relancez cette réponse si nécessaire.',
+            conflicting_narrative: 'La scène finale contredisait l’état du monde enregistré et a été écartée. Les changements confirmés restent en place ; vérifiez l’état du monde et relancez cette réponse si nécessaire.',
+            no_readable_scene: 'L’état du monde a été enregistré, mais le maître du jeu n’a fourni aucune scène lisible. Vérifiez l’état du monde, puis continuez ou relancez la réponse.',
+            provider_timeout: ' Le fournisseur du modèle a expiré pendant la vérification de la réponse.' },
+        es: { succeeded: `Llegas a ${name}.`, blocked: `El camino hacia ${name} no está disponible ahora.`,
+            blocked_action: 'Esta acción no es posible en las condiciones actuales.',
+            unresolved_action: 'No se ha confirmado el resultado de esta acción.',
+            already_satisfied: `Ya estás aquí: ${name}.`,
+            needs_clarification: 'Aclara a qué lugar quieres ir.',
+            unresolved: 'No se pudo confirmar tu movimiento.',
+            unverified_turn: 'No se pudo verificar la respuesta del director de juego con el estado del mundo. Se descartó el relato y ningún evento sin verificar pasó a ser canónico. Revisa el estado del mundo y vuelve a generar la respuesta si hace falta.',
+            conflicting_narrative: 'La escena final contradecía el estado del mundo guardado y se descartó. Los cambios confirmados permanecen; revisa el estado del mundo y vuelve a generar la respuesta si hace falta.',
+            no_readable_scene: 'Se guardó el estado del mundo, pero el director de juego no proporcionó una escena legible. Revisa el estado del mundo y continúa o vuelve a generar la respuesta.',
+            provider_timeout: ' El proveedor del modelo agotó el tiempo durante la verificación de la respuesta.' }
+    };
+    return templates[worldOutputLanguage(world)][status] || templates.en.unresolved;
+}
+
+function worldSpeechFallback(quote, world) {
+    const spoken = String(quote || '').trim();
+    return ({ en: `You say, “${spoken}”`, de: `Du sagst: „${spoken}“`,
+        fr: `Vous dites : « ${spoken} »`, es: `Dices: «${spoken}»` })[worldOutputLanguage(world)];
+}
+
+function worldOutputLanguageInstruction(world) {
+    const names = { en: 'English', de: 'German', fr: 'French', es: 'Spanish' };
+    return `Write the player-facing narration in ${names[worldOutputLanguage(world)]}. This World output language takes precedence over the language of the latest player input.`;
+}
+
+function resolveWorldStructuredExitIntentP0(world, sess, action) {
+    const view = worldForSession(world, sess);
+    const from = getLocationRef(view, sess.playerLocation);
+    if (!from || action.fromId !== from.id
+        || !Number.isInteger(action.exitIndex) || action.exitIndex < 0)
+        return { path: 'needs_clarification', reason: 'stale_or_invalid_exit' };
+    const exit = from.exits?.[action.exitIndex];
+    const target = exit && resolveWorldExitTarget(view, exit);
+    if (!target || target.id !== action.toId)
+        return { path: 'needs_clarification', reason: 'stale_or_invalid_exit' };
+    const intent = { kind: 'move', targetId: target.id,
+        provenance: 'structured_world_exit', sourceSpan: null,
+        exitIndex: action.exitIndex };
+    if (target.id === from.id) return { path: 'deterministic', status: 'already_satisfied',
+        intent, targetName: target.name, reason: 'player_already_at_destination' };
+    const route = worldLocationTravelBlock(sess, target.id);
+    const requirement = worldExitRequirement(sess, exit, from.id);
+    if (route || !requirement.ok) return { path: 'deterministic', status: 'blocked',
+        intent, targetName: target.name,
+        reason: route ? 'sealed_route' : requirement.reason || 'locked_exit' };
+    const leg = getWorldTravelLeg(view, from.id, target.id, sess, '',
+        { exitIndex: action.exitIndex });
+    if (!leg || leg.cost)
+        return { path: 'needs_model', reason: 'noncanonical_or_priced_exit', intent };
+    return { path: 'needs_model', status: 'executable', intent,
+        targetName: target.name, reason: 'structured_exit_allowed_by_existing_rules' };
+}
+
+const WORLD_ACTION_OUTCOME_STATUSES = new Set([
+    'succeeded', 'blocked', 'already_satisfied', 'unresolved',
+    'pending_check', 'needs_clarification', 'skipped'
+]);
+function worldActionOutcome(status, details = {}) {
+    const normalized = status === 'pending' ? 'pending_check'
+        : status === 'failed' ? 'blocked' : status;
+    return { status: WORLD_ACTION_OUTCOME_STATUSES.has(normalized) ? normalized : 'unresolved',
+        ...details };
+}
+
+// The short movement writer has no authority over the World. Check concrete
+// claims against the prepared result while leaving gestures and atmosphere
+// free. The wider World validator covers English state claims; these focused
+// guards cover the German movement phrasing used by the P0 resolver.
+function worldConfirmedMovementNarrativeConflicts(world, before, after, preflight, prose) {
+    const view = worldForSession(world, after);
+    const target = getLocationRef(view, preflight.intent?.targetId);
+    const origin = getLocationRef(view, before.playerLocation);
+    const visible = stripSpokenDialogue(prose);
+    const confirmedPlaces = new Set(preflight.status === 'succeeded'
+        && Array.isArray(preflight.intent?.path)
+        && preflight.intent.path[0] === before.playerLocation
+        && preflight.intent.path.at(-1) === after.playerLocation
+        ? preflight.intent.path : []);
+    const targetMention = target?.name
+        ? visible.toLocaleLowerCase().lastIndexOf(target.name.toLocaleLowerCase()) : -1;
+    const laterRouteClaim = location => targetMention >= 0 && location?.name
+        && visible.toLocaleLowerCase().lastIndexOf(location.name.toLocaleLowerCase())
+            > targetMention;
+    const conflicts = worldFinalNarrativeConflicts(view, before, after, prose, '', null)
+        .filter(item => !(item.reason === 'uncommitted_player_location_claim'
+            && confirmedPlaces.has(item.detail)
+            && !laterRouteClaim(getLocationRef(view, item.detail))));
+    if (preflight.intent?.speech?.quote
+        && !String(prose).includes(preflight.intent.speech.quote))
+        conflicts.push({ reason: 'missing_confirmed_player_speech',
+            detail: preflight.intent.speech.quote });
+    const supportedObjects = [origin?.description, target?.description,
+        ...(origin?.exits || []).map(exit => `${exit?.requiredItem || ''} ${exit?.lockKeyItem || ''}`),
+        ...(after.inventory || []).map(item => globalThis.HordeRpgMechanics?.itemName(item)
+            || item?.name || String(item || '')),
+        ...(view.entities || []).filter(entity => [before.playerLocation,
+            after.playerLocation].includes(after.entityStates?.[entity.id]?.location
+                || entity.locationId || entity.startLocation))
+            .map(entity => entity.name)].join(' ').toLocaleLowerCase();
+    for (const aliases of [
+        ['lampe', 'lamp', 'lámpara', 'lampara'],
+        ['kerze', 'candle', 'bougie', 'vela'],
+        ['fenster', 'window', 'fenêtre', 'ventana'],
+        ['truhe', 'chest', 'coffre', 'cofre'],
+        ['tisch', 'table', 'mesa'],
+        ['stuhl', 'chair', 'chaise', 'silla'],
+        ['schlüssel', 'key', 'clé', 'llave']
+    ]) {
+        const supported = aliases.some(alias => supportedObjects.includes(alias));
+        for (const object of aliases) {
+            const hit = new RegExp(`(?:^|[^\\p{L}])${object}(?:$|[^\\p{L}])`, 'iu')
+                .exec(visible);
+            if (hit && !supported
+                && !/\b(?:wie|like|comme|como)\s+(?:ein|eine|a|an|un|une|una)\s*$/iu.test(visible.slice(
+                    Math.max(0, hit.index - 20), hit.index)))
+                conflicts.push({ reason: 'unsupported_scene_object', detail: object });
+        }
+    }
+    const escape = value => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const names = (view.locations || []).filter(location => location?.name);
+    const claimAt = location => new RegExp(`\\b(?:du|ich|frieder|die\\s+spielfigur)\\b[^.!?]{0,65}\\b(?:geh(?:e|st|t)?|komm(?:e|st|t)?|lauf(?:e|st|t)?|kehr(?:e|st|t|en)?|betritt|betreten|erreich(?:e|st|t)|gelang(?:e|st|t)|tritt|ankomm(?:e|st|t)?)\\b[^.!?]{0,65}\\b${escape(location.name)}\\b|\\b${escape(location.name)}\\b[^.!?]{0,45}\\b(?:erreich(?:e|st|t)|betritt|betreten|angekommen)\\b`, 'iu');
+    for (const location of names) if (location.id !== after.playerLocation
+        && (!confirmedPlaces.has(location.id) || laterRouteClaim(location))
+        && claimAt(location).test(visible)
+        && !/(?:nicht|nie|noch nicht|vergeblich|versuch(?:e|st|t)?|möcht(?:e|est|et)?|würde|könnt(?:e|est|et)?|vor|bevor)\b/iu.test(visible))
+        conflicts.push({ reason: 'uncommitted_player_location_claim', detail: location.id });
+    if (preflight.status !== 'succeeded' && target && target.id !== before.playerLocation
+        && claimAt(target).test(visible)
+        && !/(?:nicht|nie|noch nicht|vergeblich|versuch(?:e|st|t)?|möcht(?:e|est|et)?|würde|könnt(?:e|est|et)?|vor|bevor)\b/iu.test(visible))
+        conflicts.push({ reason: 'contradicted_blocked_move', detail: target.id });
+    if (preflight.status === 'already_satisfied' && origin
+        && /\b(?:verlässt|verlass(?:e|en|t)|geht hinaus|tritt hinaus|moves away|leaves)\b/iu.test(visible))
+        conflicts.push({ reason: 'invented_departure', detail: origin.id });
+    if (preflight.status === 'blocked'
+        && /(?:tür|tor|door|gate)[^.!?]{0,45}(?:öffnet sich|öffnet|ist offen|springt auf|opens|unlocks|swings open)|(?:öffnest|öffnet|entsperrst|entriegelst|open|unlock)[^.!?]{0,45}(?:tür|tor|door|gate)/iu.test(visible)
+        && !/\b(?:nicht|nie|no|not|cannot|can't|versuch|try|tried|refus|bleibt|stays)\b/iu.test(visible))
+        conflicts.push({ reason: 'uncommitted_door_opening', detail: target?.id || '' });
+    if (/\b(?:findet|findest|nimmt|nimmst|erhält|erhältst|bekommt|bekommst|hebt|steckt|finds?|takes?|receives?|picks? up)\b[^.!?]{0,55}\b(?:schlüssel|key|gegenstand|item|münze|coin)\b/iu.test(visible)
+        && !/\b(?:nicht|nie|no|not|versuch|try|tried|could|would)\b/iu.test(visible))
+        conflicts.push({ reason: 'uncommitted_item_change', detail: 'narrated item acquisition' });
+    for (const npc of sessionNpcs(view, after)) if (npc?.name
+        && new RegExp(`\\b${escape(npc.name)}\\b[^.!?]{0,65}\\b(?:folgt|begleitet|öffnet|entsperrt|reicht|gibt|nimmt|verlässt|betritt|geht|follows?|joins?|opens?|unlocks?|hands?|gives?|takes?|leaves?|enters?)\\b`, 'iu').test(visible)
+        && !/\b(?:nicht|nie|no|not|versuch|try|tried|could|would)\b/iu.test(visible))
+        conflicts.push({ reason: 'uncommitted_npc_action', detail: npc.id });
+    return conflicts;
+}
+
+function buildWorldDeterministicMoveDraft(world, sess, preflight, request, bound = false) {
+    if (preflight?.status !== 'executable' || preflight.intent?.kind !== 'move') return null;
+    const view = worldForSession(world, sess);
+    const fromId = sess.playerLocation, toId = preflight.intent.targetId;
+    const exitIndex = preflight.intent?.exitIndex;
+    const path = Number.isInteger(exitIndex) ? [fromId, toId]
+        : findWorldTravelPath(view, fromId, toId, { session: sess });
+    if (!Array.isArray(path) || path.length < 2 || path.length > 32) return null;
+    const legs = path.slice(1).map((nextId, index) => worldActorTravelLeg(view, sess,
+        'player', path[index], nextId, index === 0 && Number.isInteger(exitIndex)
+            ? { exitIndex } : {}));
+    if (legs.some(leg => !leg || leg.cost)) return null;
+    const travelMinutes = legs.reduce((total, leg) => total + leg.travelTime, 0);
+    const startMinute = getWorldTimeData(world, sess).currentTotalMinutes;
+    const nextMinute = getWorldTimeData(world, { ...safeJsonClone(sess),
+        turnCount: (Number(sess.turnCount) || 1) + 1 }).currentTotalMinutes;
+    const availableMinutes = Math.max(0, nextMinute - startMinute);
+    const additionalMinutes = Math.max(0, Math.ceil(travelMinutes - availableMinutes));
+    // Server-bound turns have already advanced the ordinary step. Their executor
+    // consumes that included time from an explicit time_advance effect, so the
+    // effect must carry the full journey duration rather than only the surplus.
+    const effectMinutes = additionalMinutes ? (bound
+        ? Math.ceil(travelMinutes) : additionalMinutes) : 0;
+    if (additionalMinutes > 10080) return null;
+    const movementOptions = Number.isInteger(exitIndex) ? { exitIndex } : {};
+    for (let index = 0; index < legs.length; index++) {
+        const verdict = worldLinkedMovementVerdict(world, sess, 'player', path[index],
+            path[index + 1], index === 0 ? movementOptions : {},
+            startMinute - availableMinutes - additionalMinutes);
+        if (!verdict.ok) return null;
+    }
+    const companions = sessionNpcs(view, sess).filter(npc =>
+        sess.entityStates?.[npc.id]?.followingPlayer === true
+        && sess.entityStates[npc.id].location === fromId);
+    for (const npc of companions) {
+        for (let index = 0; index < legs.length; index++) {
+            const verdict = worldLinkedMovementVerdict(world, sess, npc.id,
+                path[index], path[index + 1], { accompanyingPlayer: true,
+                    ...(index === 0 ? movementOptions : {}) },
+                startMinute - availableMinutes - additionalMinutes);
+            if (!verdict.ok) return null;
+        }
+    }
+    preflight.intent.path = path.slice();
+    const target = getLocationRef(view, toId);
+    if (!target) return null;
+    const actionId = 'p0_move', passageId = 'p0_arrival';
+    const companionIds = companions.map(npc => npc.id);
+    const text = worldMovementFallback('succeeded', target.name, world);
+    const speech = preflight.intent.speech;
+    const movementRequest = speech
+        ? String(request).slice(preflight.intent.sourceSpan[0],
+            preflight.intent.sourceSpan[1]).trim() : request;
+    const speechText = speech ? worldSpeechFallback(speech.quote, world) : '';
+    const speechActionId = 'p0_speech', speechPassageId = 'p0_utterance';
+    const effects = { ...(effectMinutes
+                ? { time_advance: [{ minutes: effectMinutes }] } : {}),
+                actor_move: path.slice(1).map((nextId, index) => ({
+                    actor_id: 'player', to_location_id: nextId,
+                    ...(index === 0 && Number.isInteger(exitIndex)
+                        ? { exit_index: exitIndex } : {}),
+                    ...(companionIds.length ? { companion_ids: companionIds } : {}) })) };
+    const events = [...(effectMinutes ? [{ type: 'time', actor_id: 'player',
+            status: 'completed', minutes_elapsed: effectMinutes,
+            action_id: actionId, passage_id: passageId }] : []),
+            ...path.slice(1).flatMap((nextId, index) =>
+                ['player', ...companionIds].map(actorId => ({
+                    type: 'movement', actor_id: actorId, status: 'completed',
+                    from_location_id: path[index], to_location_id: nextId,
+                    action_id: actionId, passage_id: passageId })))];
+    if (bound) return { protocol: 'scene_draft_v3', actions: [{
+        request: movementRequest, kind: 'travel', status: 'resolved',
+        response: [{ text, events: events.map(({ action_id, passage_id, ...event }) => event) }],
+        effects
+    }, ...(speech ? [{ request: speech.request, kind: 'speech', status: 'resolved',
+        response: [{ text: speechText, speech: [{ speaker: 'player',
+            listeners: ['player'], quote: speech.quote }] }], effects: {} }] : [])] };
+    return { protocol: 'scene_draft_v3',
+        narrative: [{ id: passageId, action_id: actionId, text },
+            ...(speech ? [{ id: speechPassageId, action_id: speechActionId,
+                text: speechText }] : [])],
+        actions: [{ action_id: actionId, request: movementRequest, kind: 'travel', status: 'resolved',
+            response_id: passageId, action_effects: effects },
+            ...(speech ? [{ action_id: speechActionId, request: speech.request,
+                kind: 'speech', status: 'resolved', response_id: speechPassageId,
+                action_effects: {} }] : [])],
+        events,
+        effects: {}, speech: speech ? [{ speaker: 'player', listeners: ['player'],
+            quote: speech.quote, action_id: speechActionId,
+            passage_id: speechPassageId }] : [], commitments: [] };
+}
+
+// Compile the model's compact, ordered intent into the existing linked-draft
+// transport. This adapter proposes only registered effects; the linked action
+// executor remains the authority for every result and state mutation.
+function buildWorldResolvedIntentDraft(world, session, input, rawIntent, bound = false) {
+    const view = worldForSession(world, session);
+    const current = getLocationRef(view, session.playerLocation);
+    const itemReferences = [
+        ...(view.entities || []).filter(item => item.type === 'item'),
+        ...(current?.items || []).map(item => typeof item === 'string'
+            ? { id: '', name: item, type: 'item' }
+            : { id: item?.id || '', name: item?.name || '', type: 'item' }),
+        ...(session.inventory || []).map(item => typeof item === 'string'
+            ? { id: '', name: item, type: 'item' }
+            : { id: item?.id || '', name: item?.name || item?.id || '', type: 'item' })
+    ];
+    const references = [
+        ...(view.locations || []).map(item => ({ id: item.id })),
+        ...(view.entities || []).map(item => ({ id: item.id })),
+        ...itemReferences,
+        ...(view.locations || []).flatMap(location => (location.exits || [])
+            .filter(exit => typeof exit === 'object' && exit.doorId)
+            .map(exit => ({ id: exit.doorId }))),
+        ...Object.keys(session.entityStates || {}).map(id => ({ id }))
+    ];
+    const checked = HordeResolvedIntent.validate(rawIntent, { input, references });
+    if (!checked.ok || !HordeWorldSceneDraft.playerRequestCoverage(input,
+        checked.intent.steps.map(step => ({ request: step.source_quote }))).ok) return null;
+    if (!checked.intent.steps.some(step => step.kind !== 'context')) return null;
+    const projected = safeJsonClone(session);
+    const narrative = [], actions = [], events = [], speech = [];
+    const travelTargets = {};
+    const movePath = (from, to, state) => findWorldTravelPath(view, from, to, { session: state });
+    const presentFollowers = locationId => sessionNpcs(view, projected).filter(npc =>
+        projected.entityStates?.[npc.id]?.followingPlayer === true
+        && projected.entityStates[npc.id].location === locationId);
+    const passageText = (step, targetName = '') => {
+        const language = worldOutputLanguage(world);
+        if (step.kind === 'travel') return language === 'de'
+            ? `Du setzt deinen Weg nach ${targetName} fort.` : `You make your way toward ${targetName}.`;
+        if (step.kind === 'transfer') return language === 'de'
+            ? `Du versuchst, ${step.item_id || 'den Gegenstand'} zu ${step.operation === 'take' ? 'nehmen' : 'bewegen'}.`
+            : `You try to ${step.operation || 'handle'} ${step.item_id || 'the item'}.`;
+        if (step.kind === 'speech' || step.kind === 'question') return language === 'de'
+            ? `Du sagst: „${step.utterance || ''}“` : `You say, “${step.utterance || step.source_quote}”`;
+        if (step.kind === 'wait') return step.minutes
+            ? (language === 'de' ? 'Die Zeit vergeht.' : 'A little time passes.')
+            : (language === 'de' ? 'Du wartest auf eine Reaktion.' : 'You wait for a response.');
+        if (step.kind === 'gesture') return language === 'de' ? 'Du machst eine kurze Geste.' : 'You make a small gesture.';
+        if (step.kind === 'appearance') return language === 'de'
+            ? `Du wechselst zu ${step.outfit}.` : `You change into ${step.outfit}.`;
+        if (step.kind === 'activity') return language === 'de'
+            ? `Du beginnst: ${step.activity}.` : `You settle into: ${step.activity}.`;
+        if (step.kind === 'observation') return language === 'de'
+            ? 'Du nimmst deine Umgebung aufmerksam wahr.' : 'You take in your surroundings.';
+        return language === 'de' ? 'Du gehst der Handlung nach.' : 'You follow through on the action.';
+    };
+    let currentLocation = projected.playerLocation;
+    let cumulativeTravelMinutes = 0;
+    let cumulativeExtraTravelMinutes = 0;
+    const actionIndexByIntentStep = new Map();
+    checked.intent.steps.forEach((step, stepIndex) => {
+        if (step.kind !== 'context') actionIndexByIntentStep.set(stepIndex,
+            actionIndexByIntentStep.size);
+    });
+    for (const [index, step] of checked.intent.steps.entries()) {
+        if (step.kind === 'context') continue;
+        const actionId = `ri_${index}`;
+        const passageId = `ri_p${index}`;
+        const kind = step.kind === 'travel' ? 'travel'
+            : step.kind === 'speech' ? 'speech' : step.kind === 'question' ? 'question'
+                // Waiting for an event without a duration is passive attention.
+                // The ordinary turn clock advances; no extra time is asserted.
+                : step.kind === 'wait' ? (step.minutes ? 'wait' : 'observation') : step.kind === 'observation' ? 'observation'
+                        : 'physical';
+        const effect = {};
+        const localEvents = [];
+        let targetName = '';
+        if (step.kind === 'travel') {
+            const destination = getLocationRef(view, step.destination_id);
+            if (!destination) return null;
+            targetName = destination.name || destination.id;
+            travelTargets[actionId] = destination.id;
+            const route = destination.id === currentLocation ? [currentLocation]
+                : movePath(currentLocation, destination.id, projected);
+            if (route?.length > 1) {
+                const legs = route.slice(1).map((toId, legIndex) => worldActorTravelLeg(view,
+                    projected, 'player', route[legIndex], toId));
+                if (legs.some(leg => !leg || leg.cost)) return null;
+                const travelMinutes = legs.reduce((total, leg) => total + leg.travelTime, 0);
+                const startMinute = getWorldTimeData(world, projected).currentTotalMinutes;
+                const nextMinute = getWorldTimeData(world, { ...safeJsonClone(projected),
+                    turnCount: (Number(projected.turnCount) || 1) + 1 }).currentTotalMinutes;
+                const availableMinutes = Math.max(0, nextMinute - startMinute);
+                cumulativeTravelMinutes += travelMinutes;
+                const requiredCumulativeExtraMinutes = Math.max(0,
+                    Math.ceil(cumulativeTravelMinutes - availableMinutes));
+                const extraMinutes = Math.max(0,
+                    requiredCumulativeExtraMinutes - cumulativeExtraTravelMinutes);
+                cumulativeExtraTravelMinutes = requiredCumulativeExtraMinutes;
+                if (extraMinutes > 10080) return null;
+                const clockEffectMinutes = bound ? travelMinutes : extraMinutes;
+                if (clockEffectMinutes) effect.time_advance = [{ minutes: clockEffectMinutes }];
+                const followers = presentFollowers(currentLocation);
+                effect.actor_move = route.slice(1).map((toId, legIndex) => ({
+                    actor_id: 'player', to_location_id: toId,
+                    ...(legIndex === 0 && Number.isInteger(step.exit_index)
+                        ? { exit_index: step.exit_index } : {}),
+                    ...(followers.length ? { companion_ids: followers.map(npc => npc.id) } : {})
+                }));
+                route.slice(1).forEach((toId, legIndex) => {
+                    for (const actorId of ['player', ...followers.map(npc => npc.id)])
+                        localEvents.push({ type: 'movement', actor_id: actorId,
+                            from_location_id: route[legIndex], to_location_id: toId,
+                            status: 'completed' });
+                });
+                if (clockEffectMinutes) localEvents.unshift({ type: 'time', actor_id: 'player',
+                    status: 'completed', minutes_elapsed: clockEffectMinutes });
+                currentLocation = destination.id;
+                projected.playerLocation = currentLocation;
+                if (extraMinutes) projected.bonusTimeMinutes =
+                    (Number(projected.bonusTimeMinutes) || 0) + extraMinutes;
+                for (const npc of followers) projected.entityStates[npc.id].location = currentLocation;
+            }
+        } else if (step.kind === 'transfer') {
+            const itemId = String(step.item_id || step.target_id || '').trim();
+            if (!itemId) return null;
+            const quantity = step.quantity || 1;
+            if (step.operation === 'take') effect.item_transfer = [{ item_id: itemId,
+                from_id: currentLocation, to_id: 'player', quantity }];
+            else if (step.operation === 'drop') effect.item_transfer = [{ item_id: itemId,
+                from_id: 'player', to_id: currentLocation, quantity }];
+            else if (step.operation === 'give' && step.recipient_id)
+                effect.item_transfer = [{ item_id: itemId, from_id: 'player',
+                    to_id: step.recipient_id, quantity }];
+            else if (step.operation === 'consume') effect.item_consume = [{ item_id: itemId,
+                actor_id: 'player', quantity }];
+            else return null;
+            const item = view.entities?.find(entry => entry.id === itemId || entry.name === itemId);
+            const itemName = item?.name || itemId;
+            localEvents.push({ type: 'inventory', actor_id: 'player', status: 'completed',
+                action: step.operation, item: itemName });
+            step.item_id = itemName;
+            if (step.operation === 'take') {
+                projected.inventory ||= [];
+                projected.inventory.push({ id: itemId, name: itemName, quantity });
+            } else if (step.operation === 'drop') {
+                projected.inventory = (projected.inventory || []).filter(entry =>
+                    (typeof entry === 'string' ? entry : entry?.id || entry?.name) !== itemId);
+            }
+        } else if (step.kind === 'interaction') {
+            if (['open', 'close', 'lock', 'unlock'].includes(step.operation)) {
+                const objectId = step.target_id;
+                if (!objectId) return null;
+                const mappedDoor = (view.locations || []).some(location =>
+                    (location.exits || []).some(exit => typeof exit === 'object'
+                        && !!exit.doorId && exit.doorId === objectId));
+                if (mappedDoor && step.operation === 'close' && !step.to_state) return null;
+                const toState = step.to_state || (step.operation === 'open' || step.operation === 'unlock'
+                    ? 'open' : step.operation === 'close' ? 'closed' : 'locked');
+                effect.interactable_transition = [{ target_id: objectId,
+                    to_state: toState, actor_id: 'player' }];
+                if (toState === 'open') {
+                    projected.unlockedExits ||= {};
+                    projected.unlockedExits[objectId] = true;
+                } else if (toState === 'locked') delete projected.unlockedExits?.[objectId];
+            } else if (step.operation === 'interact' || step.operation === 'use') {
+                localEvents.push({ type: 'interaction', actor_id: 'player',
+                    status: 'completed', action: step.source_quote.slice(0, 160) });
+            } else return null;
+        } else if (step.kind === 'wait') {
+            if (step.minutes) {
+                effect.time_advance = [{ minutes: step.minutes }];
+                localEvents.push({ type: 'time', actor_id: 'player', status: 'completed',
+                    minutes_elapsed: step.minutes });
+            }
+        } else if (step.kind === 'appearance') {
+            const actorId = step.actor_id || 'player';
+            effect.outfit_set = [{ actor_id: actorId, outfit: step.outfit }];
+            localEvents.push({ type: 'outfit', actor_id: actorId,
+                status: 'completed', outfit: step.outfit });
+            if (actorId === 'player') projected.outfit = step.outfit;
+        } else if (step.kind === 'activity') {
+            const actorId = step.actor_id || 'player';
+            localEvents.push({ type: 'activity', actor_id: actorId,
+                status: 'completed', activity: step.activity });
+        } else if (step.kind === 'gesture') {
+            localEvents.push({ type: 'interaction', actor_id: 'player',
+                status: 'completed', action: step.source_quote.slice(0, 160) });
+        } else if (step.kind === 'other') {
+            localEvents.push({ type: 'interaction', actor_id: 'player',
+                status: 'completed', action: step.source_quote.slice(0, 160),
+                cause: 'resolved_intent_attempt_witness' });
+        } else if (!['speech', 'question', 'observation', 'other'].includes(step.kind)) return null;
+        const text = passageText(step, targetName);
+        if (kind === 'speech' || kind === 'question') speech.push({ speaker: 'player',
+            listeners: step.target_ids?.length ? [...step.target_ids] : ['player'],
+            quote: step.utterance || step.source_quote,
+            action_id: actionId, passage_id: passageId });
+        const response = { id: passageId, action_id: actionId, text };
+        narrative.push(response);
+        for (const event of localEvents) events.push({ ...event,
+            id: `ri_e${index}_${events.length}`, action_id: actionId, passage_id: passageId });
+        actions.push({ action_id: actionId, request: step.source_quote,
+            _intent_step_index: index, kind,
+            status: 'resolved', response_id: passageId, action_effects: effect,
+            ...(step.depends_on?.length ? { depends_on: step.depends_on.map(dependency => ({
+                action_index: actionIndexByIntentStep.get(dependency.step_index),
+                outcome: dependency.outcome })) } : {}) });
+    }
+    if (bound) {
+        const actionByIntentStep = new Map(actions.map(action =>
+            [action._intent_step_index, action]));
+        const boundRequests = new Map(actions.map(action =>
+            [action.action_id, action.request]));
+        let previousAction = null;
+        const leadingContext = [];
+        for (const [stepIndex, step] of checked.intent.steps.entries()) {
+            if (step.kind === 'context') {
+                if (previousAction) boundRequests.set(previousAction.action_id,
+                    `${boundRequests.get(previousAction.action_id)} ${step.source_quote}`.trim());
+                else leadingContext.push(step.source_quote);
+                continue;
+            }
+            previousAction = actionByIntentStep.get(stepIndex) || previousAction;
+            if (leadingContext.length && previousAction) {
+                boundRequests.set(previousAction.action_id,
+                    `${leadingContext.join(' ')} ${boundRequests.get(previousAction.action_id)}`.trim());
+                leadingContext.length = 0;
+            }
+        }
+        if (leadingContext.length && previousAction) boundRequests.set(previousAction.action_id,
+            `${boundRequests.get(previousAction.action_id)} ${leadingContext.join(' ')}`.trim());
+        return { draft: { protocol: 'scene_draft_v3', actions: actions.map(action => ({
+        request: boundRequests.get(action.action_id), kind: action.kind, status: action.status,
+        response: [{ text: narrative.find(passage => passage.action_id === action.action_id)?.text || '',
+            events: events.filter(event => event.action_id === action.action_id)
+                .map(({ id, action_id, passage_id, ...event }) => event),
+            speech: speech.filter(item => item.action_id === action.action_id)
+                .map(({ action_id, passage_id, ...item }) => item) }],
+        effects: action.action_effects,
+        ...(action.depends_on ? { depends_on: action.depends_on } : {})
+    })) }, travelTargets };
+    }
+    return { draft: { protocol: 'scene_draft_v3', narrative,
+        actions: actions.map(({ _intent_step_index, ...action }) => ({ ...action,
+            ...(action.depends_on ? { depends_on: action.depends_on.map(dependency => ({
+                action_id: actions[dependency.action_index]?.action_id,
+                outcome: dependency.outcome })) } : {}) })), events, speech,
+        effects: {}, commitments: [] }, travelTargets };
+}
+
+function worldResolvedIntentPeople(world, beforeSession, afterSession, input, excludedMessageId = null) {
+    return sessionNpcs(world, afterSession).filter(npc =>
+        afterSession.entityStates?.[npc.id]?.location === afterSession.playerLocation)
+        .slice(0, 10).map(npc => {
+            const npcState = afterSession.entityStates?.[npc.id] || {};
+            const observations = (npcState.observations || []).map(item =>
+                typeof item === 'string' ? { text: item } : item)
+                .filter(item => item && (!excludedMessageId || item.msgId !== excludedMessageId));
+            // Only witnessed, committed scenes belong in an NPC's context.
+            // Legacy saves without witness stamps retain authored/own memories.
+            // State snapshots intentionally omit history. The prepared session
+            // still carries committed messages; exclude the take being rerolled.
+            const conversation = (beforeSession.history || afterSession.history || []).filter(message =>
+                ['user', 'dm'].includes(message.role) && message.stateSource !== 'frozen_no_receipt'
+                && (!excludedMessageId || message.id !== excludedMessageId)
+                && Array.isArray(message.witnesses) && message.witnesses.includes(npc.id))
+                .slice(-12).map(message => ({ role: message.role,
+                    text: String(message.text || '').slice(0, 1800) }));
+            return { id: npc.id, name: npc.name,
+                persona: String(npc.persona || '').slice(0, 800),
+                activity: npcState.currentActivity ?? npcState.activity ?? null,
+                goal: npcState.goal || npc.goal || '',
+                relationship: npcState.relationshipToPlayer || '',
+                knowledge: selectWorldNpcKnowledge(observations, input, 8), conversation };
+        });
+}
+
+function buildWorldResolvedIntentFailureDraft(input, world, bound = false) {
+    const text = 'The World Engine could not resolve this action. Your input has been preserved; please retry.';
+    const actionId = 'ri_interpretation_unresolved';
+    const passageId = 'ri_interpretation_unresolved_passage';
+    const draft = bound ? { protocol: 'scene_draft_v3', actions: [{
+        request: String(input || ''), kind: 'other', status: 'needs_clarification',
+        response: [{ text }], effects: {} }] }
+        : { protocol: 'scene_draft_v3',
+        narrative: [{ id: passageId, action_id: actionId, text }],
+        actions: [{ action_id: actionId, request: String(input || ''), kind: 'other',
+            status: 'needs_clarification', response_id: passageId, action_effects: {} }],
+        events: [], speech: [], effects: {}, commitments: [] };
+    return { draft, travelTargets: {},
+        intent: { protocol: 'resolved_intent_v1', steps: [{ source_quote: String(input || ''),
+            kind: 'other' }] }, safeFallback: true };
+}
+
 async function executeWorldTurn(commandOrReroll = null) {
     // Re-entry guard: a world turn mutates sess.history, the clock, and NPC
     // spawns — running two concurrently corrupts state. Block until the
@@ -31340,10 +32623,13 @@ async function executeWorldTurn(commandOrReroll = null) {
     const worldTurnStartedAt = Date.now();
     const controller = new AbortController();
     let turnDeadlineReached = false;
-    const turnDeadlineId = setTimeout(() => {
+    let turnBudgetRemaining = WORLD_TURN_MAX_DURATION_MS;
+    let turnBudgetStarted = performance.now();
+    const reachTurnDeadline = () => {
         turnDeadlineReached = true;
-        controller.abort();
-    }, WORLD_TURN_MAX_DURATION_MS);
+        controller.abort(new DOMException('World turn reached its five-minute limit.', 'AbortError'));
+    };
+    let turnDeadlineId = setTimeout(reachTurnDeadline, turnBudgetRemaining);
     worldGenController = controller;
     worldTurnInProgress = true;
     const worldSendBtn = document.getElementById('world-send-btn');
@@ -31364,6 +32650,8 @@ async function executeWorldTurn(commandOrReroll = null) {
     let locDesc = "";
     let command = (typeof commandOrReroll === 'string') ? commandOrReroll : null;
     let isReroll = commandOrReroll === true;
+    const structuredExit = commandOrReroll?.type === 'world_exit_move'
+        ? commandOrReroll : null;
     let turnSnapshot = null;
     let historyStartLength = null;
     let submittedInput = '';
@@ -31408,6 +32696,13 @@ async function executeWorldTurn(commandOrReroll = null) {
     const linkedTurnFailures = [];
     const linkedRepairResults = [];
     let linkedRecoveryDiscard = null;
+    let debugLastProposal = null;
+    let debugTurnRecorded = false;
+    let turnPreflight = null;
+    let resolvedIntentDraft = null;
+    let resolvedIntentTravelTargets = [];
+    const resolvedIntentTravelTargetClaims = new Set();
+    let resolvedIntentSafeFallback = false;
     const turnBindingNonce = globalThis.crypto?.randomUUID?.()
         || `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const turnProvider = state.globalSettings?.apiProvider || 'unknown';
@@ -31441,7 +32736,7 @@ async function executeWorldTurn(commandOrReroll = null) {
         const detail = {
             kind,
             provider: turnProvider,
-            outcome,
+            outcome: outcome === 'aborted' && turnDeadlineReached ? 'turn_timeout' : outcome,
             model: String(model || '').slice(0, 150),
             status: Number(status) || 0,
             durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
@@ -31463,8 +32758,49 @@ async function executeWorldTurn(commandOrReroll = null) {
         if (turnCallAudit?.metrics) turnCallAudit.metrics.generationMs += detail.durationMs;
         recordWorldModelAttempt(world, sess, { ...detail, provider: turnProvider, usage, outcome }, false);
     };
+    const preparedTurnModels = new Set();
+    const prepareTurnModel = async model => {
+        if (turnProvider !== 'local' || preparedTurnModels.has(model)) return;
+        let idleWasArmed = false;
+        const startedAt = performance.now();
+        try {
+            const loaded = await HordeWorldModelClient.prepareLocalModel({
+                url: apiBase(), model, signal: controller.signal, headers: authHeaders(),
+                onLoading: () => {
+                    turnBudgetRemaining = Math.max(1, turnBudgetRemaining - (performance.now() - turnBudgetStarted));
+                    clearTimeout(turnDeadlineId);
+                    idleWasArmed = !!timeoutId;
+                    if (timeoutId) clearTimeout(timeoutId);
+                    timeoutId = null;
+                    setPendingStatus('Loading the local model… You can stop loading with Stop.');
+                },
+                onLoaded: () => {
+                    turnBudgetStarted = performance.now();
+                    if (!controller.signal.aborted) {
+                        turnDeadlineId = setTimeout(reachTurnDeadline, turnBudgetRemaining);
+                        if (idleWasArmed && activeIdleTimeoutMs > 0) timeoutId = setTimeout(() => {
+                            generationTimedOut = true;
+                            controller.abort(new DOMException('Model response timed out.', 'TimeoutError'));
+                        }, activeIdleTimeoutMs);
+                    }
+                    setPendingStatus('Resolving your action…');
+                }
+            });
+            if (loaded) recordWorldCall('modelLoad', model, 200, startedAt, null, 'ok');
+            preparedTurnModels.add(model);
+        } catch (error) {
+            recordWorldCall('modelLoad', model, error.status || 0, startedAt, null,
+                controller.signal.aborted ? 'aborted' : 'model_load_error');
+            throw error;
+        }
+    };
     const fetchWorldTurnJSON = async (kind, body, init) => {
         if (controller.signal.aborted) throw controller.signal.reason;
+        await prepareTurnModel(body.model);
+        // Match the existing local Gemma policy used by streamed World calls.
+        // Otherwise hidden reasoning can consume the entire compact JSON budget.
+        if (turnProvider === 'local' && /^gemma4(?::|$)/i.test(body.model)
+            && body.reasoning_effort === undefined) body = { ...body, reasoning_effort: 'none' };
         const startedAt = performance.now();
         if (kind === 'receiptRepair' && turnCallAudit?.metrics)
             turnCallAudit.metrics.repairPromptCharacters += JSON.stringify({ messages: body.messages, tools: body.tools, response_format: body.response_format }).length;
@@ -31495,8 +32831,314 @@ async function executeWorldTurn(commandOrReroll = null) {
         }, 0);
         return result;
     };
+    const interpretWorldAction = async input => {
+        if (!hasApiCredentials() || !globalThis.HordeResolvedIntent) return null;
+        const view = worldForSession(canonicalWorld, canonicalSess);
+        const current = getLocationRef(view, canonicalSess.playerLocation);
+        if (!current) return null;
+        const sceneItems = (view.entities || []).filter(entity => entity.type === 'item'
+            && (canonicalSess.entityStates?.[entity.id]?.location || entity.locationId
+                || entity.location || entity.startLocation) === current.id)
+            .map(entity => ({ id: entity.id, name: entity.name || entity.id }));
+        const people = sessionNpcs(view, canonicalSess).filter(npc =>
+            canonicalSess.entityStates?.[npc.id]?.location === current.id)
+            .map(npc => ({ id: npc.id, name: npc.name }));
+        const references = {
+            currentLocation: { id: current.id, name: current.name,
+                items: [...sceneItems, ...(current.items || []).map(item => ({
+                    name: typeof item === 'string' ? item : item?.name || '' }))].slice(0, 40),
+                exits: (current.exits || []).map((exit, exitIndex) => {
+                    const target = resolveWorldExitTarget(view, exit);
+                    return { exitIndex, label: typeof exit === 'string' ? exit
+                        : exit.text || exit.label || exit.name || '',
+                        mode: typeof exit === 'object' ? exit.mode || exit.transport || '' : '',
+                        targetId: target?.id || '', targetName: target?.name || '',
+                        doorId: exit?.doorId || '', requiredItem: exit?.requiredItem || '',
+                        costText: exit?.cost || '', fare: exit?.fare || null };
+                }).slice(0, 40), people },
+            playerInventory: (canonicalSess.inventory || []).map(item => typeof item === 'string'
+                ? item : { id: item.id || '', name: item.name || item.id || '', quantity: item.quantity ?? 1 }).slice(0, 60),
+            locations: (view.locations || []).map(location => ({ id: location.id,
+                name: location.name })).slice(0, 160),
+            items: [
+                ...(view.entities || []).filter(entity => entity.type === 'item')
+                    .map(entity => ({ id: entity.id, name: entity.name || entity.id })),
+                ...(current.items || []).map(item => typeof item === 'string'
+                    ? { name: item } : { id: item?.id || '', name: item?.name || '' }),
+                ...(canonicalSess.inventory || []).map(item => typeof item === 'string'
+                    ? { name: item } : { id: item?.id || '',
+                        name: item?.name || item?.id || '' })
+            ],
+            interactables: (view.entities || []).filter(entity => entity.interactable
+                || entity.type === 'interactable').map(entity => ({ id: entity.id,
+                name: entity.name, state: canonicalSess.entityStates?.[entity.id]?.interactableState
+                    || entity.interactable?.initialState || '' })).slice(0, 60)
+        };
+        const body = { model: canonicalWorld.model || state.globalSettings.defaultModel,
+            stream: false, max_tokens: Math.min(6000, Math.max(2000, String(input || '').length * 2)), temperature: 0.1,
+            response_format: { type: 'json_schema', json_schema: {
+                name: 'resolved_intent_v1', schema: HordeResolvedIntent.schema() } },
+            messages: [
+                { role: 'system', content: `Interpret the player's complete message as ordered resolved_intent_v1 steps. Understand German, English, and mixed-language actions, questions, direct and indirect speech equally. Schema keys and enum values remain canonical English identifiers regardless of input language. Preserve names, source text, dialogue meaning, and intentional language switching; never translate source_quote or utterance. Map references by meaning to supplied canonical IDs, never invent translated IDs. Return only schema-matching JSON. Emit one step for each requested action, including attempted, blocked, redundant, and conditional actions. Use exact, non-overlapping source_quote spans in input order; preserve all meaningful text, assigning non-action clauses to context steps. Never split a single source span into duplicate or overlapping actions. For an explicit condition, set depends_on to the earlier action step_index with outcome succeeded; never predict whether it succeeds. Otherwise omit depends_on or use an empty array []. Step zero never has depends_on; no step may depend on itself. Resolve IDs only from WORLD REFERENCES. Use travel with destination_id for player movement by any route; doors are travel unless the player explicitly opens, closes, locks, unlocks, uses, or operates them, which is interaction with operation and target_id. Use transfer with REQUIRED fields operation (exactly take, drop, give, or consume) and canonical item_id. Do not place an operation in activity or to_state. Give additionally requires recipient_id. Use observation for looking or reading, speech for spoken words, question for a question addressed to someone, wait with minutes only when the player explicitly specifies a duration. For waiting for a reply or event, omit minutes or set minutes:null; never guess a default duration, gesture for a momentary gesture, appearance for a requested clothing change with the exact outfit phrase, and activity for a requested lasting activity or posture. For speech or questions, include only words explicitly supplied as spoken content; never invent or elaborate a quotation. If the player asks someone about a topic without specifying exact words, use the exact request phrase as utterance. Preserve only canonical listeners. Use other only for an action that has no supported type. Include only fields relevant to each step; do not add empty or unrelated fields. The World Engine chooses routes and decides all access, resource, item, door, movement, and action outcomes. Never narrate or claim results.` },
+                { role: 'user', content: `WORLD REFERENCES (IDs are canonical; facts do not grant permission):\n${JSON.stringify(references)}\n\nPLAYER MESSAGE:\n${String(input || '').slice(0, 5000)}` }
+            ] };
+        turnCallAudit.intentInterpretationCalls = (turnCallAudit.intentInterpretationCalls || 0) + 1;
+        const failClosed = (reason, stage = 'semantic') => {
+            const error = new Error(`World intent ${stage} validation failed: ${reason}. Your input has been preserved.`);
+            error.code = stage === 'schema' ? 'WORLD_INTENT_SCHEMA_ERROR' : 'WORLD_INTENT_SEMANTIC_ERROR';
+            error.stage = stage;
+            throw error;
+        };
+        let intentStage = 'transport';
+        try {
+            // Use the configured provider deadline in fetchWorldTurnJSON;
+            // a second fixed 60s deadline cancelled local cold model loads.
+            const signal = controller.signal;
+            const init = {
+                method: 'POST', signal, headers: { ...authHeaders(),
+                    'Content-Type': 'application/json', ...attributionHeaders() }
+            };
+            let { response, data } = await fetchWorldTurnJSON('resolvedIntent', body, init);
+            // A provider's explicit capability rejection is safe to retry once:
+            // no interpretation or state update has happened. Keep the schema
+            // in the prompt and enforce exactly the same validator afterward.
+            if (HordeWorldModelClient.structuredFormatUnsupported(response, data)) {
+                const { response_format, ...compatibleBody } = body;
+                compatibleBody.messages = [{ role: 'system', content:
+                    `Return one JSON object matching this schema: ${JSON.stringify(HordeResolvedIntent.schema())}` }, ...body.messages];
+                ({ response, data } = await fetchWorldTurnJSON('resolvedIntent', compatibleBody, init));
+            }
+            if (!response.ok) throw HordeWorldModelClient.responseError(response, data);
+            intentStage = 'parsing';
+            const parsed = HordeWorldModelClient.structuredCompletion(data);
+            intentStage = 'schema';
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)
+                || parsed.protocol !== 'resolved_intent_v1' || !Array.isArray(parsed.steps))
+                return failClosed('Expected resolved_intent_v1 with a steps array', 'schema');
+            const known = [ ...(view.locations || []), ...(view.entities || []),
+                ...(references.items || []).map(item => ({ ...item, type: 'item' })),
+                ...Object.keys(canonicalSess.entityStates || {}).map(id => ({ id })),
+                ...(view.locations || []).flatMap(location => (location.exits || [])
+                    .filter(exit => typeof exit === 'object' && exit.doorId)
+                    .map(exit => ({ id: exit.doorId }))) ];
+            const normalizedProposal = HordeResolvedIntent.normalizeProposal(parsed, {
+                input,
+                people: references.currentLocation.people,
+                references: [...known, ...(references.items || [])
+                    .map(item => ({ ...item, type: 'item' }))]
+            });
+            // Check meaningful coverage before attaching punctuation/connectives.
+            // Filling arbitrary gaps first could conceal an omitted action.
+            if (!HordeWorldSceneDraft.playerRequestCoverage(input,
+                normalizedProposal.steps.map(step => ({ request: step?.source_quote }))).ok)
+                return failClosed('intent_source_coverage_failed');
+            // Retain connective and conditional words between the model's exact
+            // action spans as source context, without creating extra actions or
+            // changing dependency indexes.
+            let coverageCursor = 0;
+            let previousCoveredStep = null;
+            let previousActionStepIndex = -1;
+            for (const [stepIndex, step] of (normalizedProposal.steps || []).entries()) {
+                if (!step || typeof step !== 'object' || Array.isArray(step)) continue;
+                const originalQuote = String(step?.source_quote || '');
+                const start = input.indexOf(originalQuote, coverageCursor);
+                if (start < 0) continue;
+                if (start > coverageCursor) {
+                    const gap = input.slice(coverageCursor, start);
+                    step.source_quote = gap + originalQuote;
+                    const explicitPriorOutcome = /\b(?:if|unless|provided\s+that|assuming\s+that|only\s+when|in\s+case|wenn|falls|sofern|vorausgesetzt|nur\s+wenn|si|à\s+condition\s+que|au\s+cas\s+où|siempre\s+que|en\s+caso\s+de)\b/iu.test(gap)
+                        && /\b(?:that|it|this|das|es|cela|eso|succeeds?|works?|happens?|gelingt|klappt|funktioniert|réussit|marche|funciona|ocurre)\b/iu.test(gap);
+                    if (explicitPriorOutcome && previousActionStepIndex >= 0)
+                        step.depends_on = [{ step_index: previousActionStepIndex,
+                            outcome: 'succeeded' }];
+                }
+                coverageCursor = start + originalQuote.length;
+                previousCoveredStep = step;
+                if (step.kind !== 'context') previousActionStepIndex = stepIndex;
+            }
+            if (previousCoveredStep && coverageCursor < input.length)
+                previousCoveredStep.source_quote += input.slice(coverageCursor);
+            const checked = HordeResolvedIntent.validate(normalizedProposal,
+                { input, references: known });
+            if (!checked.ok || !HordeWorldSceneDraft.playerRequestCoverage(input,
+                checked.intent.steps.map(step => ({ request: step.source_quote }))).ok) {
+                return failClosed(checked.errors?.length
+                    ? checked.errors.slice(0, 12).map(error => `${error.reason}${error.step_index == null ? '' : ` at step ${error.step_index + 1}`}`).join('; ')
+                    : 'intent_source_coverage_failed', checked.errors?.some(error =>
+                        ['invalid_resolved_intent', 'invalid_intent_step'].includes(error.reason)) ? 'schema' : 'semantic');
+            }
+            intentStage = 'semantic';
+            const compiled = buildWorldResolvedIntentDraft(canonicalWorld, canonicalSess,
+                input, checked.intent, linkedWorldTurn
+                    && normalizeWorldKernelConfig(canonicalWorld).serverBindings);
+            if (!compiled) {
+                return failClosed('unsupported_or_unbound_intent_operation');
+            }
+            turnCallAudit.resolvedIntentValidation = { accepted: true,
+                stepCount: checked.intent.steps.length };
+            const quoteTargets = [];
+            checked.intent.steps.forEach((step, index) => {
+                const targetId = compiled.travelTargets[`ri_${index}`];
+                if (targetId) quoteTargets.push({ sourceQuote: step.source_quote,
+                    targetId, stepIndex: index });
+            });
+            turnCallAudit.resolvedIntentValidation.travelTargets = quoteTargets;
+            return { ...compiled, travelTargets: quoteTargets, intent: checked.intent };
+        } catch (error) {
+            if (controller.signal.aborted) throw error;
+            if (error instanceof SyntaxError) error.code = 'WORLD_INTENT_INVALID_JSON';
+            if (!error.code && intentStage !== 'transport') {
+                error.code = 'WORLD_INTENT_SCHEMA_ERROR';
+                error.message = 'The intent model returned an invalid action structure. Your input has been preserved.';
+            }
+            turnCallAudit.resolvedIntentValidation = { accepted: false,
+                reason: error?.code || error?.name || 'intent_model_error',
+                stage: error?.stage || intentStage,
+                message: error?.message || String(error) };
+            throw error;
+        }
+    };
+    const narrateConfirmedMovement = async (preflight, input, fallback,
+        confirmedSession = canonicalSess, originSession = canonicalSess) => {
+        if (controller.signal.aborted) throw controller.signal.reason;
+        const safeFallback = (reason, conflicts = []) => {
+            turnCallAudit.deterministicNarrationValidation = { accepted: false, reason,
+                conflicts: conflicts.map(item => ({ reason: item.reason,
+                    detail: String(item.detail || '').slice(0, 120) })) };
+            return fallback;
+        };
+        if (!hasApiCredentials()) return safeFallback('model_unavailable');
+        const view = worldForSession(canonicalWorld, originSession);
+        const origin = getLocationRef(view, originSession.playerLocation);
+        const target = getLocationRef(view, preflight.intent?.targetId);
+        const leg = origin && target
+            ? getWorldTravelLeg(view, origin.id, target.id, originSession) : null;
+        const routePath = origin && target && preflight.status === 'succeeded'
+            ? Array.isArray(preflight.intent?.path)
+                && preflight.intent.path[0] === origin.id
+                && preflight.intent.path.at(-1) === target.id
+                ? preflight.intent.path
+                : findWorldTravelPath(view, origin.id, target.id,
+                    { session: originSession }) : null;
+        const packet = {
+            playerIntent: String(input || '').slice(0, 350),
+            confirmedSpeech: preflight.intent?.speech?.quote || null,
+            outputLanguage: worldOutputLanguage(canonicalWorld),
+            origin: origin ? { id: origin.id, name: origin.name,
+                scene: String(origin.description || '').slice(0, 180) } : null,
+            target: target ? { id: target.id, name: target.name,
+                scene: preflight.status === 'succeeded'
+                    ? String(target.description || '').slice(0, 180) : '' } : null,
+            confirmedOutcome: preflight.status,
+            confirmedSentence: fallback,
+            route: { accessible: preflight.status === 'succeeded',
+                reason: preflight.reason,
+                travelMinutes: routePath
+                    ? getWorldPathTravelTime(view, routePath, originSession)
+                    : leg?.travelTime || 0,
+                ...(routePath?.length > 2 ? { placeIds: routePath } : {}),
+                requiredItem: leg?.exit && typeof leg.exit === 'object'
+                    ? String(leg.exit.requiredItem || '') : '' }
+        };
+        const body = {
+            model: canonicalWorld.model || state.globalSettings.defaultModel,
+            stream: false, max_tokens: 140, temperature: 0.7,
+            messages: [
+                { role: 'system', content: `The World has already decided this movement. ${worldOutputLanguageInstruction(canonicalWorld)} Write one or two natural, atmospheric player-facing sentences. You may vary the wording and describe a harmless gesture or mood. If confirmedSpeech is present, include the player's exact quoted words once after the move; do not invent a reply. Only mention physical objects actually present in the supplied scene facts; light or warmth does not imply a lamp. Respect confirmedOutcome, origin, target, route, and supplied scene facts. Do not invent another move, item, key, NPC action, opened door, injury, cost, or lasting change. Do not call tools, output JSON, request a receipt, or decide mechanics.` },
+                { role: 'user', content: JSON.stringify(packet) }
+            ]
+        };
+        if (turnCallAudit?.metrics) turnCallAudit.metrics.deterministicNarrationPromptCharacters =
+            JSON.stringify(body.messages).length;
+        turnCallAudit.deterministicNarration = (turnCallAudit.deterministicNarration || 0) + 1;
+        try {
+            const narrativeTimeoutMs = isLocalProvider()
+                ? Math.min(180000, localGenerationIdleTimeoutMs() || 180000) : 45000;
+            const signal = AbortSignal.any([controller.signal,
+                AbortSignal.timeout(narrativeTimeoutMs)]);
+            const { response, data } = await fetchWorldTurnJSON('deterministicNarration', body, {
+                method: 'POST', signal,
+                headers: { ...authHeaders(), 'Content-Type': 'application/json',
+                    ...attributionHeaders() }
+            });
+            if (!response.ok) return safeFallback(`model_http_${response.status}`);
+            const raw = String(data?.choices?.[0]?.message?.content || '').trim();
+            const visible = String(scrubNarrativeArtifacts(raw)).trim();
+            if (!hasReadableWorldNarrative(visible) || visible.length > 500
+                || /[{}<>]|\b(?:actor_move|state_updates|receipt|world_state_version)\b/i.test(visible)
+                || worldNarrativeRequestsCheck(visible)) return safeFallback('invalid_narration');
+            const conflicts = worldConfirmedMovementNarrativeConflicts(canonicalWorld,
+                originSession, confirmedSession, preflight, visible);
+            if (conflicts.length) return safeFallback('canonical_conflict', conflicts);
+            turnCallAudit.deterministicNarrationValidation = { accepted: true };
+            return visible;
+        } catch (error) {
+            if (controller.signal.aborted) throw error;
+            return safeFallback('model_error');
+        }
+    };
+    const narrateResolvedIntent = async (intent, compiled, linked, input,
+        beforeSession, afterSession, fallback) => {
+        const report = (reason, conflicts = []) => {
+            turnCallAudit.resolvedIntentNarration = { accepted: false, reason,
+                conflicts: conflicts.map(item => ({ reason: item.reason,
+                    detail: String(item.detail || '').slice(0, 120) })) };
+            return fallback;
+        };
+        if (!hasApiCredentials()) return report('model_unavailable');
+        const outcomes = [...linked.outcomes].map(([action_id, outcome]) => ({ action_id,
+            outcome, request: compiled.linkedPlan.actions.find(action => action.action_id === action_id)?.request || '' }));
+        const evidence = {
+            playerRequest: String(input || '').slice(0, 1600),
+            orderedIntent: intent.steps.map(step => ({ quote: step.source_quote, kind: step.kind })),
+            outcomes,
+            confirmedEffects: (linked.confirmedEffects || []).slice(0, 40),
+            confirmedEvents: (linked.events || []).filter(event => event.status === 'completed'
+                && linked.outcomes.get(event.action_id) === 'succeeded').slice(0, 60),
+            playerSpeech: (compiled.speech || []).filter(item =>
+                linked.outcomes.get(item.action_id) === 'succeeded').map(item => ({
+                quote: item.quote || item.statement, speaker: item.speaker,
+                listeners: item.listeners })),
+            currentLocation: afterSession.playerLocation,
+            scene: String(getLocationRef(worldForSession(canonicalWorld, afterSession),
+                afterSession.playerLocation)?.description || '').slice(0, 400),
+            presentPeople: worldResolvedIntentPeople(canonicalWorld, beforeSession, afterSession, input,
+                isReroll ? canonicalSess.history.at(-1)?.id : null)
+        };
+        const body = { model: canonicalWorld.model || state.globalSettings.defaultModel,
+            stream: false, max_tokens: 240, temperature: 0.72,
+            messages: [
+                { role: 'system', content: `The World Engine has already resolved this turn. ${worldOutputLanguageInstruction(canonicalWorld)} Tell the result in concise, vivid prose (one to three short paragraphs). Use confirmedEvents and confirmedEffects as the only evidence of this turn's state changes. Respect each action outcome: blocked, already_satisfied, skipped and unresolved actions did not succeed. Preserve supplied direct playerSpeech verbatim and do not invent dialogue for the player; indirect requests remain indirect. When addressed or asked a question, presentPeople should give an in-character reply, not merely echo the player. Continue their witnessed conversation and knowledge; do not grant unseen knowledge or treat hearsay as fact. Intentional language switching in dialogue is allowed; the configured narrative language still governs narration. You may describe atmosphere from scene and conversational replies from presentPeople, but do not invent a state change, item, route, movement, injury, cost, physical NPC action, or completed player action. Do not output JSON, instructions, receipts or analysis.` },
+                { role: 'user', content: JSON.stringify(evidence) }
+            ] };
+        turnCallAudit.resolvedIntentNarrationCalls = (turnCallAudit.resolvedIntentNarrationCalls || 0) + 1;
+        try {
+            const timeoutMs = isLocalProvider()
+                ? Math.min(45000, localGenerationIdleTimeoutMs() || 45000) : 45000;
+            const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(timeoutMs)]);
+            const { response, data } = await fetchWorldTurnJSON('resolvedIntentNarration', body, {
+                method: 'POST', signal, headers: { ...authHeaders(),
+                    'Content-Type': 'application/json', ...attributionHeaders() }
+            });
+            if (!response.ok) return report(`model_http_${response.status}`);
+            const visible = String(scrubNarrativeArtifacts(
+                data?.choices?.[0]?.message?.content || '')).trim();
+            if (!hasReadableWorldNarrative(visible) || visible.length > 1800
+                || /[{}<>]|\b(?:actor_move|state_updates|receipt|world_state_version)\b/i.test(visible)
+                || worldNarrativeRequestsCheck(visible)) return report('invalid_narration');
+            const conflicts = worldFinalNarrativeConflicts(canonicalWorld, beforeSession,
+                afterSession, visible, input, null);
+            if (conflicts.length) return report('canonical_conflict', conflicts);
+            turnCallAudit.resolvedIntentNarration = { accepted: true };
+            return visible;
+        } catch (error) {
+            if (controller.signal.aborted) throw error;
+            return report(error?.code || 'model_error');
+        }
+    };
     const fetchWorldTurnStream = async (kind, body, init) => {
         if (controller.signal.aborted) throw controller.signal.reason;
+        await prepareTurnModel(body.model);
         const startedAt = performance.now();
         if (turnProvider === 'horde') {
             const response = await requestHordeCompletion(body, init?.signal);
@@ -31532,9 +33174,12 @@ async function executeWorldTurn(commandOrReroll = null) {
             && world.kernel?.sceneDraftProtocol !== 'scene_draft_v2'
             && !['init', 'look', 'continue'].includes(command);
         if (linkedWorldTurn) {
-            if (!globalThis.HordeWorkingState || !globalThis.HordeEffectRegistry
-                || !globalThis.HordeLinkedWorldActions)
-                throw new Error('Required World modules were not loaded. Restart the local HordeStudio server and reload this page before retrying.');
+            const missingModules = ['HordeWorkingState', 'HordeEffectRegistry',
+                'HordeLinkedWorldActions', 'HordeResolvedIntent', 'HordeWorldModelClient',
+                'HordeWorldSceneDraft', 'HordeWorldTurnBinding'].filter(name => !globalThis[name]);
+            if (missingModules.length) throw Object.assign(new Error(
+                `Required World modules were not loaded: ${missingModules.join(', ')}. Restart the local HordeStudio server and reload this page before retrying.`),
+                { code: 'WORLD_MODULES_MISSING' });
             world = safeJsonClone(world);
             sess = safeJsonClone(sess);
         }
@@ -31614,6 +33259,117 @@ async function executeWorldTurn(commandOrReroll = null) {
         const lastMsg = sess.history[sess.history.length - 1];
         if (lastMsg.role !== 'dm') return showToast('Can only reroll DM responses', 'info');
         if (!lastMsg.turnSnapshot) return showToast('This older response predates safe rerolls. Continue once, then reroll the new response.', 'info');
+        const lastUser = [...sess.history].reverse().find(m => m.role === 'user');
+        const priorInput = lastUser?.text || 'Continue the adventure.';
+        const resolvedIntentReceipt = linkedWorldTurn
+            && (lastMsg.actionOutcomes || []).map(item => item.intent)
+                .find(intent => intent?.protocol === 'resolved_intent_v1');
+        const latestResolvedReceipt = canonicalSess.worldTurnReceipts?.at(-1)?.receipt;
+        if (resolvedIntentReceipt && latestResolvedReceipt && lastMsg.turnSnapshot?.session) {
+            const beforeSession = lastMsg.turnSnapshot.session;
+            const receiptActions = (latestResolvedReceipt.action_results || []).map((result, index) => ({
+                action_id: result.action_id,
+                request: resolvedIntentReceipt.steps[index]?.source_quote || ''
+            }));
+            const rerollCompiled = { linkedPlan: { actions: receiptActions },
+                speech: (latestResolvedReceipt.speech_attributions || []).map(item => ({
+                    speaker: item.speaker, quote: item.statement, action_id: item.action_id })) };
+            const rerollLinked = { outcomes: new Map((latestResolvedReceipt.action_results || [])
+                .map(item => [item.action_id, item.outcome])),
+                events: latestResolvedReceipt.events || [],
+                confirmedEffects: latestResolvedReceipt.confirmed_effects || [],
+                narrative: String(latestResolvedReceipt.summary || '') };
+            userInput = priorInput;
+            submittedInput = priorInput;
+            showPendingTurn();
+            const response = await narrateResolvedIntent(resolvedIntentReceipt,
+                rerollCompiled, rerollLinked, priorInput, beforeSession,
+                canonicalSess, rerollLinked.narrative);
+            const working = HordeWorkingState.createWorkingState(canonicalWorld, canonicalSess);
+            try {
+                working.applyDetached((candidateWorld, candidateSession) => {
+                    const message = candidateSession.history.at(-1);
+                    if (message?.role !== 'dm' || message.id !== lastMsg.id)
+                        throw new Error('stale_resolved_intent_reroll');
+                    message.text = response;
+                    for (const npcState of Object.values(candidateSession.entityStates || {}))
+                        for (const observation of npcState.observations || [])
+                            if (observation && typeof observation === 'object' && observation.msgId === message.id)
+                                observation.text = response;
+                    message.isReroll = true;
+                    message.callAudit = { ...turnCallAudit, calls: turnCallDetails.slice() };
+                    message.turnDurationMs = Date.now() - worldTurnStartedAt;
+                });
+                await persistPreparedWorldTurn(canonicalWorld, canonicalSess, working);
+                linkedTurnFinalized = true;
+            } catch (error) {
+                working.rollback();
+                throw error;
+            }
+            recordWorldDebugTurn(canonicalWorld, canonicalSess, {
+                input: priorInput, provider: turnProvider,
+                model: String(turnCallDetails[0]?.model || ''),
+                processingPath: 'resolved_intent_narration_reroll',
+                intent: resolvedIntentReceipt, executionStatus: 'unchanged',
+                commitStatus: 'committed', worldVersion: canonicalSess.worldStateVersion,
+                turnId: latestResolvedReceipt.turn_id,
+                calls: turnCallDetails, durationMs: Date.now() - worldTurnStartedAt
+            });
+            renderWorldPlayState();
+            return;
+        }
+        if (linkedWorldTurn && ['engine_preflight', 'engine_preflight_linked'].includes(lastMsg.stateSource)
+            && lastMsg.turnSnapshot.session && lastUser) {
+            const before = lastMsg.turnSnapshot.session;
+            const priorStatus = lastMsg.actionOutcomes?.[0]?.status;
+            const status = lastMsg.stateSource === 'engine_preflight_linked'
+                ? 'succeeded' : priorStatus;
+            const targetId = status === 'succeeded' ? sess.playerLocation
+                : lastMsg.actionOutcomes?.[0]?.intent?.targetId;
+            const target = getLocationRef(worldForSession(canonicalWorld, canonicalSess), targetId);
+            if (target && ['succeeded', 'blocked', 'already_satisfied'].includes(status)) {
+                userInput = priorInput;
+                submittedInput = priorInput;
+                turnSnapshot = lastMsg.turnSnapshot;
+                showPendingTurn();
+                const savedIntent = lastMsg.actionOutcomes?.[0]?.intent;
+                const preflight = { status, intent: { kind: 'move', targetId,
+                    ...(savedIntent?.speech ? { speech: savedIntent.speech } : {}) },
+                    reason: lastMsg.actionOutcomes?.[0]?.reason || 'previously_confirmed_move' };
+                const fallback = worldMovementFallback(status, target.name, canonicalWorld)
+                    + (savedIntent?.speech?.quote
+                        ? `\n\n${worldSpeechFallback(savedIntent.speech.quote, canonicalWorld)}` : '');
+                const response = await narrateConfirmedMovement(preflight, priorInput,
+                    fallback, canonicalSess, before);
+                const working = HordeWorkingState.createWorkingState(canonicalWorld, canonicalSess);
+                try {
+                    working.applyDetached((candidateWorld, candidateSession) => {
+                        const message = candidateSession.history.at(-1);
+                        if (message?.role !== 'dm' || message.id !== lastMsg.id)
+                            throw new Error('stale_reroll_message');
+                        message.text = response;
+                        message.isReroll = true;
+                        message.callAudit = { ...turnCallAudit, calls: turnCallDetails.slice() };
+                        message.turnDurationMs = Date.now() - worldTurnStartedAt;
+                    });
+                    await persistPreparedWorldTurn(canonicalWorld, canonicalSess, working);
+                    linkedTurnFinalized = true;
+                } catch (error) {
+                    working.rollback();
+                    throw error;
+                }
+                recordWorldDebugTurn(canonicalWorld, canonicalSess, {
+                    input: priorInput, provider: turnProvider, model: canonicalWorld.model || '',
+                    processingPath: 'deterministic_narration_reroll',
+                    intent: preflight.intent, canonicalTarget: targetId,
+                    preflightResult: status, executionStatus: status,
+                    commitStatus: 'committed', worldVersion: canonicalSess.worldStateVersion,
+                    calls: turnCallDetails, durationMs: Date.now() - worldTurnStartedAt
+                });
+                renderWorldPlayState();
+                return;
+            }
+        }
         restoredRerollSnapshot = !!lastMsg.turnSnapshot;
         turnSnapshot = lastMsg.turnSnapshot || captureWorldTurnState(world, sess);
         restoreWorldTurnState(world, sess, turnSnapshot);
@@ -31623,19 +33379,110 @@ async function executeWorldTurn(commandOrReroll = null) {
         if (lastMsg.command) command = lastMsg.command;
 
         // Find last user input to "replay" it for context logic
-        const lastUser = [...sess.history].reverse().find(m => m.role === 'user');
-        userInput = lastUser ? lastUser.text : "Continue the adventure.";
+        userInput = priorInput;
         submittedInput = userInput;
         showPendingTurn();
     } else {
-        userInput = command || document.getElementById('world-user-input').value.trim();
+        userInput = structuredExit
+            ? `I go to ${getLocationRef(worldForSession(canonicalWorld, canonicalSess),
+                structuredExit.toId)?.name || structuredExit.toId}.`
+            : command || document.getElementById('world-user-input').value.trim();
         if (command !== "init" && !userInput) return;
         submittedInput = userInput;
 
         turnSnapshot = captureWorldTurnState(world, sess);
         historyStartLength = sess.history.length;
-        if (!command) document.getElementById('world-user-input').value = '';
+        if (!command && !structuredExit) document.getElementById('world-user-input').value = '';
         showPendingTurn(!['init', 'look', 'continue'].includes(command) ? userInput : '');
+        if (linkedWorldTurn && !isReroll && !command && !controller.signal.aborted
+            && normalizeWorldKernelConfig(canonicalWorld).resolveFirst) {
+            let preflight;
+            if (structuredExit) preflight = resolveWorldStructuredExitIntentP0(
+                canonicalWorld, canonicalSess, structuredExit);
+            else {
+                const interpreted = await interpretWorldAction(userInput);
+                if (interpreted) {
+                    if (interpreted.safeFallback) {
+                        const fallbackText = interpreted.draft?.narrative?.[0]?.text
+                            || interpreted.draft?.actions?.[0]?.response?.[0]?.text
+                            || 'I could not reliably interpret that World action. Please rephrase it.';
+                        const unresolved = new Error(fallbackText);
+                        unresolved.code = 'RESOLVED_INTENT_UNRESOLVED';
+                        throw unresolved;
+                    }
+                    resolvedIntentDraft = interpreted.draft;
+                    resolvedIntentTravelTargets = interpreted.travelTargets;
+                    resolvedIntentSafeFallback = interpreted.safeFallback === true;
+                    turnPreflight = { path: 'resolved_intent', intent: interpreted.intent,
+                        reason: interpreted.safeFallback ? 'intent_interpretation_failed_closed'
+                            : 'compact_interpretation_compiled_to_typed_engine_actions' };
+                    preflight = turnPreflight;
+                } else {
+                    resolvedIntentDraft = buildWorldResolvedIntentFailureDraft(userInput,
+                        canonicalWorld, !!(linkedWorldTurn
+                            && normalizeWorldKernelConfig(canonicalWorld).serverBindings));
+                    resolvedIntentSafeFallback = true;
+                    turnPreflight = { path: 'resolved_intent',
+                        reason: 'resolved_intent_unavailable_fail_closed' };
+                    const fallbackText = resolvedIntentDraft?.narrative?.[0]?.text
+                        || resolvedIntentDraft?.actions?.[0]?.response?.[0]?.text
+                        || 'I could not reliably interpret that World action. Please rephrase it.';
+                    const unresolved = new Error(fallbackText);
+                    unresolved.code = 'RESOLVED_INTENT_UNRESOLVED';
+                    throw unresolved;
+                }
+            }
+            if (structuredExit) turnPreflight = preflight;
+            if (preflight.path === 'deterministic') {
+                const fallback = worldMovementFallback(preflight.status,
+                    preflight.targetName, canonicalWorld);
+                const response = await narrateConfirmedMovement(preflight, userInput, fallback);
+                const working = HordeWorkingState.createWorkingState(canonicalWorld, canonicalSess);
+                let audit;
+                try {
+                    working.applyDetached((candidateWorld, candidateSession) => {
+                        bumpWorldEpoch(candidateSession);
+                        addWorldMessage('user', userInput, {
+                            location: candidateSession.playerLocation,
+                            deferPersist: true, deferEmbedding: true
+                        }, candidateSession, candidateWorld);
+                        const result = commitEngineWorldNoOp(candidateWorld, candidateSession,
+                            'engine_preflight', preflight.status === 'blocked'
+                                ? 'The requested route is not accessible.'
+                                : 'The player is already at the requested location.');
+                        if (result.audit?.rejected?.length)
+                            throw new Error(result.audit.rejected[0].reason || 'preflight_receipt_rejected');
+                        audit = result.audit;
+                        addWorldMessage('dm', response, {
+                            location: candidateSession.playerLocation, turnSnapshot,
+                            worldAudit: audit, stateSource: 'engine_preflight',
+                            actionOutcomes: [worldActionOutcome(preflight.status, {
+                                intent: preflight.intent, reason: preflight.reason, effects: [] })],
+                            callAudit: { ...turnCallAudit, calls: turnCallDetails.slice() },
+                            turnDurationMs: Date.now() - worldTurnStartedAt,
+                            deferPersist: true, deferEmbedding: true
+                        }, candidateSession, candidateWorld);
+                        candidateSession.turnCount = Math.max(1, Number(candidateSession.turnCount) || 1) + 1;
+                    });
+                    await persistPreparedWorldTurn(canonicalWorld, canonicalSess, working);
+                    linkedTurnFinalized = true;
+                } catch (error) {
+                    working.rollback();
+                    throw error;
+                }
+                recordWorldDebugTurn(canonicalWorld, canonicalSess, {
+                    input: userInput, provider: turnProvider, model: '',
+                    processingPath: 'deterministic', intent: preflight.intent,
+                    canonicalTarget: preflight.intent.targetId, preflightResult: preflight.status,
+                    ruleReason: preflight.reason, executionStatus: preflight.status,
+                    commitStatus: 'committed', worldVersion: canonicalSess.worldStateVersion,
+                    calls: turnCallDetails, validation: audit,
+                    durationMs: Date.now() - worldTurnStartedAt
+                });
+                renderWorldPlayState();
+                return;
+            }
+        }
 
         // ⏩ Continue: silent directive — no user bubble, no movement detection
         if (command === "continue") {
@@ -31823,7 +33670,7 @@ async function executeWorldTurn(commandOrReroll = null) {
             if (typeof ex === 'string') return ex;
             const target = getLocationRef(visibleWorld, ex.targetLocationId || getExitTargetName(ex));
             const label = target ? `${getExitDirection(ex) ? `${getExitDirection(ex)} ` : ''}to ${target.name}` : ex.text;
-            const routeDetails = [formatWorldTravelMode(ex.mode), ex.routeName || '', ex.travelTime ? `${ex.travelTime}m` : '', ex.cost ? `fare ${ex.cost}` : ''].filter(Boolean);
+            const routeDetails = [formatWorldTravelMode(ex.mode), ex.routeName || '', ex.travelTime ? `${ex.travelTime}m` : '', ex.fare ? `fare ${ex.fare.amount} ${ex.fare.resourceId}` : ex.cost ? `fare ${ex.cost}` : ''].filter(Boolean);
             const requirement = worldExitRequirement(sess, ex, loc.id);
             return `${label}${routeDetails.length ? ` (${routeDetails.join(' · ')})` : ''}${ex.isOneWay ? ' [One-Way]' : ''}${requirement.unlocked ? ' [Unlocked by a check]' : requirement.requiredItem ? ` [Requires ${requirement.requiredItem}${requirement.ok ? ' — held' : ' — not held'}${requirement.allowCheckUnlock ? '; can unlock with check' : ''}; from ${loc.id} to ${target?.id || '?'}]` : requirement.allowCheckUnlock ? ` [Locked; can unlock with check; from ${loc.id} to ${target?.id || '?'}]` : ''}`;
         }).join(', ') : "None";
@@ -32166,6 +34013,8 @@ Characters in this world are NOT omniscient. They only know what they have perso
         : '';
 
     let systemPrompt = `${world.dmPrompt}${personaContext}${storyPrefsPrompt}${knowledgeBarrier}${labsWorldHint}
+
+${worldOutputLanguageInstruction(world)}
 
 ${HORDE_NARRATIVE_RULES}
 ${state.globalSettings.immersionMode !== false ? '\n' + HORDE_IMMERSION_DIRECTIVE + '\n' : ''}
@@ -33183,10 +35032,12 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             'Only an explicitly agreed future deadline with a stated time gets a commitments entry with its supported absolute world day and minute_of_day, stable ID and passage_id. Wishes, offers and open-ended plans stay in dialogue and do not create scheduled events.');
         if (sceneDrafts && sceneProtocol === 'scene_draft_v3') {
             draftInstruction = draftInstruction.replaceAll('scene_draft_v2', sceneProtocol).replace('[SCENE DRAFT V2]', '[SCENE DRAFT V3]');
-            const compactRules = '\nEmpty events, effects, speech and commitments may be omitted. Use resolutions only when the schema offers reachable IDs; otherwise omit it. For exactly one simple action, omit actions[0].request: the engine supplies the original input. Compound requests require explicit contiguous request excerpts covering every step. Gestures, approaching a present person and showing an already held item in this room need no movement or transfer event. Escort records an NPC voluntarily joining or leaving as a continuing follower; its actor_id is the NPC, never player. Taking or dragging someone to a named room is a joint trip, not an escort join. If the engine already moved both people, narrate that result without duplicate movement or escort events. Never use duplicate JSON keys.';
+            const compactRules = '\nEmpty events, effects, speech and commitments may be omitted. Use resolutions only when the schema offers reachable IDs; otherwise omit it. For exactly one simple action, omit actions[0].request: the engine supplies the original input. Compound requests require explicit contiguous request excerpts covering every step. Gestures, approaching a present person and showing an already held item in this room need no movement or transfer event. Escort records an NPC voluntarily joining or leaving as a continuing follower; its actor_id is the NPC, never player. Taking or dragging someone to a named room is a joint trip, not an escort join. If the engine already moved both people, narrate that result without duplicate movement or escort events. An NPC does not follow the player into a new room merely because the player moved; narrate an NPC arrival only with that NPC’s validated movement effect and event. Player speech can be heard at the origin before departure without moving the listener. Never use duplicate JSON keys.';
             draftInstruction = draftInstruction.replace('\nCurrent day:', compactRules + '\nCurrent day:');
         }
-        if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
+        if (linkedWorldTurn) draftInstruction = `[LINKED SCENE DRAFT V3]\nUse the existing commit_world_turn call with protocol:"scene_draft_v3". Interpret the whole player input once. Return ordered narrative passages, actions, events and typed action_effects in that same response. Every action has a unique lowercase action_id; its response_id names a passage carrying the same action_id. Every event carries its causing action_id. Use depends_on only with an earlier action_id and one confirmed outcome: succeeded, failed or blocked. Pending checks never release another action; stop before a check result and use the normal continuation flow. State conditions read registered facts. Each action_effects field contains only the typed operations exposed by this schema. Use exact IDs from World lore. Unknown technical changes cannot be committed. A completed action must have its technical changes in action_effects; failed or blocked steps describe the obstacle without claiming a state change. A later step may depend on failure or a confirmed world fact. Show already successful steps even if a later step fails. Do not invent people, places, items, routes, capabilities, door access, or property names. Classify every requested mapped place change as kind travel, including an attempt that may be blocked; the engine decides the result from the current World state. Movement is one mapped edge per actor_move; use several actions for a multi-stage route. A named companion moves through companion_ids or an established follower relation. Door states use interactable_transition, including existing key and access rules. New entities and locations must be explicitly introduced before later actions reference them. Speech and nonpersistent gestures may have no technical effect. Do not duplicate changes in top-level effects, which must be {}. Keep the narrative concise and consistent with the proposed outcomes. The engine validates and may reject the entire draft; this text is private until durable commit.${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.\nExact player request to cover: ${JSON.stringify(latestActionText || '')}\nIf tools are unavailable, enclose the same complete draft in <world_turn_receipt> tags.`;
+        if (linkedWorldTurn) draftInstruction += '\nA completed momentary physical interaction with no lasting effect still needs an actor-scoped completed interaction event linked to its action and passage. If completion is uncertain, mark only that step attempted or needing clarification; do not claim success in prose without the event.';
+        if (linkedWorldTurn) draftInstruction += '\nFor a player speech action, include the actual spoken words in its response text and a speaker:player speech attribution. An unquoted multi-sentence declaration is one utterance; preserve every spoken clause verbatim without treating its claims as true world facts. An NPC reply alone does not certify that the player spoke. Every speech quote must occur verbatim in its own response text; use separate speech entries for separated quotations.';
         if (serverBoundTurns) draftInstruction = `[SERVER-BOUND SCENE DRAFT]\nReturn protocol:"scene_draft_v3" and actions. Interpret the whole player message. Put the NPC/world response inside each action.response, not in a separate passage table. Use effects:[] for dialogue or gestures with no lasting change. Use kind gesture for a nonpersistent bodily expression, never for travel, item transfers, door changes or lasting conditions. Each real change must use a supported typed effect and match the prose. For compound actions, keep their order and cover every request; depends_on uses an earlier zero-based action_index and succeeded/failed/blocked. A single player attempt has one actual outcome in this draft; possible alternatives are not additional completed actions. If a registered check is required, propose one pending_check action with its checks effect and stop before its outcome. An NPC's answer belongs in the action response or a justified world reaction. Preserve successful earlier steps when later steps fail; stop before a pending check result. Do not narrate an unrequested player decision. Autonomous NPC reactions and movements use reactions, with their own actual effects and events; never attribute an NPC action to the player. Use only known actors, items, routes and capabilities or their explicit introduction operations. No generated action or passage IDs. Keep prose concise and character-appropriate. Quests and timed obligations require actual player authorization and supporting evidence; ordinary dialogue never requires them.\n${sceneDraftFieldGuide}\nCurrent day: ${days}; minute of day: ${hours24 * 60 + mins}.`;
         if (linkedWorldTurn) draftInstruction += '\nSTATE/OUTCOME/EFFECT CONTRACT: state_conditions[].fact is only one registered read-only name: actor_at, has_item, interactable_state, condition, relation. Put an exact subject_id, operator and value in separate fields. Never put a sentence, an intended action, consent, resistance or success in fact. For a requested companion, guide, pull or push, let the NPC agree, refuse or resist in the response. An attempt that does not move anyone uses status attempted, no actor_move and no completed movement event; narrate the concrete reaction. Only a completed mapped move uses actor_move with a matching completed movement event for each moved actor. Use companion_ids for a joint move and only after the NPC actually comes along. A new ongoing follower relation needs its supported status effect and escort event. Do not infer arrival from an invitation or from a started journey. Keep actions and reactions concise; cover compound requests with ordered contiguous request excerpts.';
         if (linkedWorldTurn) draftInstruction += '\nATTEMPT AND REACTION: The player input states an attempt or request, never guarantees its outcome. state_conditions test facts that already exist before an action; do not use them to express a hoped-for result or an NPC decision made in this turn. In particular, picking up an item must not require has_item for the item being picked up; a completed pickup uses item_transfer and a matching completed inventory event, while a failed pickup has neither transfer nor success claim. Ordinary scenery may exist without a registered item record: a chair can be bumped into or stumbled over without creating or transferring an item. For a completed momentary physical occurrence with no lasting change, use a completed player interaction event linked to its response passage; do not add item_transfer or invent a registered object. Put an NPC reply in the linked passage or a separate reaction. For a physical attempt involving an NPC, describe the NPC\'s specific observed response when the scene supports one, such as stepping away, bracing, stumbling, resisting or cooperating; vary it with that NPC\'s character and circumstances. Do not merely repeat the player\'s intended action, and do not invent consent or refusal to satisfy a validator. An unsuccessful physical attempt uses status attempted, no lasting effect and no completed player interaction or state event. A completed local interaction needs a witnessed interaction event; a lasting change needs its validated effect and matching completed event. Do not assert an arrival, restraint or condition that the selected outcome did not commit.';
@@ -33344,7 +35195,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     turnCallAudit.metrics.contextSources);
             }
         }
-        if (estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
+        if (!resolvedIntentDraft && estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER > CONTEXT_LIMIT) {
             const minimum = Math.ceil((estimatedInputTokens + GEN_LIMIT + SAFETY_BUFFER + 1024) / 1024) * 1024;
             throw new Error(`This World turn needs about ${minimum} context tokens including its tool contract, but the configured/model limit is ${CONTEXT_LIMIT}. Increase World Context Size or use a larger-context model. No model request was sent.`);
         }
@@ -33353,9 +35204,31 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             throw new Error('The current player action must be one separate final user message. No model request was sent.');
 
         let questFallbackMode = false;
-        turnCallAudit.main++;
+        const deterministicMoveDraft = linkedWorldTurn && sceneProtocol === 'scene_draft_v3'
+            && !isReroll
+            ? resolvedIntentDraft || buildWorldDeterministicMoveDraft(canonicalWorld,
+                canonicalSess, turnPreflight, latestActionText || '', serverBoundTurns) : null;
+        if (deterministicMoveDraft && resolvedIntentDraft) turnPreflight = {
+            ...turnPreflight, path: 'deterministic',
+            reason: resolvedIntentSafeFallback ? 'intent_interpretation_failed_closed'
+                : 'resolved_intent_compiled_and_checked_by_linked_executor'
+        };
+        else if (deterministicMoveDraft) turnPreflight = {
+            ...turnPreflight, path: 'deterministic', reason: 'direct_move_checked_by_linked_executor'
+        };
+        else turnCallAudit.main++;
         let activeStreamKind = 'main';
-        let activeStream = await fetchWorldTurnStream(activeStreamKind, requestBody, {
+        const syntheticCompletion = deterministicMoveDraft ? JSON.stringify({
+            choices: [{ delta: { tool_calls: [{ index: 0, id: 'p0_move_call',
+                type: 'function', function: { name: 'commit_world_turn',
+                    arguments: JSON.stringify(deterministicMoveDraft) } }] },
+            finish_reason: 'tool_calls' }]
+        }) : '';
+        let activeStream = deterministicMoveDraft ? {
+            response: new Response(`data: ${syntheticCompletion}\n\ndata: [DONE]\n\n`, {
+                status: 200, headers: { 'Content-Type': 'text/event-stream' }
+            }), startedAt: performance.now(), dispose: () => {}, abort: () => {}
+        } : await fetchWorldTurnStream(activeStreamKind, requestBody, {
             method: 'POST',
             signal: controller.signal,
             headers: {
@@ -33607,7 +35480,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             else aiMsgDiv.remove();
             // Later draft/salvage writes stay private until the turn commits.
             textTarget = document.createElement('div');
-            if (earlyDraftFailure || earlyPlayerEcho) {
+            if (earlyDraftFailure || earlyPlayerEcho || streamError || !streamCompleted) {
                 // Cancel only this generation; the turn controller remains
                 // usable for the single bounded correction request.
                 activeStream.abort();
@@ -33616,7 +35489,8 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             activeStream.dispose();
             if (turnCallAudit?.metrics) turnCallAudit.metrics.outputCharacters += fullText.length
                 + [...streamedToolCalls.values()].reduce((n, call) => n + (call.function?.arguments || '').length, 0);
-            recordWorldCall(activeStreamKind, modelId, response.status, activeStream.startedAt, streamUsage,
+            if (!deterministicMoveDraft) recordWorldCall(activeStreamKind, modelId, response.status,
+                activeStream.startedAt, streamUsage,
                 controller.signal.aborted ? 'aborted' : earlyPlayerEcho ? 'player_echo_early'
                     : earlyDraftFailure ? 'invalid_draft_early'
                     : streamError || !streamCompleted ? 'stream_error' : 'ok', streamProviderTiming);
@@ -33689,12 +35563,19 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             && worldNarrativeRequestsCheck(fullText);
         const commitReceiptCandidateUnchecked = async (args, source, allowSummarySalvage = true) => {
             const modelProposal = args;
+            if (worldDebugEnabled()) debugLastProposal = modelProposal;
             let serverBinding = null;
             if (serverBoundTurns) {
                 const bindingReferences = [
                     ...sessionNpcs(world, sess).map(npc => ({ id: npc.id, name: npc.name, type: 'npc' })),
                     ...(receiptView.entities || []).filter(entity => entity.type === 'item')
                         .map(entity => ({ id: entity.id, name: entity.name, type: 'item',
+                            aliases: Array.isArray(entity.aliases) ? entity.aliases : [],
+                            interactable: entity.interactable || null,
+                            supportsActivities: Array.isArray(entity.supportsActivities)
+                                ? entity.supportsActivities : [],
+                            interactableState: sess.entityStates?.[entity.id]?.interactableState
+                                || entity.interactable?.initialState || '',
                             locationId: sess.entityStates?.[entity.id]?.location
                                 ?? entity.locationId ?? entity.location ?? '',
                             reachable: sess.entityStates?.[entity.id]?.reachable !== false
@@ -33717,7 +35598,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 const losses = ['repair_scene_draft', 'recovery_scene_draft'].includes(source)
                     ? HordeWorldTurnBinding.repairLosses(protectedEffectTrace, args,
                         canonicalSceneSchema, firstRejectedActionProposal,
-                        latestActionText || '', bindingReferences) : [];
+                        latestActionText || '', bindingReferences, sess.playerLocation) : [];
                 const bound = losses.length ? { ok: false, errors: losses }
                     : await mcpBridgeRequest('/worlds/bind-turn', { method: 'POST',
                         signal: controller.signal, timeoutMs: 20000,
@@ -33728,6 +35609,14 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             questIds: (sess.quests || []).map(quest => quest.id),
                             commitmentIds: (sess.scheduledEvents || []).map(event => event.id),
                             references: bindingReferences, playerLocation: sess.playerLocation,
+                            playerName, outputLanguage: worldOutputLanguage(canonicalWorld),
+                            presentActorIds: sessionNpcs(world, sess).filter(npc =>
+                                (sess.entityStates?.[npc.id]?.location || npc.startLocation
+                                    || npc.locationId) === sess.playerLocation).map(npc => npc.id),
+                            followingPlayerIds: sessionNpcs(world, sess).filter(npc =>
+                                sess.entityStates?.[npc.id]?.followingPlayer === true
+                                && sess.entityStates[npc.id].location === sess.playerLocation)
+                                .map(npc => npc.id),
                             dynamicDiscovery: dynamicBinding,
                             prepareCertainEffects: true,
                             universalCheckRules: gameRules.universalChecks?.enabled === true
@@ -33874,12 +35763,57 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         canonicalWorld, canonicalSess, { workingState: working, canMove, startJourney,
                             syncClockEffects,
                             canTransition,
+                            preflightTravel: (candidate, action) => {
+                                const normalizedRequest = String(action.request || '').normalize('NFKC')
+                                    .toLocaleLowerCase();
+                                const intentTarget = resolvedIntentTravelTargets.find(entry =>
+                                    !resolvedIntentTravelTargetClaims.has(entry.stepIndex)
+                                    && normalizedRequest.includes(String(entry.sourceQuote || '')
+                                        .normalize('NFKC').toLocaleLowerCase()));
+                                if (intentTarget)
+                                    resolvedIntentTravelTargetClaims.add(intentTarget.stepIndex);
+                                const targetId = intentTarget?.targetId;
+                                const target = targetId && getLocationRef(candidate.world, targetId);
+                                const decisions = turnCallAudit.resolvedIntentValidation
+                                    ?.travelPreflight || (turnCallAudit.resolvedIntentValidation
+                                        ? turnCallAudit.resolvedIntentValidation.travelPreflight = [] : null);
+                                if (target) {
+                                    const fromId = candidate.session.playerLocation;
+                                    if (target.id === fromId) return { status: 'already_satisfied',
+                                        targetId, targetName: target.name,
+                                        reason: 'player_already_at_destination' };
+                                    const route = findWorldTravelPath(candidate.world, fromId,
+                                        targetId, { session: candidate.session });
+                                    if (!route) {
+                                        decisions?.push({ request: action.request, targetId, fromId,
+                                            status: 'blocked' });
+                                        return { status: 'blocked', targetId,
+                                            targetName: target.name, reason: 'unreachable_or_denied' };
+                                    }
+                                    decisions?.push({ request: action.request, targetId, fromId,
+                                        route, status: 'route_found' });
+                                } else {
+                                    decisions?.push({ request: action.request, targetId: targetId || null,
+                                        status: 'target_unresolved' });
+                                }
+                                return worldLinkedTravelPreflight(candidate.world,
+                                    candidate.session, action);
+                            },
+                            outcomeFallback: (status, action, _reason, decision) =>
+                                decision?.targetName ? worldMovementFallback(status,
+                                    decision.targetName, canonicalWorld)
+                                    : worldMovementFallback(status === 'blocked'
+                                        ? 'blocked_action' : 'unresolved_action',
+                                        '', canonicalWorld),
                             worldModules: ruleModules,
                             capability: worldEffectCapability, legacyEffectKeys,
                             applyLegacyEffect, requestPendingCheck,
                             turnId: serverBinding?.turnId || compiled.receipt.turn_id,
                             worldActionIds: serverBinding?.worldActionIds || [],
+                            allowPartialRecovery: !!serverBinding,
                             requireEffectWitnesses: !!serverBinding,
+                            resolveIntentCheckOutcomes: !!resolvedIntentDraft
+                                && !resolvedIntentSafeFallback,
                             includedTurnMinutes: serverBinding && serverBoundTimeAdvanced
                                 ? Math.max(0, Number(world.hudConfig?.timeStep ?? 5)) : 0 });
                     if (!linked.ok) {
@@ -33900,6 +35834,27 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         }));
                         rejectedReceiptProposal = modelProposal;
                         return { accepted: false, committed: { audit: { rejected: receiptValidationFeedback } },
+                            actionResult: {} };
+                    }
+                    if (linked.actionFailures?.length && source !== 'recovery_scene_draft') {
+                        // A valid partial result is the safety fallback, not
+                        // the first answer. Let one bounded contract repair
+                        // supply the missing event while the original draft
+                        // remains available for partial recovery afterward.
+                        for (const proof of linked.verifiedEffects || [])
+                            if (!protectedEffectTrace.some(saved => saved.action_id === proof.action_id))
+                                protectedEffectTrace.push(proof);
+                        for (const event of linked.verifiedEvents || [])
+                            if (!protectedEventTrace.some(saved => JSON.stringify(saved) === JSON.stringify(event)))
+                                protectedEventTrace.push(event);
+                        receiptValidationFeedback = linked.actionFailures.map(failure => ({
+                            ...failure, type: 'linked_action',
+                            detail: 'A claimed completed action needs a matching completed event or effect.'
+                        }));
+                        rejectedReceiptProposal = modelProposal;
+                        working.rollback();
+                        return { accepted: false,
+                            committed: { audit: { rejected: receiptValidationFeedback } },
                             actionResult: {} };
                     }
                     linked.narrative = stripWorldPlayerEchoPrefix(linked.narrative, latestActionText);
@@ -33992,10 +35947,25 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             });
                         }
                     });
+                    let confirmedNarrative = linked.narrative;
+                    if (deterministicMoveDraft && !resolvedIntentDraft
+                        && linked.confirmedEffects.some(effect =>
+                        effect.type === 'actor_move' && effect.payload?.actor_id === 'player'))
+                        confirmedNarrative = await narrateConfirmedMovement({
+                            ...turnPreflight, status: 'succeeded'
+                        }, latestActionText, linked.narrative, working.prepare().session);
                     const prepared = working.prepare();
+                    if (resolvedIntentDraft && !resolvedIntentSafeFallback) confirmedNarrative = await narrateResolvedIntent(
+                        turnPreflight.intent, compiled, linked, latestActionText,
+                        turnSnapshot.session || canonicalSess, prepared.session,
+                        linked.narrative);
                     const committedPassages = compiled.linkedPlan.narrative.filter(passage =>
-                        linked.outcomes.get(passage.action_id) !== 'skipped');
-                    const confirmedEvents = linked.events.map((event, index) => ({ ...event,
+                        !passage.action_id || ['succeeded', 'failed', 'pending']
+                            .includes(linked.outcomes.get(passage.action_id)));
+                    const confirmedEvents = linked.events.filter(event =>
+                        event.status !== 'completed'
+                            || linked.outcomes.get(event.action_id) === 'succeeded')
+                        .map((event, index) => ({ ...event,
                         id: event.id || `evt_${canonicalSess.id}_${
                             (Number(canonicalSess.worldStateVersion) || 0) + 1}_${index}`,
                         evidence: event.evidence || committedPassages.find(passage =>
@@ -34003,7 +35973,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             && passage.action_id === event.action_id)?.text || '' }));
                     const committedSpeech = compiled.speech.flatMap((speech, index) => {
                         const link = compiled.linkedPlan.speech[index];
-                        if (link && linked.outcomes.get(link.action_id) === 'skipped') return [];
+                        if (link && linked.outcomes.get(link.action_id) !== 'succeeded') return [];
                         if (!link || speech.speaker !== link.speaker || speech.action_id !== link.action_id
                             || !committedPassages.find(passage => passage.id === link.passage_id
                                 && passage.action_id === link.action_id)?.text?.includes(speech.statement))
@@ -34014,12 +35984,21 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     });
                     const receipt = { ...compiled.receipt,
                         summary: linked.narrative.slice(0, 300),
+                        ...(compiled.receipt.action_resolution
+                            && compiled.linkedPlan.actions.length === 1
+                            && linked.outcomes.get(compiled.linkedPlan.actions[0].action_id)
+                                === 'unresolved'
+                            ? { action_resolution: { ...compiled.receipt.action_resolution,
+                                status: 'needs_clarification', outcome: '' } } : {}),
                         scene: { player_location_id: prepared.session.playerLocation,
                             player_location_changed: prepared.session.playerLocation !== receiptPlayerStart,
                             present_character_ids: buildWorldSceneFrame(prepared.world, prepared.session)
                                 .present_character_ids }, events: confirmedEvents,
                         action_results: [...linked.outcomes].map(([action_id, outcome]) =>
                             ({ action_id, outcome,
+                                ...(linked.actionFailures?.some(item => item.action_id === action_id)
+                                    ? { reason: linked.actionFailures.find(item =>
+                                        item.action_id === action_id).reason } : {}),
                                 ...(outcome === 'blocked' && linked.blockedReasons?.get(action_id)
                                     === 'insufficient_resource'
                                     ? { reason: 'insufficient_resource' } : {}) })),
@@ -34061,8 +36040,9 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     const nextVersion = (Number(canonicalSess.worldStateVersion) || 0) + 1;
                     const audit = { turn: Number(prepared.session.turnCount) || 1,
                         protocol: draft.protocol, actions: [...linked.outcomes].map(([action_id, outcome]) =>
-                            ({ action_id, outcome })), accepted: linked.events.length,
-                        informational: 0, rejected: [], world_state_version: nextVersion,
+                            ({ action_id, outcome })), accepted: confirmedEvents.length,
+                        informational: 0, rejected: linked.actionFailures || [],
+                        world_state_version: nextVersion,
                         cast_checksum_match: true, dirtyKeys: [...working.dirtySet],
                         compilerRepairs: compiled.repairs, repairCount: compiled.repairCount,
                         turnResolution: {
@@ -34112,8 +36092,22 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     });
                     const receiptEventId = receipt.turn_id || `${canonicalSess.id}_${nextVersion}`;
                     working.applyDetached((candidateWorld, candidateSession) => {
-                        const witnesses = [];
-                        const message = addWorldMessage('dm', linked.narrative, {
+                        // A stationary resolved-intent conversation is witnessed
+                        // only by its confirmed listeners present throughout.
+                        // Do not expose private speech or a multi-location
+                        // narrative to people outside its complete audience.
+                        const dialogueAudiences = committedSpeech.map(speech =>
+                            new Set([speech.speaker, ...(speech.listeners || [])]));
+                        const witnesses = resolvedIntentDraft
+                            && dialogueAudiences.length > 0
+                            && !linked.confirmedEffects.some(effect => effect.type === 'actor_move')
+                            && turnSnapshot.session?.playerLocation === candidateSession.playerLocation
+                            ? sessionNpcs(candidateWorld, candidateSession).filter(npc =>
+                                candidateSession.entityStates?.[npc.id]?.location === candidateSession.playerLocation
+                                && dialogueAudiences.every(audience => audience.has(npc.id))
+                                && turnSnapshot.session?.entityStates?.[npc.id]?.location === candidateSession.playerLocation)
+                                .map(npc => npc.id) : [];
+                        const message = addWorldMessage('dm', confirmedNarrative, {
                             location: candidateSession.playerLocation, witnesses,
                             speechAttributions: committedSpeech.map(item => ({
                                 speaker: item.speaker, statement: item.statement,
@@ -34121,7 +36115,15 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                             sceneMemory: HordeWorldTurnContext.sceneMemory(receipt,
                                 receipt.turn_id || compiled.linkedPlan.actions[0]?.action_id,
                                 candidateSession.playerLocation, candidateSession.turnCount),
-                            turnSnapshot, worldAudit: audit, stateSource: source,
+                            actionOutcomes: [...linked.outcomes].map(([actionId, status]) =>
+                                worldActionOutcome(status, { actionId,
+                                    ...(deterministicMoveDraft && actionId === compiled.linkedPlan.actions[0]?.action_id
+                                        ? { intent: turnPreflight?.intent } : {}),
+                                    reason: linked.blockedReasons?.get(actionId) || null,
+                                    effects: (linked.confirmedEffects || [])
+                                        .filter(effect => effect.action_id === actionId) })),
+                            turnSnapshot, worldAudit: audit,
+                            stateSource: deterministicMoveDraft ? 'engine_preflight_linked' : source,
                             checkResults: receipt.check_results.filter(check => check.actor_id === 'player'
                                 && check.values.every(value => value.subject === 'actor'))
                                 .map(check => ({ rule_id: check.rule_id, name: check.name,
@@ -34204,13 +36206,39 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                         persistError.code = 'WORLD_TURN_PERSISTENCE_FAILED';
                         throw persistError;
                     }
+                    linkedTurnFinalized = true;
                     if (prepared.session.playerLocation !== receiptPlayerStart) {
                         playWorldLocationBgm(worldForSession(canonicalWorld, canonicalSess), canonicalSess);
                     }
-                    linkedTurnFinalized = true;
                     acceptedSceneDraft = compiled;
                     acceptedTurnReceipt = receipt;
-                    fullText = linked.narrative;
+                    recordWorldDebugTurn(canonicalWorld, canonicalSess, {
+                        input: submittedInput || userInput, provider: turnProvider,
+                        processingPath: deterministicMoveDraft ? 'deterministic' : 'model',
+                        intent: turnPreflight?.intent || null,
+                        canonicalTarget: turnPreflight?.intent?.targetId || null,
+                        preflightResult: turnPreflight?.status || turnPreflight?.path || 'needs_model',
+                        ruleReason: turnPreflight?.reason || 'not_preflighted',
+                        intentValidation: turnCallAudit?.resolvedIntentValidation || null,
+                        executionStatus: deterministicMoveDraft ? 'succeeded' : 'committed',
+                        worldVersion: canonicalSess.worldStateVersion,
+                        model: String(turnCallDetails[0]?.model || ''),
+                        turnId: receipt.turn_id || audit.turnResolution?.turnId,
+                        commitStatus: 'committed',
+                        start: { version: sceneDraftBaseVersion,
+                            location: receiptPlayerStart,
+                            cast: turnSnapshot?.session?.presentCharacterIds || [] },
+                        end: { version: canonicalSess.worldStateVersion,
+                            location: canonicalSess.playerLocation,
+                            cast: receipt.scene.present_character_ids },
+                        proposal: debugLastProposal, receipt,
+                        failures: linkedTurnFailures, repairs: linkedRepairResults,
+                        binding: serverBinding, validation: audit,
+                        calls: turnCallDetails, metrics: turnCallAudit?.metrics,
+                        durationMs: Date.now() - worldTurnStartedAt
+                    });
+                    debugTurnRecorded = true;
+                    fullText = confirmedNarrative;
                     receiptValidationFeedback = [];
                     rejectedReceiptProposal = null;
                     return { accepted: true, linkedFinalized: true,
@@ -34742,7 +36770,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 }
                 if (repairingScene && receiptValidationFeedback.some(item =>
                     ['request_coverage_mismatch', 'oversized_bound_turn'].includes(item.reason))) {
-                    repairBody.messages[0].content += '\nBOUND TURN CORRECTION: Cover the exact player text once with ordered, contiguous action requests. Combine conversational clauses that share one response and have no independent lasting change. Keep only independently resolved actions and necessary reactions; do not omit any requested step, verified effect or NPC response.';
+                    repairBody.messages[0].content += '\nBOUND TURN CORRECTION: Cover the exact player text once with ordered, contiguous action requests. A spoken line may contain several sentences and claims: record it as speech with the player speaker and exact source words, without treating each claim as a separate world effect. Split independently resolved physical, object, and movement steps into their own ordered actions with matching evidence. Keep necessary reactions; do not omit any requested step, verified effect or NPC response.';
                 }
                 if (repairingScene) for (const failure of receiptValidationFeedback.filter(item =>
                     item.reason === 'uncommitted_player_action')) {
@@ -34844,8 +36872,23 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     repairBody.messages[0].content += `\nREQUEST COVERAGE CORRECTION: The complete input is ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}; the rejected draft has ${rejectedReceiptProposal?.actions?.length || 0} player actions. Only player-requested independent steps belong in actions. Do not create several alternative outcomes, repeated copies of the input, or conditional branches for one simple request. Put an incidental NPC reply or gesture in the same action response, or a world reaction in reactions. For one simple request, use exactly one action and omit its request field. For compound input, EVERY actions[] entry MUST have a request string copied verbatim from its own consecutive portion of the player input. The request strings, joined in order, must reproduce the entire input exactly apart from whitespace at their boundaries. Do not omit request, paraphrase it, use the full input in each action, or skip a connector such as 'then' or 'and'. If an action in the rejected draft lacks request, add the missing exact excerpt while retaining the player's actual intent and its outcome. Cover every request exactly once in order. A pending_check status requires one registered checks effect; NPC hesitation alone is not a pending check.`;
                 }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'unverified_echoed_action')) {
+                    const affected = receiptValidationFeedback.filter(item =>
+                        item.reason === 'unverified_echoed_action').map(item => item.detail);
+                    repairBody.messages[0].content += `\nMISSING ACTION WITNESS: Correct only ${JSON.stringify(affected)}. The previous response merely repeated the player input; it did not establish execution. Preserve the exact request excerpts, other action results, dependencies, verified effects, events and speech. For each affected action, provide an actor-scoped completed activity or interaction event only when the action is genuinely supported by the authoritative scene and actually completed. For mapped movement or a lasting object change, provide the registered effect and matching event on that same action. Otherwise use an honest attempted or clarification status and remove the success claim. Never infer completion from response prose alone.`;
+                }
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'event_field_type_conflict')) {
+                    const fields = receiptValidationFeedback.filter(item =>
+                        item.reason === 'event_field_type_conflict').map(item => item.detail);
+                    repairBody.messages[0].content += `\nEVENT FIELD CORRECTION: Correct only the incompatible fields at ${JSON.stringify(fields)}. An event type may carry only fields with that type's actual meaning. Do not relabel an unrelated event to preserve an invalid field, and do not invent a persistent state change. Keep independently valid actions, effects, events, dependencies and exact speech once. If the intended occurrence has no supported typed event, remove its completed claim or mark only that action as attempted.`;
+                }
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     item.reason === 'missing_speech_attribution'))
                     repairBody.messages[0].content += '\nSPEAKER CORRECTION: A quoted NPC utterance in an action response has no speech evidence. Keep the exact quoted words in that same paragraph and add response[].speech with the known NPC speaker ID, quote containing only the spoken words, and listeners. Do not assign the player or narrator as speaker for an NPC quote. If the utterance is not supported, remove that quoted claim from the prose.';
+                if (serverBoundTurns && receiptValidationFeedback.some(item =>
+                    item.reason === 'missing_player_speech_evidence'))
+                    repairBody.messages[0].content += `\nPLAYER SPEECH CORRECTION: The action is marked as completed player speech, but its own response has no player speech evidence. The exact submitted source is ${JSON.stringify(String(submittedInput || userInput).slice(0, 1200))}. Identify the words the player actually spoke, include those words verbatim in that action response.text, and add response[].speech with speaker:"player", the same exact quote, and valid listeners. Several spoken assertions form one utterance; their truth is not a prerequisite. Do not substitute an NPC reply for the player's words. If the source is an instruction to speak, quote only the intended spoken words, not the instruction.`;
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     item.reason === 'speech_quote_not_in_passage'))
                     repairBody.messages[0].content += '\nQUOTE CORRECTION: Every speech.quote must occur verbatim inside its own response.text, including punctuation. Copy the words between that paragraph’s quotation marks exactly; do not replace a comma with a period or change contractions. Keep the correct speaker ID and listeners.';
@@ -34879,7 +36922,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     ['missing_condition', 'missing_condition_action'].includes(item.reason))) {
                     const conditionActor = receiptValidationFeedback.find(item =>
                         ['missing_condition', 'missing_condition_action'].includes(item.reason))?.actor_id || '';
-                    repairBody.messages[0].content += `\nCONDITION CORRECTION: A lasting condition change needs its registered condition_change effect and a matching completed event for the same actor${conditionActor ? ` (${JSON.stringify(conditionActor)})` : ''}. For an actually completed restraint, put effects:{"condition_change":[{"target_id":${JSON.stringify(conditionActor || 'exact_actor_id')},"condition":"restrained","action":"add"}]} on the physical action and put {"type":"condition","actor_id":${JSON.stringify(conditionActor || 'exact_actor_id')},"status":"completed","condition":"restrained","action":"add"} in that action response.events. The event field is condition, not cause; action is add or remove, not restrained. Use the exact same condition string in both records. Removing a condition requires that the actor already has it. If the restraint did not actually succeed, mark the player action attempted and omit both the condition effect and completed condition event. A temporary reaction belongs only in the response. Preserve any independently verified player action and avoid inventing a condition.`;
+                    repairBody.messages[0].content += `\nCONDITION CORRECTION: Inspect the rejected condition event for actor${conditionActor ? ` ${JSON.stringify(conditionActor)}` : ''}. A condition event is valid only for an actual lasting condition change with a registered condition_change effect on the same action; its action field must be add, remove, clear or recover. An ordinary pose, activity, gesture or object interaction is not a condition. Remove a misclassified condition event and represent only the supported activity or interaction with its own actor-scoped completed event when it really occurred. If a lasting condition was intended, supply the actual condition, action and matching effect; do not guess one from prose. Preserve independent verified actions and speech.`;
                 }
                 if (serverBoundTurns && receiptValidationFeedback.some(item =>
                     ['uncommitted_npc_presence_claim', 'uncommitted_npc_departure_claim',
@@ -34931,8 +36974,10 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 const repairSupplementalMessages = repairBody.messages.slice(1);
                 let priorRepairFailure = null;
                 for (let repairAttempt = 0; repairAttempt < 2 && !repairedReceiptApplied; repairAttempt++) {
-                    const repairFailure = JSON.stringify({ feedback: receiptValidationFeedback,
-                        proposal: rejectedReceiptProposal });
+                    const repairFailure = JSON.stringify(receiptValidationFeedback.map(item => ({
+                        reason: item.reason, detail: item.detail, action_id: item.action_id,
+                        stage: item.stage
+                    })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
                     if (repairAttempt && repairFailure === priorRepairFailure
                         && !receiptValidationFeedback.some(item =>
                             ['truncated_receipt', 'incomplete_json_transport'].includes(item.reason))) {
@@ -35516,7 +37561,7 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 }));
                 structuredChronicle = null;
                 fullText = resolveFirst && committedActionOutcome
-                    ? committedActionOutcome : worldConflictingNarrativeNotice();
+                    ? committedActionOutcome : worldConflictingNarrativeNotice(world);
                 if (resolveFirst && committedActionOutcome) showToast(
                     'Unverified scene details were discarded. Your action was saved; Reroll for a new scene.', 'warning');
                 textTarget.textContent = fullText;
@@ -35660,15 +37705,16 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             fullText = fallbackWaitApplied
                 ? worldUnverifiedWaitNotice(world, sess, fallbackWaitApplied)
                 : narratedCheckRequired ? worldMissingCheckNotice()
-                    : `${worldUnverifiedTurnNotice()}${verificationHint}${receiptRepairTimedOut
-                        ? ' The provider timed out while verifying the reply.' : ''}`;
+                    : `${worldUnverifiedTurnNotice(world)}${worldOutputLanguage(world) === 'en'
+                        ? verificationHint : ''}${receiptRepairTimedOut
+                        ? worldMovementFallback('provider_timeout', '', world) : ''}`;
             structuredChronicle = null;
             // This is an advisory, not a rejection: it never mutates the
             // timeline and remains visually distinct from amber/error UI.
             aiMsgDiv.classList.add('world-advisory-blue');
             textTarget.textContent = fullText;
         } else if (fullText.trim() && !hasReadableWorldNarrative(fullText)) {
-            fullText = 'The world state was committed, but the DM sent no readable scene. Review the World state and continue or Reroll.';
+            fullText = worldMovementFallback('no_readable_scene', '', world);
             textTarget.textContent = fullText;
         }
 
@@ -35917,6 +37963,22 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                     .catch(() => {});
             }
             await persistResolvedTurn();
+            if (!debugTurnRecorded) {
+                recordWorldDebugTurn(world, sess, {
+                    input: submittedInput || userInput, provider: turnProvider,
+                    model: String(turnCallDetails[0]?.model || ''),
+                    turnId: acceptedTurnReceipt?.turn_id || sess.lastTurnAudit?.receipt_id,
+                    commitStatus: frozenReceiptApplied ? 'frozen' : 'committed',
+                    start: { version: turnSnapshot?.session?.worldStateVersion,
+                        location: turnSnapshot?.session?.playerLocation },
+                    end: { version: sess.worldStateVersion, location: sess.playerLocation },
+                    proposal: debugLastProposal, receipt: acceptedTurnReceipt,
+                    validation: sess.lastTurnAudit, calls: turnCallDetails,
+                    metrics: turnCallAudit?.metrics,
+                    durationMs: Date.now() - worldTurnStartedAt
+                });
+                debugTurnRecorded = true;
+            }
         } else if (command === "init") {
             // INIT RESCUE: If the AI failed to introduce the world, provide a basic descriptive fallback
             const fallbackIntro = `You arrive at ${locName}. ${locDesc}\n\n[SYSTEM: The AI failed to generate a custom introduction. You can now take your first action.]`;
@@ -35939,6 +38001,22 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             fallbackMsg.versionSnapshots = [captureWorldTurnState(world, sess)];
             delete fallbackMsg.postSnapshot;
             await persistResolvedTurn();
+            if (!debugTurnRecorded) {
+                recordWorldDebugTurn(world, sess, {
+                    input: submittedInput || userInput, provider: turnProvider,
+                    model: String(turnCallDetails[0]?.model || ''),
+                    turnId: sess.lastTurnAudit?.receipt_id || turnBindingNonce,
+                    commitStatus: 'frozen',
+                    start: { version: turnSnapshot?.session?.worldStateVersion,
+                        location: turnSnapshot?.session?.playerLocation },
+                    end: { version: sess.worldStateVersion, location: sess.playerLocation },
+                    proposal: debugLastProposal, receipt: null,
+                    validation: sess.lastTurnAudit, calls: turnCallDetails,
+                    metrics: turnCallAudit?.metrics,
+                    durationMs: Date.now() - worldTurnStartedAt
+                });
+                debugTurnRecorded = true;
+            }
             fullText = fallbackIntro; // Set fullText so sync logic has something to work with if needed
         } else {
             const why = lastFinishReason === 'length'
@@ -35986,13 +38064,25 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
         // returns to its pre-action snapshot.
         if (linkedWorldTurn) {
             if (canonicalSess) {
+                // Linked turns advance a detached candidate, but the setup
+                // stage also records the player message and (for server
+                // binding) advances the clock on the live session. If the
+                // receipt transaction fails, restore that pre-turn snapshot
+                // before recording diagnostics so no failed commit leaks a
+                // turn, clock tick, message, or receipt into memory.
+                if (!linkedTurnFinalized && canonicalWorld && turnSnapshot)
+                    restoreWorldTurnState(canonicalWorld, canonicalSess, turnSnapshot);
+                if (!linkedTurnFinalized && canonicalSess && Number.isInteger(historyStartLength))
+                    canonicalSess.history.splice(historyStartLength);
                 canonicalSess.worldCallDiagnostics = [...(canonicalSess.worldCallDiagnostics || []), {
                     at: new Date().toISOString(), reason: err.message || 'Failed linked World turn',
                     turnId: linkedTurnFailures.flatMap(item => item.reasons || [])
                         .map(item => String(item.actionId || '').split('_action_')[0])
                         .find(item => item.startsWith('turn_')) || turnBindingNonce,
                     diagnosticId: `${canonicalSess.id}_${Date.now()}_failed`,
-                    status: 'failed', model: String(turnCallDetails[0]?.model || '').slice(0, 150),
+                    status: linkedTurnFinalized ? 'committed_display_error' : 'failed',
+                    errorCode: err?.code || err?.name || 'UNKNOWN',
+                    model: String(turnCallDetails[0]?.model || '').slice(0, 150),
                     originalFailure: linkedTurnFailures[0] || null,
                     failures: linkedTurnFailures.slice(0, 4),
                     repairResults: linkedRepairResults.slice(0, 4),
@@ -36004,6 +38094,21 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
                 if (worldTurnPersistenceFence) worldTurnPersistenceFence.committing = true;
                 try { await saveWorldsState({ worldId: canonicalWorld.id }); }
                 catch (diagnosticError) { console.warn('World failure diagnostics could not be saved:', diagnosticError.message); }
+                if (!debugTurnRecorded) recordWorldDebugTurn(canonicalWorld, canonicalSess, {
+                    input: submittedInput || '', provider: turnProvider,
+                    model: String(turnCallDetails[0]?.model || ''),
+                    turnId: turnBindingNonce, commitStatus: linkedTurnFinalized ? 'committed_display_error' : 'failed',
+                    start: { version: turnSnapshot?.session?.worldStateVersion,
+                        location: turnSnapshot?.session?.playerLocation },
+                    end: { version: canonicalSess.worldStateVersion,
+                        location: canonicalSess.playerLocation },
+                    proposal: debugLastProposal, receipt: null,
+                    failures: linkedTurnFailures, repairs: linkedRepairResults,
+                    intentValidation: turnCallAudit?.resolvedIntentValidation || null,
+                    error: err?.message || String(err), calls: turnCallDetails,
+                    metrics: turnCallAudit?.metrics,
+                    durationMs: Date.now() - worldTurnStartedAt
+                });
             }
             if (!linkedTurnFinalized && !isReroll && !command && submittedInput) {
                 const input = document.getElementById('world-user-input');
@@ -36011,7 +38116,11 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             }
             const reason = humanizeApiError(err) || err.message || 'Unknown error';
             const linkFailure = /unlinked_action_passage|ambiguous_action_passage/.test(reason);
-            const message = err?.name === 'AbortError'
+            const message = linkedTurnFinalized
+                ? `World turn was saved, but updating the display failed: ${reason}. Reload the page before continuing.`
+                : err?.code === 'RESOLVED_INTENT_UNRESOLVED'
+                ? String(err.message || '')
+                : err?.name === 'AbortError'
                 ? turnDeadlineReached
                     ? 'World turn reached its five-minute limit. No World changes were saved. Your action is still in the input box.'
                     : 'Generation stopped. Your action is still in the input box.'
@@ -36151,6 +38260,23 @@ ${directorNotesRequired ? 'Keep the required Plot Momentum block inside the fina
             if (sess.worldCallDiagnostics.length > 25) sess.worldCallDiagnostics.splice(0, sess.worldCallDiagnostics.length - 25);
         }
         try { if (sess) await persistResolvedTurn(); } catch (saveErr) { console.error('Rollback persistence failed:', saveErr); }
+        if (world && sess && !debugTurnRecorded) {
+            recordWorldDebugTurn(world, sess, {
+                input: submittedInput || userInput, provider: turnProvider,
+                model: String(turnCallDetails[0]?.model || ''),
+                turnId: turnBindingNonce,
+                commitStatus: movementPreserved || doorPreserved || waitPreserved || committedOutfit
+                    ? 'partial' : 'failed',
+                start: { version: turnSnapshot?.session?.worldStateVersion,
+                    location: turnSnapshot?.session?.playerLocation },
+                end: { version: sess.worldStateVersion, location: sess.playerLocation },
+                proposal: debugLastProposal, receipt: null,
+                error: err?.message || String(err), calls: turnCallDetails,
+                metrics: turnCallAudit?.metrics,
+                durationMs: Date.now() - worldTurnStartedAt
+            });
+            debugTurnRecorded = true;
+        }
 
         // A user stop is informational. Distinguish local and hosted idle
         // settings so the recovery advice is actionable.
@@ -38649,15 +40775,26 @@ function getExitTravelTime(world, fromId, toId) {
     return getWorldTravelLeg(world, fromId, toId)?.travelTime || 0;
 }
 
-function getWorldTravelLeg(world, fromId, toId, session = null, npcId = '') {
+function getWorldTravelLeg(world, fromId, toId, session = null, npcId = '', options = {}) {
     const from = getLocationRef(world, fromId);
     const to = getLocationRef(world, toId);
     if (!from || !to) return null;
-    const exit = (from.exits || []).filter(candidate => {
+    const candidates = Number.isInteger(options.exitIndex)
+        ? [from.exits?.[options.exitIndex]].filter(Boolean) : from.exits || [];
+    const exit = candidates.filter(candidate => {
         const target = resolveWorldExitTarget(world, candidate);
-        return target?.id === to.id && worldExitRequirement(session, candidate, from.id, npcId).ok;
-    }).sort((a, b) => Math.max(0, Number(a?.travelTime) || 0)
-        - Math.max(0, Number(b?.travelTime) || 0))[0];
+        if (target?.id !== to.id || !worldExitRequirement(session, candidate, from.id, npcId).ok) return false;
+        if (String(candidate?.cost || '').trim()) return false;
+        if (candidate?.fare) {
+            const fare = candidate.fare;
+            if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(fare.resourceId || '')
+                || !Number.isSafeInteger(fare.amount) || fare.amount <= 0) return false;
+        }
+        return true;
+    }).sort((a, b) => Number(!!String(a?.cost || '').trim() || !!a?.fare)
+        - Number(!!String(b?.cost || '').trim() || !!b?.fare)
+        || Math.max(0, Number(a?.travelTime) || 0)
+            - Math.max(0, Number(b?.travelTime) || 0))[0];
     if (!exit) return null;
     const details = typeof exit === 'object' ? exit : {};
     return {
@@ -38665,14 +40802,16 @@ function getWorldTravelLeg(world, fromId, toId, session = null, npcId = '') {
         mode: normalizeWorldTravelMode(details.mode),
         travelTime: Math.max(0, Number(details.travelTime) || 0),
         routeName: String(details.routeName || '').trim(),
-        cost: String(details.cost || '').trim()
+        cost: String(details.cost || '').trim(),
+        fare: details.fare ? { resourceId: details.fare.resourceId, amount: details.fare.amount } : null
     };
 }
 
 function describeWorldTravelLeg(leg) {
     if (!leg) return '';
     const mode = formatWorldTravelMode(leg.mode);
-    const details = [mode, leg.routeName, leg.travelTime ? `${leg.travelTime} min` : '', leg.cost ? `fare ${leg.cost}` : ''].filter(Boolean);
+    const fareLabel = leg.fare ? `${leg.fare.amount} ${leg.fare.resourceId}` : leg.cost ? leg.cost : '';
+    const details = [mode, leg.routeName, leg.travelTime ? `${leg.travelTime} min` : '', fareLabel ? `fare ${fareLabel}` : ''].filter(Boolean);
     return `${leg.from.name} → ${leg.to.name}${details.length ? ` (${details.join(' · ')})` : ''}`;
 }
 
@@ -38804,9 +40943,24 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
         Object.assign(travelLegs[0], {
             mode: normalizeWorldTravelMode(details.mode),
             travelTime: Math.max(0, Number(details.travelTime) || 0),
-            routeName: String(details.routeName || '').trim(), cost: String(details.cost || '').trim()
+            routeName: String(details.routeName || '').trim(), cost: String(details.cost || '').trim(),
+            fare: details.fare ? { resourceId: details.fare.resourceId, amount: details.fare.amount } : null
         });
     }
+    if (travelLegs.some(leg => leg.cost)) return { ok: false, moved: false,
+        reason: 'unpriced_route_cost', path: [] };
+    const fareTotals = new Map();
+    for (const leg of travelLegs) if (leg.fare) {
+        const { resourceId, amount } = leg.fare;
+        if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,119}$/.test(resourceId || '')
+            || !Number.isSafeInteger(amount) || amount <= 0)
+            return { ok: false, moved: false, reason: 'invalid_route_fare', path: [] };
+        fareTotals.set(resourceId, (fareTotals.get(resourceId) || 0) + amount);
+    }
+    for (const [resourceId, amount] of fareTotals)
+        if (!Number.isFinite(sess.playerStats?.[resourceId])
+            || sess.playerStats[resourceId] < amount)
+            return { ok: false, moved: false, reason: 'insufficient_resource', path: [] };
     const travelMinutes = travelLegs.reduce((total, leg) => total + leg.travelTime, 0);
     const followersMoved = sessionNpcs(travelWorld, sess)
         .filter(npc => {
@@ -38817,8 +40971,21 @@ function movePlayerAlongWorldPath(world, sess, targetLocation, options = {}) {
                 && (explicitCompanions.includes(npc.id)
                     || path.slice(1).every(id => worldNpcAccess(travelWorld, npc.id, id, sess).ok));
         }).map(npc => npc.id);
+    const transactions = [...fareTotals].map(([resourceId, amount]) => [resourceId, amount,
+        JSON.stringify([world.id, sess.id, sess.turnCount || 1, previousLocation,
+            targetLocation.id, resourceId, amount])]);
+    if (transactions.some(([, , transactionId]) =>
+        (sess.resourceCostLedger || []).includes(transactionId)))
+        return { ok: false, moved: false, reason: 'duplicate_route_fare', path: [] };
     const doorState = applyPlayerTravelDoorStates(travelWorld, sess, path,
         selectedExit ? { ...options, exit: chosenExit } : options);
+    if (fareTotals.size) {
+        if (!Array.isArray(sess.resourceCostLedger)) sess.resourceCostLedger = [];
+        for (const [resourceId, amount, transactionId] of transactions) {
+            sess.playerStats[resourceId] -= amount;
+            sess.resourceCostLedger.push(transactionId);
+        }
+    }
     sess.playerLocation = targetLocation.id;
     // A monotonic marker lets short-lived conditional promises distinguish
     // "the player never left" from "the player went away and quietly returned".
@@ -41427,7 +43594,65 @@ function runLivingWorldTick(world, sess, options = {}) {
                 knownBy: beatWitnesses
             });
         }
-    });
+        });
+        const conversations = buildNpcLocationIndex(world, sess);
+        for (const [place, occupants] of conversations) {
+            if (place === sess.playerLocation || occupants.length < 2) continue;
+            let delivered = false;
+            for (const speakerId of occupants) {
+                const speaker = sessionNpcs(world, sess).find(npc => npc.id === speakerId);
+                if (!speaker) continue;
+                const options = globalThis.HordeNpcGoalActions?.npcGoalOptions(speaker,
+                    worldForSession(world, sess), sess) || [];
+                for (const option of options.filter(item => item.effect.type === 'knowledge_share')) {
+                    const listener = sess.entityStates?.[option.effect.payload.recipient_id];
+                    const source = sess.entityStates?.[speakerId]?.observations?.find(item =>
+                        item.id === option.effect.payload.observation_id);
+                    if (!source || (listener?.observations || []).some(item =>
+                        item.originObservationId === (source.originObservationId || source.id)
+                        || item.sourceObservationId === source.id || item.id === source.id)) continue;
+                    const result = globalThis.HordeNpcGoalActions.executeNpcGoalStep(speaker,
+                        option, world, sess, { simulationMinute,
+                            canMove: () => ({ ok: false, reason: 'conversation_only' }) });
+                    if (!result?.ok) continue;
+                    Object.assign(world, result.candidate.world);
+                    Object.assign(sess, result.candidate.session);
+                    sess.turnEvents ||= [];
+                    for (const event of result.events || [result.event]) sess.turnEvents.push({
+                        ...event, turn, location_id: place, committed: true,
+                        world_time: { absolute_minute: simulationMinute } });
+                    sess.turnEvents = sess.turnEvents.slice(-1200);
+                    addWorldNews(sess, `${speaker.name} spoke with ${
+                        world.entities.find(item => item.id === option.effect.payload.recipient_id)?.name
+                        || option.effect.payload.recipient_id}.`, {
+                        id: `news_npc_conversation_${speakerId}_${simulationMinute}`,
+                        locationId: place, type: 'npc_goal', playerVisible: false,
+                        knownBy: [speakerId, option.effect.payload.recipient_id] });
+                    delivered = true;
+                    break;
+                }
+                if (delivered) break;
+            }
+        }
+    };
+    const npcStepMinutes = 10;
+    const previousNpcMinute = Number(sess.lastNpcSimulationMinute) || 0;
+    const targetNpcMinute = time.currentTotalMinutes;
+    if (targetNpcMinute > previousNpcMinute) {
+        const savedClock = structuredClone(sess.worldClock);
+        const firstMinute = previousNpcMinute > 0
+            ? Math.min(targetNpcMinute, previousNpcMinute + npcStepMinutes) : targetNpcMinute;
+        try {
+            for (let minute = firstMinute; minute <= targetNpcMinute;
+                minute = Math.min(targetNpcMinute, minute + npcStepMinutes)) {
+                sess.worldClock = { absoluteMinutes: minute, turnCount: sess.turnCount,
+                    bonusTimeMinutes: sess.bonusTimeMinutes || 0 };
+                advanceNpcGoals(minute, minute);
+                sess.lastNpcSimulationMinute = minute;
+                if (minute === targetNpcMinute) break;
+            }
+        } finally { sess.worldClock = savedClock; }
+    }
 
     // Relationship drift: people who share a room do not come out of fifty
     // turns together unchanged. Familiarity mostly warms, friction sometimes
@@ -41497,65 +43722,7 @@ function runLivingWorldTick(world, sess, options = {}) {
             // shifts the balance of power, and provokes whoever it was aimed at.
             factionCount += resolveFactionVictory(world, sess, faction, turn);
         }
-        });
-        const conversations = buildNpcLocationIndex(world, sess);
-        for (const [place, occupants] of conversations) {
-            if (place === sess.playerLocation || occupants.length < 2) continue;
-            let delivered = false;
-            for (const speakerId of occupants) {
-                const speaker = sessionNpcs(world, sess).find(npc => npc.id === speakerId);
-                if (!speaker) continue;
-                const options = globalThis.HordeNpcGoalActions?.npcGoalOptions(speaker,
-                    worldForSession(world, sess), sess) || [];
-                for (const option of options.filter(item => item.effect.type === 'knowledge_share')) {
-                    const listener = sess.entityStates?.[option.effect.payload.recipient_id];
-                    const source = sess.entityStates?.[speakerId]?.observations?.find(item =>
-                        item.id === option.effect.payload.observation_id);
-                    if (!source || (listener?.observations || []).some(item =>
-                        item.originObservationId === (source.originObservationId || source.id)
-                        || item.sourceObservationId === source.id || item.id === source.id)) continue;
-                    const result = globalThis.HordeNpcGoalActions.executeNpcGoalStep(speaker,
-                        option, world, sess, { simulationMinute,
-                            canMove: () => ({ ok: false, reason: 'conversation_only' }) });
-                    if (!result?.ok) continue;
-                    Object.assign(world, result.candidate.world);
-                    Object.assign(sess, result.candidate.session);
-                    sess.turnEvents ||= [];
-                    for (const event of result.events || [result.event]) sess.turnEvents.push({
-                        ...event, turn, location_id: place, committed: true,
-                        world_time: { absolute_minute: simulationMinute } });
-                    sess.turnEvents = sess.turnEvents.slice(-1200);
-                    addWorldNews(sess, `${speaker.name} spoke with ${
-                        world.entities.find(item => item.id === option.effect.payload.recipient_id)?.name
-                        || option.effect.payload.recipient_id}.`, {
-                        id: `news_npc_conversation_${speakerId}_${simulationMinute}`,
-                        locationId: place, type: 'npc_goal', playerVisible: false,
-                        knownBy: [speakerId, option.effect.payload.recipient_id] });
-                    delivered = true;
-                    break;
-                }
-                if (delivered) break;
-            }
-        }
-    };
-    const npcStepMinutes = 10;
-    const previousNpcMinute = Number(sess.lastNpcSimulationMinute) || 0;
-    const targetNpcMinute = time.currentTotalMinutes;
-    if (targetNpcMinute > previousNpcMinute) {
-        const savedClock = structuredClone(sess.worldClock);
-        const firstMinute = previousNpcMinute > 0
-            ? Math.min(targetNpcMinute, previousNpcMinute + npcStepMinutes) : targetNpcMinute;
-        try {
-            for (let minute = firstMinute; minute <= targetNpcMinute;
-                minute = Math.min(targetNpcMinute, minute + npcStepMinutes)) {
-                sess.worldClock = { absoluteMinutes: minute, turnCount: sess.turnCount,
-                    bonusTimeMinutes: sess.bonusTimeMinutes || 0 };
-                advanceNpcGoals(minute, minute);
-                sess.lastNpcSimulationMinute = minute;
-                if (minute === targetNpcMinute) break;
-            }
-        } finally { sess.worldClock = savedClock; }
-    }
+    });
 
     // Powers with a shared border and no shared cause drift apart; powers with a
     // common enemy drift together. This is what eventually produces alliances
@@ -42212,7 +44379,7 @@ function worldActorTravelLeg(world, sess, actorId, fromId, toId, options = {}) {
     const from = getLocationRef(world, fromId), target = getLocationRef(world, toId);
     if (!from || !target || worldLocationTravelBlock(sess, toId)) return null;
     const npcId = actorId === 'player' || options.accompanyingPlayer ? '' : actorId;
-    const leg = getWorldTravelLeg(world, fromId, toId, sess, npcId);
+    const leg = getWorldTravelLeg(world, fromId, toId, sess, npcId, options);
     if (!leg) return null;
     if (actorId !== 'player') {
         if (!worldNpcAccess(world, actorId, toId, sess).ok) return null;
@@ -42221,6 +44388,40 @@ function worldActorTravelLeg(world, sess, actorId, fromId, toId, options = {}) {
             && options.explore !== true) return null;
     }
     return leg;
+}
+
+function worldLinkedTravelPreflight(world, sess, action) {
+    if (action?.kind !== 'travel' || !sess?.playerLocation) return null;
+    const view = worldForSession(world, sess);
+    const source = String(action.request || '').replace(/["„“«][^"“”»]*["“”»]/gu, ' ');
+    const escape = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const mentioned = (view.locations || []).filter(location =>
+        [location.name, location.id].some(label => label && new RegExp(
+            `(?:^|[^\\p{L}\\p{N}])${escape(label)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(source)));
+    const proposed = (action.action_effects?.actor_move || []).filter(effect =>
+        effect.actor_id === 'player' && effect.mode !== 'journey'
+            && effect.mode !== 'teleport');
+    if (proposed.length > 1) return null;
+    const proposedId = proposed[0]?.to_location_id;
+    const otherMentions = mentioned.filter(location => location.id !== sess.playerLocation);
+    if (otherMentions.length > 1 || proposedId && otherMentions.length
+        && otherMentions[0].id !== proposedId) return null;
+    const targetId = proposedId || otherMentions[0]?.id
+        || (mentioned.length === 1 ? mentioned[0].id : '');
+    const target = getLocationRef(view, targetId);
+    if (!target) return null;
+    if (target.id === sess.playerLocation) return { status: 'already_satisfied',
+        targetId: target.id, targetName: target.name,
+        reason: 'player_already_at_destination' };
+    const leg = worldActorTravelLeg(view, sess, 'player', sess.playerLocation,
+        target.id, Number.isInteger(proposed[0]?.exit_index)
+            ? { exitIndex: proposed[0].exit_index } : {});
+    if (!leg) return { status: 'blocked', targetId: target.id,
+        targetName: target.name, reason: 'unreachable_or_denied' };
+    // Cost metadata has no canonical debit contract yet. Leave those actions
+    // in the ordinary validated path until an authored resource is specified.
+    return leg.cost ? null : { status: 'succeeded', targetId: target.id,
+        targetName: target.name, reason: 'adjacent_leg_available' };
 }
 
 function worldLinkedMovementVerdict(world, sess, actorId, fromId, toId,
@@ -42249,9 +44450,19 @@ function worldLinkedMovementVerdict(world, sess, actorId, fromId, toId,
             travelTime: minutes };
     }
     const leg = worldActorTravelLeg(view, sess, actorId, fromId, toId, options);
+    if (leg?.cost) return { ok: false, reason: 'unpriced_route_cost',
+        travelTime: leg.travelTime || 0, elapsedMinutes: 0 };
+    if (leg?.fare) {
+        const balance = actorId === 'player' ? sess.playerStats?.[leg.fare.resourceId]
+            : sess.entityStates?.[actorId]?.resources?.[leg.fare.resourceId];
+        if (!Number.isFinite(balance) || balance < leg.fare.amount)
+            return { ok: false, reason: 'insufficient_resource', travelTime: leg.travelTime || 0,
+                elapsedMinutes: 0 };
+    }
     return { ok: !!leg, reason: leg ? '' : 'unreachable_or_denied',
         travelTime: leg?.travelTime || 0,
-        elapsedMinutes: Math.max(0, getWorldTimeData(world, sess).currentTotalMinutes - turnStartMinute) };
+        elapsedMinutes: Math.max(0, getWorldTimeData(world, sess).currentTotalMinutes - turnStartMinute),
+        ...(leg?.fare ? { fare: { ...leg.fare } } : {}) };
 }
 
 function startLinkedNpcJourney(workingState, actorId, toId, explore = false) {
@@ -55453,6 +57664,11 @@ function requiredTTSFormatFromError(message) {
  * Generate audio speech via OpenRouter TTS / Audio endpoints.
  */
 async function generateOpenRouterSpeech(companion, text, options = {}) {
+    if (state.globalSettings.ttsProvider === 'none') throw new Error('TTS is disabled in Settings.');
+    if ((state.globalSettings.ttsProvider === 'local' && companion.ttsMode !== 'local') ||
+        (state.globalSettings.ttsProvider === 'kokoro' && companion.ttsMode !== 'kokoro') ||
+        !['local', 'kokoro'].includes(state.globalSettings.ttsProvider))
+        throw new Error('Select a voice for the active TTS system in Settings.');
     if (companion.ttsMode === 'kokoro') {
         if (companion.voice_profile?.engine !== 'kokoro') {
             throw new Error('Choose a Kokoro voice profile under Voice first.');
@@ -55569,20 +57785,14 @@ function pickCompanionVoice(companion) {
 }
 
 function speakBrowserLine(companion, text, onEnd) {
-    if (!('speechSynthesis' in window)) { if (onEnd) onEnd(); return null; }
-    speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    const voice = pickCompanionVoice(companion);
-    if (voice) utterance.voice = voice;
-    utterance.rate = 1.0;
-    if (onEnd) utterance.onend = onEnd;
-    speechSynthesis.speak(utterance);
-    return utterance;
+    if (onEnd) onEnd();
+    return null;
 }
 
 let companionActiveAudio = null;
 
 function speakCompanionLine(companion, text, onEnd) {
+    if (state.globalSettings.ttsProvider === 'none') { if (onEnd) onEnd(); return null; }
     // Read live UI settings directly when previewing in Virtual Human Studio
     const modeEl = document.getElementById('cs-tts-mode');
     const modelEl = document.getElementById('cs-tts-model');

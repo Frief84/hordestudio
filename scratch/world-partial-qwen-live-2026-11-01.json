@@ -1,0 +1,113 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I try to lift a missing crate, then signal to Linda and murmur \"No crate here.\"",
+  "generationMs": 6486,
+  "validationMs": 33,
+  "durationMs": 6519,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 165,
+    "prompt_tokens_details": {
+      "cached_tokens": 116
+    },
+    "completion_tokens": 255,
+    "total_tokens": 420
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I try to lift a missing crate",
+        "kind": "observation",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You attempt to lift a crate but there is no crate to lift."
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "signal to Linda and murmur \"No crate here.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You signal to Linda and murmur, 'No crate here.'",
+            "events": [
+              {
+                "type": "escort",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "murmuring",
+                "target_id": "Linda",
+                "label": "speech",
+                "minutes_elapsed": 0,
+                "source_type": "witnessed",
+                "source_npc_id": "Linda",
+                "next_status": "gone",
+                "cause": "player_signal_and_murmur"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 3,
+  "compiledErrors": [
+    {
+      "type": "scene_draft",
+      "reason": "event_field_type_conflict",
+      "detail": "events.0.next_status"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "turn_c53aad175711c07f4211a1bc_action_0",
+      "kind": "observation",
+      "status": "resolved",
+      "request": "I try to lift a missing crate, then ",
+      "response_id": "turn_c53aad175711c07f4211a1bc_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_c53aad175711c07f4211a1bc_action_1",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "signal to Linda and murmur \"No crate here.\"",
+      "response_id": "turn_c53aad175711c07f4211a1bc_action_1_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "escort",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "murmuring",
+      "target_id": "linda",
+      "label": "speech",
+      "minutes_elapsed": 0,
+      "source_type": "witnessed",
+      "source_npc_id": "Linda",
+      "next_status": "gone",
+      "cause": "player_signal_and_murmur",
+      "action_id": "turn_c53aad175711c07f4211a1bc_action_1",
+      "passage_id": "turn_c53aad175711c07f4211a1bc_action_1_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "No crate here.",
+      "action_id": "turn_c53aad175711c07f4211a1bc_action_1",
+      "passage_id": "turn_c53aad175711c07f4211a1bc_action_1_p0"
+    }
+  ]
+}

@@ -7,8 +7,12 @@
     const API = 'https://aihorde.net/api/v2';
     const sleep = (ms, signal) => new Promise((resolve, reject) => {
         if (signal?.aborted) return reject(signal.reason || new DOMException('Aborted', 'AbortError'));
-        const timer = setTimeout(resolve, Math.max(0, ms));
-        signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason || new DOMException('Aborted', 'AbortError')); }, { once: true });
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', abort);
+            resolve();
+        }, Math.max(0, ms));
+        const abort = () => { clearTimeout(timer); reject(signal.reason || new DOMException('Aborted', 'AbortError')); };
+        signal?.addEventListener('abort', abort, { once: true });
     });
     const retryAfterMs = response => {
         const raw = response?.headers?.get?.('Retry-After');
@@ -24,9 +28,26 @@
         if (options.signal?.aborted) forward();
         else options.signal?.addEventListener('abort', forward, { once: true });
         const timer = setTimeout(() => controller.abort(Object.assign(new Error(`AI Horde request timed out after ${timeoutMs}ms`), { name: 'TimeoutError' })), timeoutMs);
+        let abort;
+        const stopped = new Promise((_, reject) => {
+            abort = () => reject(controller.signal.reason);
+            if (controller.signal.aborted) abort();
+            else controller.signal.addEventListener('abort', abort, { once: true });
+        });
         try {
-            return await fetch(`${API}${path}`, { ...init, signal: controller.signal });
-        } finally { clearTimeout(timer); options.signal?.removeEventListener('abort', forward); }
+            return await Promise.race([stopped, (async () => {
+                if (controller.signal.aborted) throw controller.signal.reason;
+                const response = await fetch(`${API}${path}`, { ...init, signal: controller.signal });
+                // Keep deadline and cancellation active until the JSON body
+                // completes, not merely until HTTP headers have arrived.
+                const text = await response.text();
+                return new Response([204, 205, 304].includes(response.status) ? null : text,
+                    { status: response.status, statusText: response.statusText, headers: response.headers });
+            })()]);
+        } finally {
+            controller.signal.removeEventListener('abort', abort);
+            clearTimeout(timer); options.signal?.removeEventListener('abort', forward);
+        }
     };
     const online = () => typeof navigator === 'undefined' || navigator.onLine !== false;
     const auth = key => ({ 'Content-Type': 'application/json', apikey: String(key || '0000000000').trim() || '0000000000' });

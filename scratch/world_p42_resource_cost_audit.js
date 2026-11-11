@@ -156,8 +156,13 @@ costProof(chain, 2);
 assert.equal(chain.working.prepare().session.playerStats.energy, 0);
 const chainShort = session(9, 3);
 const rejectedChain = run(world(), chainShort, plan(['resolved', 'resolved']));
-assert.equal(rejectedChain.ok, false, 'the second action cannot spend unreserved stock');
-assert.equal(chainShort.playerStats.energy, 3, 'a rejected turn charged the first action');
+assert.equal(rejectedChain.ok, true,
+    'an unaffordable second action is an in-world blockage, not a technical failure');
+assert.equal(rejectedChain.outcomes.get('a_0'), 'succeeded');
+assert.equal(rejectedChain.outcomes.get('a_1'), 'blocked');
+assert.equal(rejectedChain.working.prepare().session.playerStats.energy, 1,
+    'only the confirmed first action spends its resource');
+assert.equal(chainShort.playerStats.energy, 3, 'the detached execution mutated the source session');
 const invalidEffectPlan = plan();
 invalidEffectPlan.actions[0].action_effects.not_registered = [{}];
 const invalidEffectSession = session();
@@ -171,9 +176,12 @@ assert.equal(partialChain.working.prepare().session.playerStats.energy, 1);
 
 const committed = chain.working.prepare().session;
 const replay = run(world(), structuredClone(committed), plan(['resolved', 'resolved']));
-assert.equal(replay.ok, false, 'replay charged a committed action again');
-assert.equal(replay.errors[0].reason, 'action_outcome_mismatch');
-assert.equal(replay.errors[0].cause, 'insufficient_resource');
+assert.equal(replay.ok, true, 'a repeated unaffordable action is blocked in-world');
+assert.equal(replay.outcomes.get('a_0'), 'blocked');
+assert.equal(replay.outcomes.get('a_1'), 'blocked');
+assert.equal(replay.working.prepare().session.playerStats.energy, 0);
+costProof(replay, 0);
+assert.equal(replay.blockedReasons.get('a_0'), 'insufficient_resource');
 const one = run(world(), session(9, 4), plan());
 const reloaded = structuredClone(one.working.prepare().session);
 const duplicate = run(world(), reloaded, plan());

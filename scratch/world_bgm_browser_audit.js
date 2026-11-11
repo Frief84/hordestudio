@@ -146,24 +146,31 @@ const root = path.resolve(__dirname, '..');
             const sess = getCurrentWorldSession();
             world.model = 'fixture/model';
             world.kernel = { enabled: true, memoryMode: 'ledger', sceneDrafts: true,
-                sceneDraftProtocol: 'scene_draft_v3' };
+                sceneDraftProtocol: 'scene_draft_v3', serverBindings: false };
             sess.setupComplete = true;
             state.apiKey = 'offline';
             state.globalSettings.apiProvider = 'local';
             state.globalSettings.localBaseUrl = 'http://127.0.0.1:1234/v1';
             const draft = { protocol: 'scene_draft_v3',
                 narrative: [{ id: 'p1', action_id: 'enter_vault', text: 'You enter the Vault.' }],
-                actions: [{ action_id: 'enter_vault', kind: 'travel', status: 'resolved',
+                actions: [{ action_id: 'enter_vault', request: 'I enter the Vault.',
+                    kind: 'travel', status: 'resolved',
                     response_id: 'p1', action_effects: { actor_move: [
                         { actor_id: 'player', to_location_id: 'loc_vault' }] } }],
-                events: [], effects: {}, speech: [], commitments: [] };
+                events: [{ type: 'movement', actor_id: 'player', status: 'completed',
+                    from_location_id: 'loc_hall', to_location_id: 'loc_vault',
+                    action_id: 'enter_vault', passage_id: 'p1' }],
+                effects: {}, speech: [], commitments: [] };
             const realFetch = window.fetch;
             let beforeCommit = false;
             window.fetch = async (url, options = {}) => {
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 beforeCommit = sess.playerLocation === 'loc_hall'
                     && document.getElementById('worldBgm')?.getAttribute('src') === 'assets/bgm/hall.ogg';
-                const payload = { choices: [{ delta: { content: JSON.stringify(draft) }, finish_reason: 'stop' }] };
+                const payload = { choices: [{ delta: { tool_calls: [{ index: 0,
+                    id: 'bgm_move_call', type: 'function', function: {
+                        name: 'commit_world_turn', arguments: JSON.stringify(draft) } }] },
+                    finish_reason: 'tool_calls' }] };
                 return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`,
                     { headers: { 'Content-Type': 'text/event-stream' } });
             };

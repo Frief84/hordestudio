@@ -36,7 +36,8 @@ const host = 'world-hosted-deadline.test';
                 model: 'fixture/model', contextSize: 32768, maxTokens: 1024,
                 dmPrompt: 'A quiet hall.', intro: '', startLocationId: 'hall',
                 locations: [{ id: 'hall', name: 'Hall', description: 'A quiet hall.', exits: [] }],
-                entities: [], kernel: { enabled: true, memoryMode: 'ledger', repairMode: 'adaptive' },
+                entities: [], kernel: { enabled: true, sceneDrafts: false,
+                    memoryMode: 'ledger', repairMode: 'adaptive' },
                 hudConfig: { showClock: false, showQuests: false, showLedger: false, stats: [] },
                 gameRules: { profileId: 'adventure', modules: {
                     stats: false, health: false, conditions: false, inventory: false,
@@ -56,8 +57,11 @@ const host = 'world-hosted-deadline.test';
             const realFetch = window.fetch;
             const realSetTimeout = window.setTimeout;
             let phase = '';
+            const fetchCalls = [];
+            const timerCalls = [];
             window.setTimeout = (callback, ms, ...args) => {
-                if ((phase === 'hard_hosted' || phase === 'hard_local') && ms === 300000)
+                timerCalls.push({ phase, ms });
+                if ((phase === 'hard_hosted' || phase === 'hard_local' || phase === 'cold_local') && ms > 290000)
                     return realSetTimeout(callback, 80, ...args);
                 if (phase === 'keepalive' && ms === 45000) return realSetTimeout(callback, 30, ...args);
                 if (phase === 'body_hang' && ms === 45000) return realSetTimeout(callback, 30, ...args);
@@ -66,16 +70,24 @@ const host = 'world-hosted-deadline.test';
                 return realSetTimeout(callback, ms, ...args);
             };
             window.fetch = async (url, options = {}) => {
+                if (String(url).endsWith('/api/ps')) return Response.json({ models:
+                    phase === 'cold_local' ? [] : [{ name: 'fixture/model' }] });
+                if (String(url).endsWith('/api/chat')) {
+                    await new Promise(resolve => realSetTimeout(resolve, 200));
+                    if (options.signal.aborted) throw options.signal.reason;
+                    return Response.json({ done: true });
+                }
                 if (!String(url).includes('/chat/completions')) return realFetch(url, options);
                 const body = JSON.parse(options.body || '{}');
+                fetchCalls.push({ phase, stream: body.stream, schema: body.response_format?.json_schema?.name });
                 if (!body.stream) throw new Error('An aborted stream must not spawn a repair request.');
                 if (phase === 'keepalive' || phase === 'progress'
-                    || phase === 'hard_hosted' || phase === 'hard_local') {
+                    || phase === 'hard_hosted' || phase === 'hard_local' || phase === 'cold_local') {
                     return new Response(new ReadableStream({
                         start(controller) {
                             const bytes = new TextEncoder().encode(phase === 'keepalive'
                                 ? ': keepalive\n\n'
-                                : 'data: {"choices":[{"delta":{"reasoning":"thinking"}}]}\n\n');
+                                : 'data: {"choices":[{"delta":{"content":"The storyteller continues."}}]}\n\n');
                             const interval = setInterval(() => controller.enqueue(bytes), 5);
                             options.signal?.addEventListener('abort', () => clearInterval(interval), { once: true });
                         }
@@ -102,6 +114,11 @@ const host = 'world-hosted-deadline.test';
                     historyAfter: sess.history.length,
                     input: document.getElementById('world-user-input').value,
                     error: document.getElementById('world-turn-error-text')?.textContent || '',
+                    toast: [...document.querySelectorAll('#toast-container .toast')]
+                        .map(element => element.textContent).join(' '),
+                    fetchCalls: fetchCalls.filter(call => call.phase === name),
+                    timerCalls: timerCalls.filter(call => call.phase === name
+                        && (call.ms === 300000 || call.ms === 45000)),
                     busy: worldTurnInProgress,
                     stopButton: document.getElementById('world-send-btn').classList.contains('stop')
                 };
@@ -113,6 +130,7 @@ const host = 'world-hosted-deadline.test';
                 progress: await run('progress', 'openrouter', 'I listen to the storyteller.'),
                 hardHosted: await run('hard_hosted', 'openrouter', 'I wait for the hosted storyteller.'),
                 hardLocal: await run('hard_local', 'local', 'I wait for the local storyteller.'),
+                coldLocal: await run('cold_local', 'local', 'I wait for the cold local storyteller.'),
                 localStop: await run('local_user_stop', 'local', 'I listen to the local storyteller.')
             };
             window.fetch = realFetch;
@@ -126,15 +144,16 @@ const host = 'world-hosted-deadline.test';
             assert.equal(outcome.busy, false, `${name} left the composer busy`);
             assert.equal(outcome.stopButton, false, `${name} left a Stop button`);
         }
-        assert(result.progress.elapsed >= 100, 'meaningful streamed progress must keep the turn alive');
+        assert(result.progress.elapsed >= 100, `meaningful streamed progress must keep the turn alive: ${JSON.stringify(result)}`);
         assert(result.keepalive.elapsed < result.progress.elapsed,
-            'keepalive bytes must not keep the turn alive like model progress');
+            `keepalive bytes must not keep the turn alive like model progress: ${JSON.stringify(result)}`);
         assert(result.bodyHang.elapsed < result.progress.elapsed,
             'a silent response body must stop on idle');
-        assert.match(result.hardHosted.error, /five-minute limit/,
-            'hosted streamed progress must not bypass the hard limit');
-        assert.match(result.hardLocal.error, /five-minute limit/,
-            'local streamed progress must not bypass the hard limit');
+        assert.match(result.hardHosted.toast, /five-minute limit/, JSON.stringify(result.hardHosted));
+        assert.match(result.hardLocal.toast, /five-minute limit/, JSON.stringify(result.hardLocal));
+        assert(result.coldLocal.elapsed >= 200, 'cold loading must finish outside the turn deadline');
+        assert(result.coldLocal.fetchCalls.length > 0, 'generation must start after cold loading');
+        assert.match(result.coldLocal.toast, /five-minute limit/, JSON.stringify(result.coldLocal));
         assert.deepEqual(errors, []);
         console.log('PASS: idle stalls stop; streamed progress stops at the five-minute turn limit');
     } finally {

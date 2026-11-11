@@ -1,0 +1,1092 @@
+[
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich pflücke einen Apfel vom Baum.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-161",
+      "object": "chat.completion",
+      "created": 1794384711,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich pflücke einen Apfel vom Baum.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"take\",\n      \"quantity\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 530,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 99,
+        "total_tokens": 629
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich pflücke einen Apfel vom Baum.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 2000
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "I pick an apple from the tree.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-227",
+      "object": "chat.completion",
+      "created": 1794384713,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I pick an apple from the tree.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"take\",\n      \"quantity\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 527,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 96,
+        "total_tokens": 623
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I pick an apple from the tree.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1641
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich lege den Apfel auf den Boden.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-250",
+      "object": "chat.completion",
+      "created": 1794384715,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich lege den Apfel auf den Boden.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"drop\",\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 530,
+        "prompt_tokens_details": {
+          "cached_tokens": 447
+        },
+        "completion_tokens": 92,
+        "total_tokens": 622
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich lege den Apfel auf den Boden.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1617
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "I put the apple on the ground.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-256",
+      "object": "chat.completion",
+      "created": 1794384716,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I put the apple on the ground.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"drop\",\n      \"quantity\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 527,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 96,
+        "total_tokens": 623
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I put the apple on the ground.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1656
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich warte auf Jonas' Antwort.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-165",
+      "object": "chat.completion",
+      "created": 1794384718,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich warte auf Jonas' Antwort.\",\n      \"kind\": \"wait\",\n      \"minutes\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 527,
+        "prompt_tokens_details": {
+          "cached_tokens": 447
+        },
+        "completion_tokens": 81,
+        "total_tokens": 608
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich warte auf Jonas' Antwort.",
+          "kind": "wait",
+          "minutes": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1471
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "I wait for Jonas to answer.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-344",
+      "object": "chat.completion",
+      "created": 1794384719,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I wait for Jonas to answer.\",\n      \"kind\": \"wait\",\n      \"minutes\": 1,\n      \"target_ids\": [\n        \"jonas\"\n      ],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 526,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 93,
+        "total_tokens": 619
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I wait for Jonas to answer.",
+          "kind": "wait",
+          "minutes": 1,
+          "target_ids": [
+            "jonas"
+          ],
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1660
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich frage Jonas, was er heute vorhat.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-943",
+      "object": "chat.completion",
+      "created": 1794384721,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich frage Jonas, was er heute vorhat.\",\n      \"kind\": \"question\",\n      \"utterance\": \"was er heute vorhat\",\n      \"target_ids\": [\n        \"jonas\"\n      ],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 530,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 103,
+        "total_tokens": 633
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich frage Jonas, was er heute vorhat.",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "was er heute vorhat",
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1761
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "I ask Jonas what he plans to do today.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-115",
+      "object": "chat.completion",
+      "created": 1794384723,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I ask Jonas what he plans to do today.\",\n      \"kind\": \"question\",\n      \"utterance\": \"what he plans to do today\",\n      \"target_ids\": [\n        \"jonas\"\n      ],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 529,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 103,
+        "total_tokens": 632
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I ask Jonas what he plans to do today.",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "what he plans to do today",
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1800
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich frage Jonas: „What are your plans? Und morgen?“",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-20",
+      "object": "chat.completion",
+      "created": 1794384725,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich frage Jonas: „What are your plans? Und morgen?“\",\n      \"kind\": \"question\",\n      \"utterance\": \"What are your plans? Und morgen?\",\n      \"target_ids\": [\"jonas\"],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 535,
+        "prompt_tokens_details": {
+          "cached_tokens": 514
+        },
+        "completion_tokens": 108,
+        "total_tokens": 643
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich frage Jonas: „What are your plans? Und morgen?“",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "What are your plans? Und morgen?",
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1837
+  },
+  {
+    "model": "qwen2.5:14b",
+    "input": "Ich nehme den Apfel, then I put it on the ground.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-779",
+      "object": "chat.completion",
+      "created": 1794384727,
+      "model": "qwen2.5:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Ich nehme den Apfel\",\"kind\":\"transfer\",\"item_id\":\"apple\",\"operation\":\"take\",\"quantity\":1,\"depends_on\": [{ \"step_index\": 0, \"outcome\": \"succeeded\" }]},{\"source_quote\":\"then I put it on the ground\",\"kind\":\"transfer\",\"item_id\":\"apple\",\"operation\":\"drop\",\"quantity\":1,\"depends_on\": [{ \"step_index\": 0, \"outcome\": \"succeeded\" }]}]}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 534,
+        "prompt_tokens_details": {
+          "cached_tokens": 515
+        },
+        "completion_tokens": 109,
+        "total_tokens": 643
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich nehme den Apfel",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        },
+        {
+          "source_quote": "then I put it on the ground",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1966
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich pflücke einen Apfel vom Baum.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-516",
+      "object": "chat.completion",
+      "created": 1794384827,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich pflücke einen Apfel vom Baum.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"take\",\n      \"quantity\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 549,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 104,
+        "total_tokens": 653
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich pflücke einen Apfel vom Baum.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 2096
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "I pick an apple from the tree.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-467",
+      "object": "chat.completion",
+      "created": 1794384829,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I pick an apple from the tree.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"take\",\n      \"quantity\": 1,\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 547,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 102,
+        "total_tokens": 649
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I pick an apple from the tree.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take",
+          "quantity": 1,
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1751
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich lege den Apfel auf den Boden.",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-141",
+      "object": "chat.completion",
+      "created": 1794384830,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich lege den Apfel auf den Boden.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"drop\",\n      \"quantity\": 1\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 548,
+        "prompt_tokens_details": {
+          "cached_tokens": 458
+        },
+        "completion_tokens": 71,
+        "total_tokens": 619
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich lege den Apfel auf den Boden.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "quantity": 1
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 1356
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "I put the apple on the ground.",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-750",
+      "object": "chat.completion",
+      "created": 1794384831,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I put the apple on the ground.\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"drop\",\n      \"quantity\": 1\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 547,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 70,
+        "total_tokens": 617
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I put the apple on the ground.",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "quantity": 1
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 1253
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich warte auf Jonas' Antwort.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-448",
+      "object": "chat.completion",
+      "created": 1794384833,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich warte auf Jonas' Antwort.\",\n      \"kind\": \"wait\",\n      \"target_ids\": [\"jonas\"],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 547,
+        "prompt_tokens_details": {
+          "cached_tokens": 458
+        },
+        "completion_tokens": 90,
+        "total_tokens": 637
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich warte auf Jonas' Antwort.",
+          "kind": "wait",
+          "target_ids": [
+            "jonas"
+          ],
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1641
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "I wait for Jonas to answer.",
+    "status": 200,
+    "accepted": false,
+    "raw": {
+      "id": "chatcmpl-981",
+      "object": "chat.completion",
+      "created": 1794384835,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I wait for Jonas to answer.\",\n      \"kind\": \"wait\",\n      \"target_ids\": [\"jonas\"],\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 546,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 89,
+        "total_tokens": 635
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I wait for Jonas to answer.",
+          "kind": "wait",
+          "target_ids": [
+            "jonas"
+          ],
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [
+      {
+        "reason": "invalid_intent_dependency",
+        "step_index": 0
+      }
+    ],
+    "durationMs": 1580
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich frage Jonas, was er heute vorhat.",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-795",
+      "object": "chat.completion",
+      "created": 1794384836,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich frage Jonas, was er heute vorhat.\",\n      \"kind\": \"question\",\n      \"utterance\": \"was er heute vorhat\",\n      \"target_ids\": [\"jonas\"]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 550,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 73,
+        "total_tokens": 623
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich frage Jonas, was er heute vorhat.",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "was er heute vorhat"
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 1243
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "I ask Jonas what he plans to do today.",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-755",
+      "object": "chat.completion",
+      "created": 1794384837,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I ask Jonas what he plans to do today\",\n      \"kind\": \"question\",\n      \"utterance\": \"what he plans to do today\",\n      \"target_ids\": [\"jonas\"]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 549,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 73,
+        "total_tokens": 622
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "I ask Jonas what he plans to do today",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "what he plans to do today"
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 1300
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich frage Jonas: „What are your plans? Und morgen?“",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-498",
+      "object": "chat.completion",
+      "created": 1794384839,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich frage Jonas: „What are your plans?\",\n      \"kind\": \"question\",\n      \"utterance\": \"What are your plans?\",\n      \"target_ids\": [\"jonas\"]\n    },\n    {\n      \"source_quote\": \"Und morgen?“\",\n      \"kind\": \"question\",\n      \"utterance\": \"Und morgen?\",\n      \"target_ids\": [\"jonas\"]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 553,
+        "prompt_tokens_details": {
+          "cached_tokens": 537
+        },
+        "completion_tokens": 113,
+        "total_tokens": 666
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich frage Jonas: „What are your plans?",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "What are your plans?"
+        },
+        {
+          "source_quote": "Und morgen?“",
+          "kind": "question",
+          "target_ids": [
+            "jonas"
+          ],
+          "utterance": "Und morgen?"
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 1891
+  },
+  {
+    "model": "ministral-3:14b",
+    "input": "Ich nehme den Apfel, then I put it on the ground.",
+    "status": 200,
+    "accepted": true,
+    "raw": {
+      "id": "chatcmpl-550",
+      "object": "chat.completion",
+      "created": 1794384841,
+      "model": "ministral-3:14b",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Ich nehme den Apfel\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"take\"\n    },\n    {\n      \"source_quote\": \"then I put it on the ground\",\n      \"kind\": \"transfer\",\n      \"item_id\": \"apple\",\n      \"operation\": \"drop\",\n      \"depends_on\": [\n         {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 554,
+        "prompt_tokens_details": {
+          "cached_tokens": 538
+        },
+        "completion_tokens": 136,
+        "total_tokens": 690
+      }
+    },
+    "normalized": {
+      "protocol": "resolved_intent_v1",
+      "steps": [
+        {
+          "source_quote": "Ich nehme den Apfel",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "take"
+        },
+        {
+          "source_quote": "then I put it on the ground",
+          "kind": "transfer",
+          "item_id": "apple",
+          "operation": "drop",
+          "depends_on": [
+            {
+              "step_index": 0,
+              "outcome": "succeeded"
+            }
+          ]
+        }
+      ]
+    },
+    "errors": [],
+    "durationMs": 2205
+  }
+]

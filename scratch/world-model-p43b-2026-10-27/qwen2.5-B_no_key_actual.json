@@ -1,0 +1,599 @@
+{
+  "scenario": "B_no_key_actual",
+  "input": "I unlock the Round Room door.",
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "totalDurationMs": 31687,
+  "before": {
+    "playerLocation": "loc_antechamber",
+    "inventory": [
+      "a knive",
+      "a nice white thishue"
+    ],
+    "playerStats": {
+      "hp": 100,
+      "gold": 0
+    },
+    "unlockedExits": {},
+    "entityStates": {
+      "ent_cassy": {
+        "location": "loc_cell_2",
+        "observations": [],
+        "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Schreiben",
+          "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+          "She observes the guards' movements and memorises their patrol and inspection routines.",
+          "She attempts to communicate with other prisoners and gather information about the underground complex."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_alexis": {
+        "location": "loc_cell_1",
+        "observations": [],
+        "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Alexis examines her locked cell for weaknesses and possible escape routes.",
+          "She observes the guards and memorizes their daily routines.",
+          "She attempts to communicate with other prisoners and persuade guards to help her.",
+          "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_linda": {
+        "location": "loc_antechamber",
+        "observations": [],
+        "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Lina waits in the antechamber and nervously examines her surroundings.",
+          "She confirms that she has agreed to participate in the programme.",
+          "She asks the player what will happen next and what is expected of her.",
+          "She listens to the explanation and asks questions about anything she does not understand."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "char_andew_cloudi": {
+        "location": "loc_round_room",
+        "observations": [],
+        "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Identify individual psychological triggers",
+          "Implement tailored breaking protocols",
+          "Enforce absolute, unquestioning obedience"
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      }
+    },
+    "locationStates": {
+      "loc_antechamber": {
+        "conditions": [
+          {
+            "id": "condition_loc_antechamber_damp_walls",
+            "label": "damp walls",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_antechamber_stagnant_air",
+            "label": "stagnant air",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 30,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_staircase": {
+        "conditions": [
+          {
+            "id": "condition_loc_staircase_sealed",
+            "label": "sealed",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 20,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_round_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 60,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_corridor": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_corridor_smells_of_mildew",
+            "label": "smells of mildew",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_1": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_1_oppressive",
+            "label": "oppressive",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_2": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_2_cold",
+            "label": "cold",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_cell_2_damp",
+            "label": "damp",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_3": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_storage": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 20,
+        "resources": {}
+      },
+      "loc_hex_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 90,
+        "prosperity": 0,
+        "resources": {}
+      }
+    },
+    "historyLength": 0,
+    "turnEventsLength": 0,
+    "receiptsLength": 0,
+    "turnCount": 1
+  },
+  "durationMs": 26937,
+  "error": "World turn was not saved: Linked World turn was not committed: pending_action_requires_check. Your action is still in the input box.",
+  "audit": null,
+  "history": [],
+  "turnEvents": [],
+  "live": {
+    "playerLocation": "loc_antechamber",
+    "inventory": [
+      "a knive",
+      "a nice white thishue"
+    ],
+    "playerStats": {
+      "hp": 100,
+      "gold": 0
+    },
+    "unlockedExits": {},
+    "entityStates": {
+      "ent_cassy": {
+        "location": "loc_cell_2",
+        "observations": [],
+        "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Schreiben",
+          "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+          "She observes the guards' movements and memorises their patrol and inspection routines.",
+          "She attempts to communicate with other prisoners and gather information about the underground complex."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_alexis": {
+        "location": "loc_cell_1",
+        "observations": [],
+        "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Alexis examines her locked cell for weaknesses and possible escape routes.",
+          "She observes the guards and memorizes their daily routines.",
+          "She attempts to communicate with other prisoners and persuade guards to help her.",
+          "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_linda": {
+        "location": "loc_antechamber",
+        "observations": [],
+        "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Lina waits in the antechamber and nervously examines her surroundings.",
+          "She confirms that she has agreed to participate in the programme.",
+          "She asks the player what will happen next and what is expected of her.",
+          "She listens to the explanation and asks questions about anything she does not understand."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "char_andew_cloudi": {
+        "location": "loc_round_room",
+        "observations": [],
+        "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Identify individual psychological triggers",
+          "Implement tailored breaking protocols",
+          "Enforce absolute, unquestioning obedience"
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      }
+    },
+    "locationStates": {
+      "loc_antechamber": {
+        "conditions": [
+          {
+            "id": "condition_loc_antechamber_damp_walls",
+            "label": "damp walls",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_antechamber_stagnant_air",
+            "label": "stagnant air",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 30,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_staircase": {
+        "conditions": [
+          {
+            "id": "condition_loc_staircase_sealed",
+            "label": "sealed",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 20,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_round_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 60,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_corridor": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_corridor_smells_of_mildew",
+            "label": "smells of mildew",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_1": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_1_oppressive",
+            "label": "oppressive",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_2": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_2_cold",
+            "label": "cold",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_cell_2_damp",
+            "label": "damp",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_3": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_storage": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 20,
+        "resources": {}
+      },
+      "loc_hex_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 90,
+        "prosperity": 0,
+        "resources": {}
+      }
+    },
+    "historyLength": 0,
+    "turnEventsLength": 0,
+    "receiptsLength": 0,
+    "turnCount": 1
+  },
+  "saved": {
+    "playerLocation": "loc_antechamber",
+    "inventory": [
+      "a knive",
+      "a nice white thishue"
+    ],
+    "playerStats": {
+      "hp": 100,
+      "gold": 0
+    },
+    "unlockedExits": {},
+    "entityStates": {
+      "ent_cassy": {
+        "location": "loc_cell_2",
+        "observations": [],
+        "goal": "Cassy is imprisoned in a locked cell in the underground complex. Her primary goal is to regain her freedom without losing her independence or dignity. She studies her surroundings, observes the guards",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Schreiben",
+          "Cassy carefully examines her cell door, lock, walls, and ventilation openings for possible weaknesses.",
+          "She observes the guards' movements and memorises their patrol and inspection routines.",
+          "She attempts to communicate with other prisoners and gather information about the underground complex."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_alexis": {
+        "location": "loc_cell_1",
+        "observations": [],
+        "goal": "Her primary goal is to regain her freedom. She observes the guards, studies their routines, tests the boundaries of her confinement, and looks for opportunities to escape or persuade someone to releas",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Alexis examines her locked cell for weaknesses and possible escape routes.",
+          "She observes the guards and memorizes their daily routines.",
+          "She attempts to communicate with other prisoners and persuade guards to help her.",
+          "She secretly plans her escape but remains confined until a believable escape or authorized release occurs."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "ent_linda": {
+        "location": "loc_antechamber",
+        "observations": [],
+        "goal": "Lina Fairchild narrowly escaped expulsion after committing a serious offence at Blackwood College. The Headmaster has offered her a place in a special rehabilitation programme as a final opportunity t",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Lina waits in the antechamber and nervously examines her surroundings.",
+          "She confirms that she has agreed to participate in the programme.",
+          "She asks the player what will happen next and what is expected of her.",
+          "She listens to the explanation and asks questions about anything she does not understand."
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      },
+      "char_andew_cloudi": {
+        "location": "loc_round_room",
+        "observations": [],
+        "goal": "To achieve total psychological and physical submission from all subjects within the Vault.",
+        "goalProgress": 0,
+        "goalDifficulty": 50,
+        "goalAutonomy": "medium",
+        "goalStatus": "active",
+        "goalSteps": [
+          "Identify individual psychological triggers",
+          "Implement tailored breaking protocols",
+          "Enforce absolute, unquestioning obedience"
+        ],
+        "goalStepIndex": 0,
+        "goalStepReported": -1,
+        "goalHistory": []
+      }
+    },
+    "locationStates": {
+      "loc_antechamber": {
+        "conditions": [
+          {
+            "id": "condition_loc_antechamber_damp_walls",
+            "label": "damp walls",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_antechamber_stagnant_air",
+            "label": "stagnant air",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 30,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_staircase": {
+        "conditions": [
+          {
+            "id": "condition_loc_staircase_sealed",
+            "label": "sealed",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 20,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_round_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 60,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_corridor": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_corridor_smells_of_mildew",
+            "label": "smells of mildew",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_1": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_1_oppressive",
+            "label": "oppressive",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_2": {
+        "conditions": [
+          {
+            "id": "condition_loc_cell_2_cold",
+            "label": "cold",
+            "expiresTurn": null
+          },
+          {
+            "id": "condition_loc_cell_2_damp",
+            "label": "damp",
+            "expiresTurn": null
+          }
+        ],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_cell_3": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 80,
+        "prosperity": 0,
+        "resources": {}
+      },
+      "loc_storage": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 40,
+        "prosperity": 20,
+        "resources": {}
+      },
+      "loc_hex_room": {
+        "conditions": [],
+        "controlFactionId": "faction_new_faction_2",
+        "danger": 90,
+        "prosperity": 0,
+        "resources": {}
+      }
+    },
+    "historyLength": 0,
+    "turnEventsLength": 0,
+    "receiptsLength": 0,
+    "turnCount": 1
+  },
+  "requestIds": [
+    15,
+    16,
+    17
+  ],
+  "pageErrors": []
+}

@@ -1634,6 +1634,15 @@
                             <p>Direct instructions to the DM that are injected near the end of the context.</p>
                         </div>
                         <div class="form-body">
+                            <label class="form-label" for="w-output-language">Narration language</label>
+                            <select id="w-output-language" class="form-select">
+                                <option value="auto">Automatic (browser language)</option>
+                                <option value="en">English</option>
+                                <option value="de">Deutsch</option>
+                                <option value="fr">Français</option>
+                                <option value="es">Español</option>
+                            </select>
+                            <p class="form-hint">Controls World narration and safe movement replies. Automatic uses the browser language, then English if unavailable.</p>
                             <label class="form-label">Note Content</label>
                             <textarea id="w-studio-note" class="form-textarea" rows="10" placeholder="e.g. Narrate with heavy focus on sensory details. Use archaic language. Ensure the player feels constantly watched."></textarea>
                             <p class="form-hint" style="margin-top:12px;">This note is appended to the DM's instructions every turn, giving it high influence over the current narrative style.</p>
@@ -3950,23 +3959,38 @@
                 <p class="form-hint">Queued text generation at <code>aihorde.net</code>. The browser checks offline state before submission, waits up to 90 seconds and never falls back to another provider.</p>
             </div>
                 </div>
-            <section class="mcp-settings-card" aria-labelledby="local-tts-settings-title">
-                <div class="mcp-settings-head"><div><span class="vh-eyebrow">OpenAI-compatible speech</span><h3 id="local-tts-settings-title">Local Neural TTS</h3></div></div>
-                <label class="form-label">Server Base URL</label>
-                <input id="global-local-tts-url" class="form-input" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
-                <label class="form-label" style="margin-top:8px;">API Key (optional)</label>
-                <input id="global-local-tts-key" type="password" class="form-input" placeholder="usually not needed">
-                <p class="form-hint">For VibeVoice, openedai-speech and other servers implementing <code>POST /v1/audio/speech</code>. You choose the local engine per Virtual Human under Photos &amp; Voice.</p>
-                <button id="test-local-tts-btn" class="btn btn-ghost" type="button" style="margin-top:10px;">Test local TTS server</button>
-                <div id="local-tts-result" class="form-hint" aria-live="polite"></div>
-            </section>
             <section class="mcp-settings-card" aria-labelledby="kokoro-settings-title">
-                <div class="mcp-settings-head"><div><span class="vh-eyebrow">Local ONNX speech</span><h3 id="kokoro-settings-title">Kokoro TTS</h3></div></div>
+                <div class="mcp-settings-head"><div><span class="vh-eyebrow">Local speech</span><h3 id="kokoro-settings-title">Text-to-Speech</h3></div></div>
+                <label class="form-label" for="tts-provider">TTS system</label>
+                <select id="tts-provider" class="form-select"><option value="none">No TTS</option><option value="kokoro">Kokoro TTS</option><option value="ming">Ming 3.0 TTS</option><option value="local">Local Neural TTS (OpenAI-compatible)</option></select>
+                <div id="tts-provider-status" class="form-hint" role="status"></div>
+                <div id="local-provider-tts-settings" hidden>
+                    <label class="form-label" for="global-local-tts-url">Server Base URL</label>
+                    <input id="global-local-tts-url" class="form-input" value="http://127.0.0.1:8000/v1" placeholder="http://127.0.0.1:8000/v1">
+                    <label class="form-label" for="global-local-tts-key" style="margin-top:8px;">API Key (optional)</label>
+                    <input id="global-local-tts-key" type="password" class="form-input" placeholder="usually not needed">
+                    <p class="form-hint">Connect an existing local server implementing <code>POST /v1/audio/speech</code>. Horde Studio does not install or remove this external server.</p>
+                    <button id="test-local-tts-btn" class="btn btn-ghost" type="button" style="margin-top:10px;">Test local TTS server</button>
+                    <div id="local-tts-result" class="form-hint" aria-live="polite"></div>
+                </div>
+                <div id="kokoro-provider-settings">
                 <label class="form-label" for="kokoro-device">Processing device</label>
                 <select id="kokoro-device" class="form-select"><option value="cpu">CPU</option><option value="gpu">GPU (CUDA)</option></select>
                 <p class="form-hint">GPU mode requires a working CUDAExecutionProvider. There is no silent CPU fallback.</p>
                 <button id="test-kokoro-btn" class="btn btn-ghost" type="button">Check Kokoro status</button>
                 <div id="kokoro-status" class="form-hint" role="status">Not checked yet.</div>
+                <button id="install-kokoro-btn" class="btn btn-ghost" type="button">Install Kokoro</button>
+                <button id="uninstall-kokoro-btn" class="btn btn-ghost" type="button">Uninstall</button>
+                <label class="form-label"><input id="delete-kokoro-profiles" type="checkbox"> Also delete saved Kokoro voice profiles</label>
+                </div>
+                <div id="ming-provider-settings" hidden>
+                    <label class="form-label" for="ming-model">Ming model</label>
+                    <select id="ming-model" class="form-select"><option value="0.5b">Ming 3.0 0.5B</option><option value="tiny">Ming 3.0 Tiny</option></select>
+                    <div id="ming-install-status" class="form-hint" role="status"></div>
+                    <button id="install-ming-btn" class="btn btn-ghost" type="button">Install selected model</button>
+                    <button id="uninstall-ming-btn" class="btn btn-ghost" type="button">Uninstall</button>
+                    <label class="form-label"><input id="delete-ming-profiles" type="checkbox"> Also delete saved Ming profiles and reference recordings</label>
+                </div>
             </section>
             </section>
 
@@ -5434,6 +5458,7 @@
     <script src="virtual_humans/frontend/vh2-horde-integration.js?v=20261010-world-lore-ai-4"></script>
     <script src="virtual_humans/frontend/kokoro-voice-designer.js?v=20261017-54voices"></script>
     <script src="virtual_humans/frontend/kokoro-world-bridge.js?v=20261017-54voices"></script>
+    <script src="virtual_humans/frontend/ming-world-bridge.js?v=20261029"></script>
     <script src="virtual_humans/frontend/vh-workspace.js?v=20261017-54voices"></script>
     <script src="virtual_humans/frontend/vh-assistant-ui.js?v=20260925-v182"></script>
     <script src="virtual_humans/frontend/vh-setup-ui.js?v=20261009-clock-recovery"></script>
@@ -5443,22 +5468,23 @@
     <script src="large-archive.js?v=20261008-worlds-release"></script>
     <script src="assets/worlds/world-lore.js?v=20261013-map-lock-config"></script>
     <script src="assets/worlds/world-lore-ui.js?v=20261011-place-index-4"></script>
-    <script src="worlds/model-client.js?v=20261010-world-lore-map-2"></script>
+    <script src="worlds/model-client.js?v=20261111-generalized-intent"></script>
     <script src="worlds/working-state.js?v=20261018-server-bound-turns"></script>
     <script src="worlds/effect-registry.js?v=20261030-p43h"></script>
     <script src="worlds/universal-checks.js?v=20261025-p41"></script>
     <script src="worlds/dynamic-object-discovery.js?v=20261030-p43h"></script>
     <script src="worlds/linked-world-actions.js?v=20261030-p43h"></script>
+    <script src="worlds/resolved-intent.js?v=20261111-generalized-intent"></script>
     <script src="worlds/perception.js?v=20261024-p27a"></script>
     <script src="worlds/npc-goal-actions.js?v=20261030-p43h"></script>
-    <script src="worlds/scene-draft.js?v=20261018-server-bound-turns"></script>
-    <script src="worlds/turn-binding.js?v=20261030-p43h"></script>
+    <script src="worlds/scene-draft.js?v=20261111-generalized-intent"></script>
+    <script src="worlds/turn-binding.js?v=20261111-generalized-intent"></script>
     <script src="worlds/turn-context.js?v=20261020-worlds-context-budget"></script>
-    <script src="worlds/horde-client.js?v=20261017-queue"></script>
+    <script src="worlds/horde-client.js?v=20261111-communication"></script>
     <script src="worlds/world-time.js?v=20261020-world-time"></script>
     <script src="worlds/background-sim.js?v=20261020-world-time"></script>
     <script src="assets/worlds/map-editor.js?v=20261014-map-markers"></script>
-    <script src="app.js?v=20261030-p43h"></script>
+    <script src="app.js?v=20261111-generalized-intent"></script>
 <dialog id="manual-image-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><div><img id="manual-large-image" alt=""></div></dialog>
 <dialog id="manual-index-dialog" class="manual-dialog"><button class="btn btn-ghost" data-close-manual-dialog type="button">Close</button><h2>Alphabetical index</h2><div id="manual-index-list" class="manual-index-list"></div></dialog>
 <div id="manual-print" class="manual-print"></div>

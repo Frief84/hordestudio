@@ -29,6 +29,18 @@ const cases = [
     ,['P43H_DIALOG_OFF', 'I ask Linda how she is.']
     ,['P43H_DIALOG_ON', 'I ask Linda how she is.']
     ,['P43H_CHAIR', 'I take the chair.']
+    ,['CHAIR_A', 'du setzt dich auf einen stuhl']
+    ,['CHAIR_B', 'ich setze mich auf einen stuhl "Ich bin der Weg und die Wahrheit und das Leben; niemand kommt zum Vater außer durch mich."']
+    ,['CHAIR_C', 'Jesus sieht sie an, und für einen Moment liegt ein Anflug von einem müden, fast schmerzlichen Lächeln auf seinem Gesicht. Er bückt sich, greift nach den Stuhlbeinen und stellt den umgekippten Stuhl mit einer ruhigen, kontrollierten Bewegung wieder ordentlich an den Küchentisch. „Du hast recht“, sagt er leise und setzt sich darauf. Er legt die Hände flach auf die Tischplatte. „In dieser Küche wirkt es absurd. Du willst einfach nur den Alltag bewältigen, die Suppe kochen, den Tisch decken. Und ich breche hier herein und rede von Schwertern, Kreuzen und dem Sterben.“']
+    ,['MULTI_NOVEL', 'I pirouette, then signal to Linda and murmur "Ready."']
+    ,['PARTIAL_MISSING', 'I try to lift a missing crate, then signal to Linda and murmur "No crate here."']
+    ,['MOVE_SPEECH', 'I move to the Round Room and say "Ready."']
+    ,['BLOCKED_SPEECH', 'I try to enter the Round Room and tell Linda "The door is shut."']
+    ,['REDUNDANT_SPEECH', 'I go to the Foyer and tell Linda "I am here."']
+    ,['BLOCKED_TAKE', 'I try to enter the Round Room, then take the bronze key from the table.']
+    ,['TAKE_MOVE_SPEECH', 'I take the bronze key from the table, enter the Round Room, and say "Ready."']
+    ,['MULTILEG', 'I travel through the Round Room to the Garden.']
+    ,['MULTILEG_EXACT', 'I go to the Garden.']
 ];
 if (process.env.HORDE_LIVE_GARDEN_RECALL) cases.push(['P43G_GARDEN',
     'Linda, what happened in the garden with Cass?']);
@@ -135,7 +147,7 @@ const output = [];
             console.log(`${id}: app ready`);
             let result;
             try {
-                result = await page.evaluate(async ({ id, input, model }) => {
+                result = await page.evaluate(async ({ id, input, model, lifecycle }) => {
                     clearInterval(companionAgencyTimer); clearInterval(companionAlwaysOnTimer);
                     await Promise.all([saveStateInFlight, worldSaveInFlight].filter(Boolean));
                     state.apiKey = 'offline'; state.globalSettings.apiProvider = 'local';
@@ -157,6 +169,15 @@ const output = [];
                             sceneDraftProtocol: 'scene_draft_v3', serverBindings: true },
                         hudConfig: { startTimeHours: 8, timeStep: 5 },
                         gameRules: { modules: { livingWorld: false } } };
+                    if (['BLOCKED_SPEECH', 'BLOCKED_TAKE', 'TAKE_MOVE_SPEECH'].includes(id)) {
+                        world.locations[0].exits[0].lockState = 'locked';
+                        world.locations[0].exits[0].requiredItem = 'Bronze key';
+                    }
+                    if (['MULTILEG', 'MULTILEG_EXACT'].includes(id)) {
+                        world.locations[1].exits.push({ targetLocationId: 'garden', travelTime: 3 });
+                        world.locations.push({ id: 'garden', name: 'Garden',
+                            description: 'A small garden beyond the Round Room.', exits: [] });
+                    }
                     if (id === 'P43G_GARDEN') {
                         world.gameRules.modules.livingWorld = true;
                         world.locations[0].exits.push({ targetLocationId: 'garden', travelTime: 5 });
@@ -201,6 +222,19 @@ const output = [];
                         world.gameRules.universalChecks = { enabled: id !== 'P43H_DIALOG_OFF',
                             rules: [HordeDynamicObjectDiscovery.defaultRule(1)] };
                     }
+                    if (id.startsWith('CHAIR_')) {
+                        world.locations[0].name = 'Kitchen';
+                        world.locations[0].description = 'A furnished kitchen. Linda stands beside the table. A wooden chair is beside the table.';
+                        world.entities.push({ id: 'chair', type: 'item', name: 'Wooden chair',
+                            aliases: ['Stuhl'],
+                            supportsActivities: ['sitting'],
+                            ...(id === 'CHAIR_C' ? { interactable: { initialState: 'overturned',
+                                transitions: [{ from: 'overturned', to: 'upright',
+                                    triggers: ['stellt den umgekippten Stuhl', 'rights the overturned chair'] }] } } : {}),
+                            locationId: 'foyer', description: id === 'CHAIR_C'
+                                ? 'A wooden chair lies overturned beside the kitchen table.'
+                                : 'A wooden chair stands ready beside the kitchen table.' });
+                    }
                     if (id === 'P41' || id === 'P42') {
                         world.locations[0].description += ' A short inscription is carved into the table.';
                         world.hudConfig.stats = [
@@ -223,6 +257,10 @@ const output = [];
                     state.worldInstances = { [world.id]: { sessions: [], activeSessionId: null } };
                     state.activeWorldId = world.id;
                     const sess = prepareCurrentWorldSession(); sess.setupComplete = true;
+                    if (id === 'CHAIR_C') {
+                        sess.playerIdentity ||= {};
+                        sess.playerIdentity.personaName = 'Jesus';
+                    }
                     sess.entityStates.key = { ...sess.entityStates.key, location: 'foyer' };
                     sess.entityStates.linda = { ...sess.entityStates.linda, location: 'foyer' };
                     if (id === 'F12') {
@@ -269,6 +307,7 @@ const output = [];
                             error: document.getElementById('world-turn-error-text')?.textContent,
                             audit: current.lastTurnAudit,
                             receipt: current.worldTurnReceipts?.at(-1),
+                            turnEvents: structuredClone(current.turnEvents || []),
                             inventory: structuredClone(current.inventory),
                             playerLocation: current.playerLocation,
                             npcObservations: Object.fromEntries(Object.entries(current.entityStates || {})
@@ -278,7 +317,41 @@ const output = [];
                     const active = getCurrentWorldSession();
                     const saved = (await HordeDB.get(`worldInstance:${world.id}`))?.sessions
                         ?.find(item => item.id === active.id);
+                    let lifecycleResult = null;
+                    if (lifecycle && !Array.isArray(input) && active.worldTurnReceipts?.length) {
+                        const firstReceipt = structuredClone(active.worldTurnReceipts.at(-1));
+                        const firstEvents = structuredClone(active.turnEvents || []);
+                        const firstVersion = active.worldStateVersion;
+                        const firstDm = [...active.history].reverse().find(item => item.role === 'dm');
+                        const before = firstDm?.turnSnapshot;
+                        await executeWorldTurn(true);
+                        const rerolled = getCurrentWorldSession();
+                        const rerollReceipt = rerolled.worldTurnReceipts?.at(-1);
+                        lifecycleResult = {
+                            reloadedFirst: !!saved && JSON.stringify(saved.turnEvents || [])
+                                === JSON.stringify(firstEvents)
+                                && JSON.stringify(saved.worldTurnReceipts?.at(-1))
+                                    === JSON.stringify(firstReceipt),
+                            firstVersion,
+                            rerollVersion: rerolled.worldStateVersion,
+                            rerollReceiptId: rerollReceipt?.receipt?.turn_id || null,
+                            firstReceiptId: firstReceipt.receipt?.turn_id || null,
+                            rerollEventIds: (rerolled.turnEvents || []).map(item => item.id),
+                            restored: !!before && restoreWorldTurnState(world, rerolled, before)
+                        };
+                        if (lifecycleResult.restored) {
+                            await saveWorldsState({ worldId: world.id });
+                            const rolled = (await HordeDB.get(`worldInstance:${world.id}`))
+                                ?.sessions?.find(item => item.id === rerolled.id);
+                            lifecycleResult.rollbackPersisted = !!rolled
+                                && rolled.worldStateVersion === before.session.worldStateVersion
+                                && JSON.stringify(rolled.turnEvents || [])
+                                    === JSON.stringify(before.session.turnEvents || []);
+                            lifecycleResult.rollbackReceiptCount = rolled?.worldTurnReceipts?.length;
+                        }
+                    }
                     return { input, background, turns, turnDurationMs: Math.round(performance.now() - started),
+                        lifecycle: lifecycleResult,
                         error: turns.at(-1)?.error,
                         audit: active.lastTurnAudit, receipt: active.worldTurnReceipts?.at(-1),
                         callAudit: [...active.history].reverse().find(message => message.role === 'dm')?.callAudit,
@@ -293,10 +366,84 @@ const output = [];
                             playerStats: saved.playerStats,
                             entityStates: saved.entityStates,
                             discoveryDecisions: saved.discoveryDecisions,
-                            historyLength: saved.history.length } };
-                }, { id, input, model });
+                            historyLength: saved.history.length,
+                            turnEvents: saved.turnEvents || [],
+                            worldTurnReceipts: saved.worldTurnReceipts || [] } };
+                }, { id, input, model,
+                    lifecycle: process.env.HORDE_LIVE_LIFECYCLE === '1' });
             } catch (error) { result = { input, error: String(error) }; }
-            output.push({ id, model, ...result, calls, bindingResponses, pageErrors });
+            const receipt = result.receipt?.receipt;
+            const outcomes = new Map((receipt?.action_results || [])
+                .map(item => [item.action_id, item.outcome]));
+            const savedReceipt = result.saved?.worldTurnReceipts?.at(-1)?.receipt;
+            const ids = (result.saved?.turnEvents || []).map(item => item.id).filter(Boolean);
+            const focused = ['MULTI_NOVEL', 'PARTIAL_MISSING', 'MOVE_SPEECH',
+                'BLOCKED_SPEECH', 'REDUNDANT_SPEECH', 'BLOCKED_TAKE',
+                'TAKE_MOVE_SPEECH', 'MULTILEG', 'MULTILEG_EXACT'].includes(id);
+            const boundDraft = bindingResponses.map(item => {
+                try { return JSON.parse(item.response)?.draft; } catch { return null; }
+            }).reverse().find(draft => draft?.actions?.some(action =>
+                outcomes.has(action.action_id)));
+            const successfulPhysical = (boundDraft?.actions || []).filter(action =>
+                ['physical', 'travel'].includes(action.kind)
+                && outcomes.get(action.action_id) === 'succeeded');
+            const physicalWitnesses = successfulPhysical.every(action =>
+                (receipt?.confirmed_effects || []).some(effect =>
+                    effect.action_id === action.action_id)
+                || (receipt?.events || []).some(event => event.action_id === action.action_id
+                    && event.actor_id === 'player' && event.status === 'completed'
+                    && (event.type === 'activity' && !!String(event.activity || '').trim()
+                        || event.type === 'interaction' && !!String(event.action || '').trim())));
+            const pass = id === 'MULTILEG_EXACT' && process.env.HORDE_LIVE_LIFECYCLE === '1'
+                ? !result.error && result.saved?.playerLocation === 'garden'
+                    && result.live?.playerLocation === 'foyer'
+                    && result.lifecycle?.reloadedFirst === true
+                    && result.lifecycle?.rollbackPersisted === true
+                    && result.lifecycle?.firstVersion === result.lifecycle?.rerollVersion
+                    && result.lifecycle?.firstReceiptId === result.lifecycle?.rerollReceiptId
+                    && calls.length === 2 && calls.every(call => call.promptCharacters < 2500)
+                : !focused || !!receipt && !!result.audit
+                && !result.error && result.saved?.historyLength === result.live?.historyLength
+                && JSON.stringify(savedReceipt?.action_results) === JSON.stringify(receipt.action_results)
+                && new Set(ids).size === ids.length
+                && (receipt.events || []).every(event => event.status !== 'completed'
+                    || outcomes.get(event.action_id) === 'succeeded')
+                && !!boundDraft && physicalWitnesses
+                && (id !== 'MULTI_NOVEL' || boundDraft.actions
+                    .filter(action => String(action.request || '').trim()).length >= 3)
+                && (id !== 'PARTIAL_MISSING' || boundDraft.actions
+                    .filter(action => String(action.request || '').trim()).length >= 3)
+                && (id !== 'PARTIAL_MISSING' || [...outcomes.values()].includes('succeeded')
+                    && [...outcomes.values()].some(value => value === 'unresolved'
+                        || value === 'failed' || value === 'blocked'))
+                && (id !== 'MOVE_SPEECH' || result.saved.playerLocation === 'round'
+                    && receipt.confirmed_effects?.some(effect => effect.type === 'actor_move'))
+                && (id !== 'BLOCKED_SPEECH' || result.saved.playerLocation === 'foyer'
+                    && !receipt.confirmed_effects?.some(effect => effect.type === 'actor_move')
+                    && [...outcomes.values()].includes('blocked')
+                    && [...outcomes.values()].includes('succeeded'))
+                && (id !== 'REDUNDANT_SPEECH' || result.saved.playerLocation === 'foyer'
+                    && !receipt.confirmed_effects?.some(effect => effect.type === 'actor_move')
+                    && [...outcomes.values()].includes('already_satisfied')
+                    && [...outcomes.values()].includes('succeeded'))
+                && (id !== 'BLOCKED_TAKE' || result.saved.playerLocation === 'foyer'
+                    && !receipt.confirmed_effects?.some(effect => effect.type === 'actor_move')
+                    && receipt.confirmed_effects?.some(effect => effect.type === 'item_transfer')
+                    && [...outcomes.values()].includes('blocked'))
+                && (id !== 'TAKE_MOVE_SPEECH' || result.saved.playerLocation === 'round'
+                    && receipt.confirmed_effects?.some(effect => effect.type === 'item_transfer')
+                    && receipt.confirmed_effects?.some(effect => effect.type === 'actor_move')
+                    && receipt.speech_attributions?.some(item => item.speaker === 'player'
+                        && item.statement === 'Ready.'))
+                && (id !== 'MULTILEG' || result.saved.playerLocation === 'garden'
+                    && receipt.confirmed_effects?.filter(effect => effect.type === 'actor_move').length === 2)
+                && (id !== 'MULTILEG_EXACT' || result.saved.playerLocation === 'garden'
+                    && receipt.confirmed_effects?.filter(effect => effect.type === 'actor_move').length === 2
+                    && calls.length === 1 && calls[0].promptCharacters < 2500)
+                && (process.env.HORDE_LIVE_LIFECYCLE !== '1'
+                    || result.lifecycle?.reloadedFirst && result.lifecycle?.rollbackPersisted);
+            output.push({ id, model, ...result, calls, bindingResponses, pageErrors, pass });
+            if (!pass) process.exitCode = 1;
             await context.close();
             try { fs.writeFileSync(outputPath, JSON.stringify(output, null, 2)); }
             catch (error) { console.warn(`Diagnostic file unavailable: ${error.code || error.message}`); }
@@ -310,7 +457,7 @@ const output = [];
             console.log(`${id}: ${JSON.stringify({ error: result.error, calls: calls.length,
                 accepted: result.audit?.accepted, rejected: result.audit?.rejected?.map(x => x.reason),
                 savedTurn: !!result.receipt && result.saved?.historyLength === result.live?.historyLength
-                    && result.saved.historyLength > 0 })}`);
+                    && result.saved.historyLength > 0, pass })}`);
         }
     } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,0 +1,31 @@
+{
+  "phase": "direct-cold",
+  "ms": 120523,
+  "status": 200,
+  "data": {
+    "id": "chatcmpl-743",
+    "object": "chat.completion",
+    "created": 1794352076,
+    "model": "gemma4:31b-it-q4_K_M",
+    "system_fingerprint": "fp_ollama",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "",
+          "reasoning": "The user wants me to reply with \"OK\" and nothing else.\n\n1.  Analyze the prompt: \"Reply with OK only.\"\n"
+        },
+        "finish_reason": "length"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 21,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "completion_tokens": 32,
+      "total_tokens": 53
+    }
+  }
+}

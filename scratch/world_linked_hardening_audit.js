@@ -89,7 +89,8 @@ for (const effects of [{}, { event_emit: [{ id: 'claim', type: 'claim',
     assert.equal(unsupportedSuccess.errors[0].code, 'unverified_action_success');
 }
 assert.equal(run([{ ...action('claim', 'resolved'), verifiedLocalInteraction: true }]).ok,
-    false, 'a local-interaction flag without an observed event cannot prove success');
+    false,
+    'a local-interaction flag without an observed event cannot prove success');
 const uncommittedTravel = run([{ ...action('walk', 'resolved'), kind: 'travel' }], [
     { action_id: 'walk', type: 'movement', actor_id: 'player', status: 'completed',
         to_location_id: 'archive' }]);

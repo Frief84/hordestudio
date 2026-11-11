@@ -49,7 +49,7 @@ assert(sessionHandler.indexOf('if (worldTurnInProgress || worldMutationInProgres
     'timeline switching must be blocked before changing activeSessionId');
 
 const exitHandler = render.slice(render.indexOf('// 3. Location & Exits'), render.indexOf('// 4. Inventory & Outfit'));
-assert(/const movement = await travelThroughWorldExit\(sourceWorld, sourceSess, exit\)/.test(exitHandler),
+assert(/const movement = await travelThroughWorldExit\(sourceWorld, sourceSess, exit, exitIndex\)/.test(exitHandler),
     'exit clicks must enter the shared command boundary');
 assert(travel.indexOf('if (worldTurnInProgress || worldMutationInProgress)') < travel.indexOf('movePlayerAlongWorldPath'),
     'exit travel must be rejected before any movement during an active command');

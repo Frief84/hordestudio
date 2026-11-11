@@ -1,0 +1,199 @@
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "durationMs": 34981,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 1687,
+    "total_tokens": 1838
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "I kneel",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "kneel",
+                "target_id": "player",
+                "label": "kneeling",
+                "outfit": "ordinary",
+                "condition": "ordinary",
+                "source_type": "suspected",
+                "source_npc_id": "player",
+                "confidence": 1,
+                "contradicted": false,
+                "cause": "voluntary"
+              }
+            ],
+            "speech": []
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "then wave to Linda",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "then wave to Linda",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "wave",
+                "target_id": "linda",
+                "label": "waving",
+                "outfit": "ordinary",
+                "condition": "ordinary",
+                "source_type": "suspected",
+                "source_npc_id": "player",
+                "confidence": 1,
+                "contradicted": false,
+                "cause": "voluntary"
+              }
+            ],
+            "speech": []
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "and say \"Hello.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "and say \"Hello.\"",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "speak",
+                "target_id": "linda",
+                "label": "speaking",
+                "outfit": "ordinary",
+                "condition": "ordinary",
+                "source_type": "suspected",
+                "source_npc_id": "player",
+                "confidence": 1,
+                "contradicted": false,
+                "cause": "voluntary"
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "linda"
+                ],
+                "quote": "Hello."
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "I kneel, then wave to Linda and say \"Hello.\"",
+      "response_id": "turn_e128e1d9405a21bdab40e95a_action_0_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "kneel",
+      "target_id": "player",
+      "label": "kneeling",
+      "outfit": "ordinary",
+      "condition": "ordinary",
+      "source_type": "suspected",
+      "source_npc_id": "player",
+      "confidence": 1,
+      "contradicted": false,
+      "cause": "voluntary",
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "passage_id": "turn_e128e1d9405a21bdab40e95a_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "wave",
+      "target_id": "linda",
+      "label": "waving",
+      "outfit": "ordinary",
+      "condition": "ordinary",
+      "source_type": "suspected",
+      "source_npc_id": "player",
+      "confidence": 1,
+      "contradicted": false,
+      "cause": "voluntary",
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "passage_id": "turn_e128e1d9405a21bdab40e95a_action_0_p1"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "speak",
+      "target_id": "linda",
+      "label": "speaking",
+      "outfit": "ordinary",
+      "condition": "ordinary",
+      "source_type": "suspected",
+      "source_npc_id": "player",
+      "confidence": 1,
+      "contradicted": false,
+      "cause": "voluntary",
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "passage_id": "turn_e128e1d9405a21bdab40e95a_action_0_p2"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "passage_id": "turn_e128e1d9405a21bdab40e95a_action_0_p0"
+    },
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_e128e1d9405a21bdab40e95a_action_0",
+      "passage_id": "turn_e128e1d9405a21bdab40e95a_action_0_p2"
+    }
+  ]
+}

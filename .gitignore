@@ -21,3 +21,8 @@ scratch/v18-release-results/
 
 # Optional platform-specific local Node runtime for VH background simulation
 runtime/
+
+# Downloaded local speech models, environments and generated caches
+/.tts/
+# Disposable integration-test database and process state
+/scratch/tts-test-config/

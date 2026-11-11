@@ -1,0 +1,157 @@
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "generationMs": 20300,
+  "validationMs": 28,
+  "durationMs": 20328,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 146
+    },
+    "completion_tokens": 1058,
+    "total_tokens": 1209
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "I kneel",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "kneel"
+              }
+            ],
+            "speech": []
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "then wave to Linda",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "then wave to Linda",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "wave",
+                "target_id": "linda"
+              }
+            ],
+            "speech": []
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "and say \"Hello.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "and say \"Hello.\"",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "say"
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "linda"
+                ],
+                "quote": "Hello."
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 4,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I kneel, then ",
+      "response_id": "turn_d754b577599efa73b0bf36b7_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "wave to Linda and ",
+      "response_id": "turn_d754b577599efa73b0bf36b7_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_2",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "say \"Hello.\"",
+      "response_id": "turn_d754b577599efa73b0bf36b7_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "kneel",
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_0",
+      "passage_id": "turn_d754b577599efa73b0bf36b7_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "wave",
+      "target_id": "linda",
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_1",
+      "passage_id": "turn_d754b577599efa73b0bf36b7_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "say",
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_2",
+      "passage_id": "turn_d754b577599efa73b0bf36b7_action_2_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_d754b577599efa73b0bf36b7_action_2",
+      "passage_id": "turn_d754b577599efa73b0bf36b7_action_2_p0"
+    }
+  ],
+  "complete": true
+}

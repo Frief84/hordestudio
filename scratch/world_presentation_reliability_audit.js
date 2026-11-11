@@ -108,7 +108,7 @@ test('the complete Aslan and Lorne turn keeps every passage in speaker order', (
         aslan:{engine:'kokoro',formula:'bm_george:100'},
         lorne:{engine:'kokoro',formula:'am_michael:100'}
     };
-    const context = {window:{HordeKokoro:{
+    const context = {state:{globalSettings:{ttsProvider:'kokoro'}},window:{HordeKokoro:{
         getNarratorProfile:()=>profiles.narrator,
         getWorldTurnProfileFor:npc=>profiles[npc.id]
     }}};
@@ -121,7 +121,9 @@ test('the complete Aslan and Lorne turn keeps every passage in speaker order', (
 
 Lorne's posture changes instantly. The lazy lean on his staff vanishes, replaced by a focused, professional intensity. He looks at Aslan not as a curiosity, but as a primary source. For a storycatcher, the prospect of a living entity possessing forgotten lore is a rarity that outweighs the sheer absurdity of the entity being a toad. "I am both," Lorne replies, his voice dropping an octave in earnestness. "I curate the silenced and the erased, and I recount them to those who still have the patience to listen. As for an arrangement... you have my undivided attention. I find myself very curious as to what a creature of your... stature... considers a fair trade for a forgotten tale."`;
     const segments = context.worldNarrativeSegments(world,turn).filter(part => part.text.trim());
-    const parts = context.worldSpeechParts(world,turn);
+    const confirmed = segments.filter(part => part.kind === 'dialogue')
+        .map(part => ({ speaker: part.speaker.id, statement: part.text }));
+    const parts = context.worldSpeechParts(world,turn,confirmed);
     assert.equal(parts.length,segments.length,'no narrator or dialogue passage may be skipped');
     assert.deepEqual(Array.from(parts,part=>part.kind),Array.from(segments,part=>part.kind));
     assert.deepEqual(Array.from(parts.filter(part=>part.kind==='dialogue'),part=>part.speakerId),
@@ -135,7 +137,7 @@ Lorne's posture changes instantly. The lazy lean on his staff vanishes, replaced
 test('validated speech IDs keep one NPC voice through ambiguous narration', () => {
     const profiles = { narrator:{engine:'kokoro',formula:'af_nicole:100'},
         lorne:{engine:'kokoro',formula:'am_michael:100'} };
-    const context = {window:{HordeKokoro:{getNarratorProfile:()=>profiles.narrator,
+    const context = {state:{globalSettings:{ttsProvider:'kokoro'}},window:{HordeKokoro:{getNarratorProfile:()=>profiles.narrator,
         getWorldTurnProfileFor:npc=>profiles[npc.id]}}};
     buildContext(vm, ['worldSpeechParts'], context);
     const world = {entities:[{id:'aslan',type:'npc',name:'Aslan'},
@@ -174,13 +176,15 @@ test('full-turn playback begins with the matching player action and spoken words
     const narrator = {engine:'kokoro',formula:'af_nicole:100'};
     const player = {engine:'kokoro',formula:'bm_lewis:100'};
     const aslan = {engine:'kokoro',formula:'am_adam:100'};
-    const context = {state:{personas:[{id:'lorne',name:'Lorne',pronouns:'he/him'}],activePersonaId:'lorne'},
+    const context = {state:{globalSettings:{ttsProvider:'kokoro'},
+        personas:[{id:'lorne',name:'Lorne',pronouns:'he/him'}],activePersonaId:'lorne'},
         window:{HordeKokoro:{getNarratorProfile:()=>narrator,
             getWorldTurnProfileFor:entity=>entity.id.startsWith('player:') ? player : aslan}}};
     buildContext(vm, ['worldTurnSpeechParts'], context);
     const world = {entities:[{id:'aslan',type:'npc',name:'Aslan'}]};
     const action = {role:'user',text:'Lorne raises his staff. “I will listen,” he says.'};
-    const reply = {role:'dm',text:'Aslan smiles. “Then listen,” Aslan replies.'};
+    const reply = {role:'dm',text:'Aslan smiles. “Then listen,” Aslan replies.',
+        speechAttributions:[{speaker:'aslan',statement:'Then listen,'}]};
     const session = {personaId:'lorne',history:[{role:'dm',text:'Earlier scene'},action,
         {role:'system',text:'A check was resolved'},reply]};
     assert.equal(context.worldPlayerMessageForReply(session,3),action);

@@ -14,6 +14,7 @@ const shape = (properties, required = Object.keys(properties)) =>
 const technicalEffects = new Map(Object.entries({
     actor_move: list(shape({ actor_id: field('Exact actor ID.'),
         to_location_id: field('Exact mapped destination ID; one adjacent leg for completed movement.'),
+        exit_index: { type: 'integer', minimum: 0, description: 'Index of an explicitly selected authored exit from the current place.' },
         mode: { type: 'string', enum: ['journey', 'teleport'] },
         explore: { type: 'boolean' },
         companion_ids: list(field('Exact accompanying actor ID.')) },

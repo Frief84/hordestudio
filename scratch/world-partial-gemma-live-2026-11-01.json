@@ -1,0 +1,219 @@
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "input": "I try to lift a missing crate, then signal to Linda and murmur \"No crate here.\"",
+  "generationMs": 258237,
+  "validationMs": 30,
+  "durationMs": 258267,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 165,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 1772,
+    "total_tokens": 1937
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I try to lift a missing crate",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "Player reaches toward the floor.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          },
+          {
+            "text": "Player attempts to lift the missing crate.",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "then signal to Linda",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "Player turns toward Linda.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          },
+          {
+            "text": "Player signals to Linda.",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "and murmur \"No crate here.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "Player speaks softly.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          },
+          {
+            "text": "Player murmurs \"No crate here.\"",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 2,
+  "executorErrors": [
+    {
+      "action_id": "turn_15070c4e004132189d770435_action_0",
+      "reason": "unverified_action_success",
+      "code": "unverified_action_success",
+      "effect": "",
+      "protocol": "scene_draft_v3",
+      "executionMode": "linked",
+      "available": [
+        "actor_move",
+        "npc_follow",
+        "npc_goal_set",
+        "interactable_transition",
+        "item_transfer",
+        "item_consume",
+        "item_introduce",
+        "entity_introduce",
+        "location_introduce",
+        "condition_change",
+        "relation_set",
+        "event_emit",
+        "knowledge_share",
+        "time_advance",
+        "outfit_set"
+      ],
+      "source": "worlds/effect-registry.js",
+      "stage": "linked_action_execution",
+      "cause": "unverified_action_success"
+    }
+  ],
+  "executorOk": false,
+  "actions": [
+    {
+      "action_id": "turn_15070c4e004132189d770435_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I try to lift a missing crate, then ",
+      "response_id": "turn_15070c4e004132189d770435_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_15070c4e004132189d770435_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "signal to Linda and ",
+      "response_id": "turn_15070c4e004132189d770435_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_15070c4e004132189d770435_action_2",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "murmur \"No crate here.\"",
+      "response_id": "turn_15070c4e004132189d770435_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_0",
+      "passage_id": "turn_15070c4e004132189d770435_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_0",
+      "passage_id": "turn_15070c4e004132189d770435_action_0_p1"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_1",
+      "passage_id": "turn_15070c4e004132189d770435_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_1",
+      "passage_id": "turn_15070c4e004132189d770435_action_1_p1"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_2",
+      "passage_id": "turn_15070c4e004132189d770435_action_2_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action_id": "turn_15070c4e004132189d770435_action_2",
+      "passage_id": "turn_15070c4e004132189d770435_action_2_p1"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "No crate here.",
+      "action_id": "turn_15070c4e004132189d770435_action_2",
+      "passage_id": "turn_15070c4e004132189d770435_action_2_p0"
+    }
+  ]
+}

@@ -1,0 +1,503 @@
+{
+  "model": "ministral:14b",
+  "bound": false,
+  "result": {
+    "results": [
+      {
+        "name": "key_gate_speech",
+        "location": "foyer",
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "Take the brass key, pass through the iron gate, then tell Mara \"I made it.\"",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "Take the brass key, pass through the iron gate, then tell Mara \"I made it.\"",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "1cc0fd1d-ba2b-4379-8491-f4c7ad3a1309",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "end": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "model_http_404"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "http_error",
+              "model": "fixture/model",
+              "status": 404,
+              "durationMs": 435,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 435,
+            "outputCharacters": 0,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 513,
+          "at": "2026-11-09T13:22:08.909Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      },
+      {
+        "name": "blocked_then_speech",
+        "location": "foyer",
+        "setup": {
+          "route": null,
+          "inventory": [],
+          "unlockedExits": {}
+        },
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "Try to enter the sealed east gallery, then ask Mara about the map.",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "Try to enter the sealed east gallery, then ask Mara about the map.",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "171b828a-de8d-4cb6-b689-3f0870a82846",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "end": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "model_http_404"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "http_error",
+              "model": "fixture/model",
+              "status": 404,
+              "durationMs": 16,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 16,
+            "outputCharacters": 0,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 42,
+          "at": "2026-11-09T13:22:08.957Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      },
+      {
+        "name": "already_there_then_action",
+        "location": "garden",
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "I am already in the garden, then wave to Mara.",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "I am already in the garden, then wave to Mara.",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "9916ba6f-826e-46aa-a6dd-fed5c877e879",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "garden"
+          },
+          "end": {
+            "version": 0,
+            "location": "garden"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "model_http_404"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "http_error",
+              "model": "fixture/model",
+              "status": 404,
+              "durationMs": 15,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 15,
+            "outputCharacters": 0,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 39,
+          "at": "2026-11-09T13:22:09.000Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      },
+      {
+        "name": "invalid_intent_fail_closed",
+        "location": "garden",
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "Break the moon.",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "Break the moon.",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "d857beef-acec-4c3f-a202-60601b58c532",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "garden"
+          },
+          "end": {
+            "version": 0,
+            "location": "garden"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "[{\"reason\":\"unknown_intent_destination\",\"step_index\":0}]"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "ok",
+              "model": "fixture/model",
+              "status": 200,
+              "durationMs": 2,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 2,
+            "outputCharacters": 126,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 32,
+          "at": "2026-11-09T13:22:09.036Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      },
+      {
+        "name": "free_multi_leg_route",
+        "location": "foyer",
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "Go through the hall to the garden.",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "Go through the hall to the garden.",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "735c947f-0183-48dd-969e-5d64569d604e",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "end": {
+            "version": 0,
+            "location": "foyer"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "model_http_404"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "http_error",
+              "model": "fixture/model",
+              "status": 404,
+              "durationMs": 23,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 23,
+            "outputCharacters": 0,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 43,
+          "at": "2026-11-09T13:22:09.083Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      },
+      {
+        "name": "typed_fare",
+        "location": "dock",
+        "versionDelta": 0,
+        "historyDelta": 0,
+        "inputValue": "Take the ferry to the market.",
+        "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+        "inventory": [],
+        "coins": 5,
+        "fareLedger": [],
+        "receipt": null,
+        "debug": {
+          "input": "Take the ferry to the market.",
+          "provider": "local",
+          "model": "fixture/model",
+          "turnId": "95bb4e60-df32-4709-adec-22c760141a25",
+          "commitStatus": "failed",
+          "start": {
+            "version": 0,
+            "location": "dock"
+          },
+          "end": {
+            "version": 0,
+            "location": "dock"
+          },
+          "proposal": null,
+          "receipt": null,
+          "failures": [],
+          "repairs": [],
+          "intentValidation": {
+            "accepted": false,
+            "reason": "model_http_404"
+          },
+          "error": "Ich konnte diese Handlung gerade nicht sicher auflösen. Bitte formuliere sie noch einmal.",
+          "calls": [
+            {
+              "kind": "resolvedIntent",
+              "provider": "local",
+              "outcome": "http_error",
+              "model": "fixture/model",
+              "status": 404,
+              "durationMs": 16,
+              "usage": null,
+              "providerTiming": {
+                "promptTokens": null,
+                "outputTokens": null,
+                "loadMs": null,
+                "promptEvalMs": null,
+                "outputEvalMs": null
+              }
+            }
+          ],
+          "metrics": {
+            "loreCharacters": 0,
+            "mainPromptCharacters": 0,
+            "repairPromptCharacters": 0,
+            "firstTokenMs": null,
+            "firstContentMs": null,
+            "localValidationMs": 0,
+            "generationMs": 16,
+            "outputCharacters": 0,
+            "estimatedInputTokens": 0,
+            "tokenEstimateMethod": "characters / 3.2",
+            "earlyAbortReason": null
+          },
+          "durationMs": 41,
+          "at": "2026-11-09T13:22:09.128Z",
+          "binding": null,
+          "validation": null
+        },
+        "callKinds": [
+          "resolved_intent_v1"
+        ]
+      }
+    ],
+    "reroll": {
+      "before": {
+        "location": "dock",
+        "version": 0,
+        "coins": 5,
+        "history": 0,
+        "receipts": 0,
+        "calls": 6
+      },
+      "location": "dock",
+      "version": 0,
+      "coins": 5,
+      "history": 0,
+      "receipts": 0,
+      "latestCall": "resolved_intent_v1",
+      "calls": 6
+    },
+    "parallel": {
+      "before": {
+        "version": 0,
+        "history": 0,
+        "receipts": 0
+      },
+      "version": 0,
+      "history": 0,
+      "receipts": 0,
+      "calls": 7
+    },
+    "rollback": {
+      "before": {
+        "version": 0,
+        "history": 0,
+        "receipts": 0,
+        "location": "dock",
+        "coins": 5
+      },
+      "after": {
+        "version": 0,
+        "history": 0,
+        "receipts": 0,
+        "location": "dock",
+        "coins": 5
+      }
+    },
+    "calls": 8,
+    "pageErrors": []
+  }
+}

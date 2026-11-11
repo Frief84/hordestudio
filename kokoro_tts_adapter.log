@@ -15,3 +15,6 @@ Horde Kokoro TTS adapter listening on http://127.0.0.1:8000/v1
 Kokoro model loading is lazy and happens on the first speech request.
 Horde Kokoro TTS adapter listening on http://127.0.0.1:8000/v1
 Kokoro model loading is lazy and happens on the first speech request.
+Horde Kokoro TTS adapter listening on http://127.0.0.1:8000/v1
+Kokoro model loading is lazy and happens on the first speech request.
+[kokoro] "GET /api/tags HTTP/1.1" 404 -

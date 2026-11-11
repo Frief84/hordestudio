@@ -1,0 +1,85 @@
+[
+  {
+    "id": "A2",
+    "model": "qwen2.5:14b-instruct-q4_K_M",
+    "input": "I tell Linda to wait here, then I try to hold her hands.",
+    "turnDurationMs": 130219,
+    "error": "World turn was not saved: Linked World turn was not committed: request_coverage_mismatch. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0
+    },
+    "calls": [
+      {
+        "durationMs": 125424,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 34150,
+        "contextCharacters": 33278,
+        "schemaCharacters": 34144,
+        "reasoningEffort": null,
+        "responseCharacters": 31948,
+        "contentCharacters": 559,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 2862,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 5056,
+        "contextCharacters": 4772,
+        "schemaCharacters": 34144,
+        "reasoningEffort": null,
+        "responseCharacters": 937,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      },
+      {
+        "durationMs": 1406,
+        "status": 200,
+        "maxTokens": 8192,
+        "promptCharacters": 5802,
+        "contextCharacters": 5471,
+        "schemaCharacters": 34144,
+        "reasoningEffort": null,
+        "responseCharacters": 723,
+        "contentCharacters": 0,
+        "reasoningCharacters": 0,
+        "usage": null,
+        "providerTiming": null
+      }
+    ],
+    "pageErrors": []
+  }
+]

@@ -1,0 +1,161 @@
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "generationMs": 248359,
+  "validationMs": 112,
+  "durationMs": 248471,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 733,
+    "total_tokens": 884
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "I kneel",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "activity": "kneeling",
+                "target_id": "kitchen_floor"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "wave to Linda",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "wave to Linda",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "waving",
+                "target_id": "Linda"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      },
+      {
+        "request": "say \"Hello.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "say \"Hello.\"",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "action": "speaking",
+                "target_id": "Linda",
+                "visibility": "public",
+                "witnessed_by": [
+                  "Linda"
+                ],
+                "cause": "I say \"Hello.\""
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 6,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I kneel, then ",
+      "response_id": "turn_16bdef4bf634fa8086945e97_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "wave to Linda and ",
+      "response_id": "turn_16bdef4bf634fa8086945e97_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_2",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "say \"Hello.\"",
+      "response_id": "turn_16bdef4bf634fa8086945e97_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "activity": "kneeling",
+      "target_id": "kitchen_floor",
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_0",
+      "passage_id": "turn_16bdef4bf634fa8086945e97_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "waving",
+      "target_id": "linda",
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_1",
+      "passage_id": "turn_16bdef4bf634fa8086945e97_action_1_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "speaking",
+      "target_id": "linda",
+      "visibility": "public",
+      "witnessed_by": [
+        "Linda"
+      ],
+      "cause": "I say \"Hello.\"",
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_2",
+      "passage_id": "turn_16bdef4bf634fa8086945e97_action_2_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_16bdef4bf634fa8086945e97_action_2",
+      "passage_id": "turn_16bdef4bf634fa8086945e97_action_2_p0"
+    }
+  ],
+  "complete": true
+}

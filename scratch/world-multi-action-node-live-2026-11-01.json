@@ -1,0 +1,156 @@
+{
+  "model": "gemma4:31b-it-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "durationMs": 243431,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 122,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens": 738,
+    "total_tokens": 860
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "gesture",
+        "status": "pending_check",
+        "response": [
+          {
+            "text": "I kneel.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "kneeling"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "then wave to Linda",
+        "kind": "gesture",
+        "status": "pending_check",
+        "response": [
+          {
+            "text": "I wave to Linda.",
+            "events": [
+              {
+                "type": "interaction",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "waving",
+                "source_npc_id": "linda"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "and say \"Hello.\"",
+        "kind": "speech",
+        "status": "pending_check",
+        "response": [
+          {
+            "text": "I say \"Hello.\"",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "speaking"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "compiledErrors": [
+    {
+      "type": "scene_draft",
+      "reason": "pending_action_requires_check",
+      "detail": "actions.0.action_effects.checks"
+    },
+    {
+      "type": "scene_draft",
+      "reason": "pending_action_requires_check",
+      "detail": "actions.1.action_effects.checks"
+    },
+    {
+      "type": "scene_draft",
+      "reason": "pending_action_requires_check",
+      "detail": "actions.2.action_effects.checks"
+    }
+  ],
+  "actions": [
+    {
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_0",
+      "kind": "physical",
+      "status": "pending_check",
+      "request": "I kneel, then ",
+      "response_id": "turn_18415109482c3ac1fc5ef877_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_1",
+      "kind": "physical",
+      "status": "pending_check",
+      "request": "wave to Linda and ",
+      "response_id": "turn_18415109482c3ac1fc5ef877_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_2",
+      "kind": "speech",
+      "status": "pending_check",
+      "request": "say \"Hello.\"",
+      "response_id": "turn_18415109482c3ac1fc5ef877_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "kneeling",
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_0",
+      "passage_id": "turn_18415109482c3ac1fc5ef877_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "waving",
+      "source_npc_id": "linda",
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_1",
+      "passage_id": "turn_18415109482c3ac1fc5ef877_action_1_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "speaking",
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_2",
+      "passage_id": "turn_18415109482c3ac1fc5ef877_action_2_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "player",
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_18415109482c3ac1fc5ef877_action_2",
+      "passage_id": "turn_18415109482c3ac1fc5ef877_action_2_p0"
+    }
+  ]
+}

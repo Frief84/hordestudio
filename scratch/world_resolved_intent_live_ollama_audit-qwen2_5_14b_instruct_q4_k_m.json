@@ -1,0 +1,135 @@
+{
+  "generatedAt": "2026-11-09T11:38:58.907Z",
+  "models": [
+    "qwen2.5:14b-instruct-q4_K_M"
+  ],
+  "results": [
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "take, travel, speech",
+      "accepted": true,
+      "durationMs": 10504,
+      "steps": [
+        {
+          "quote": "Pick up the brass key",
+          "kind": "transfer",
+          "operation": "take",
+          "item_id": "brass_key"
+        },
+        {
+          "quote": "go through the iron gate",
+          "kind": "travel",
+          "destination_id": "archive"
+        },
+        {
+          "quote": "tell Mara, 'I made it.'",
+          "kind": "speech",
+          "utterance": "I made it."
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "blocked travel then observation",
+      "accepted": true,
+      "durationMs": 1234,
+      "steps": [
+        {
+          "quote": "I try to enter the locked library",
+          "kind": "travel",
+          "destination_id": "library"
+        },
+        {
+          "quote": "read the notice beside the entrance",
+          "kind": "observation",
+          "target_id": "notice"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "already there then gesture and question",
+      "accepted": false,
+      "durationMs": 1884,
+      "steps": null,
+      "failure": {
+        "errors": [
+          {
+            "reason": "utterance_not_in_source_quote",
+            "step_index": 1
+          }
+        ],
+        "coverage": {
+          "ok": false
+        },
+        "response": "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Wave to Mara\",\n      \"kind\": \"gesture\",\n      \"target_ids\": [\"mara\"]\n    },\n    {\n      \"source_quote\": \"ask whether she saw the courier\",\n      \"kind\": \"speech\",\n      \"utterance\": \"whether she saw the courier, target_ids: ['mara']\"\n    }\n  ]\n}"
+      }
+    },
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "free multi-leg route",
+      "accepted": true,
+      "durationMs": 1320,
+      "steps": [
+        {
+          "quote": "Head through the conservatory",
+          "kind": "travel",
+          "destination_id": "conservatory"
+        },
+        {
+          "quote": "cross the gallery",
+          "kind": "travel",
+          "destination_id": "gallery"
+        },
+        {
+          "quote": "finish in the observatory",
+          "kind": "travel",
+          "destination_id": "observatory"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "fare route",
+      "accepted": true,
+      "durationMs": 1668,
+      "steps": [
+        {
+          "quote": "Take the ferry to the market.",
+          "kind": "travel",
+          "destination_id": "market"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b-instruct-q4_K_M",
+      "case": "partial block with independent follow-up",
+      "accepted": false,
+      "durationMs": 2012,
+      "steps": null,
+      "failure": {
+        "errors": [
+          {
+            "reason": "source_quote_out_of_order_or_missing",
+            "step_index": 2
+          },
+          {
+            "reason": "utterance_not_in_source_quote",
+            "step_index": 2
+          }
+        ],
+        "coverage": {
+          "ok": false
+        },
+        "response": "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"enter the sealed east door\",\"kind\":\"travel\",\"destination_id\":\"east_gallery\",\"target_id\":\"east_door\"},{\"source_quote\":\"'Have you seen the map?'\",\"kind\":\"speech\",\"utterance\":\"Have you seen the map?','target_ids:[\"},{\"source_quote\":\"Have you seen the map?\",\"kind\":\"question\",\"utterance\":\"Have you seen the map?','target_ids:[\"}]}"
+      }
+    }
+  ],
+  "summary": {
+    "qwen2.5:14b-instruct-q4_K_M": {
+      "passed": 4,
+      "total": 6,
+      "avgMs": 3104
+    }
+  }
+}

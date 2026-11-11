@@ -1,0 +1,4070 @@
+{
+  "model": "qwen2.5:14b",
+  "bound": false,
+  "passed": true,
+  "calls": 15,
+  "results": [
+    {
+      "name": "key_gate_speech",
+      "location": "archive",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "",
+      "status": [
+        "succeeded",
+        "succeeded",
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "Take the brass key",
+                "kind": "transfer",
+                "operation": "take",
+                "item_id": "brass_key",
+                "quantity": 1
+              },
+              {
+                "source_quote": ", pass through the iron gate",
+                "kind": "travel",
+                "destination_id": "archive"
+              },
+              {
+                "source_quote": ", then tell Mara \"I made it.\"",
+                "kind": "speech",
+                "target_ids": [
+                  "mara"
+                ],
+                "utterance": "I made it."
+              }
+            ]
+          },
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "item_transfer",
+              "payload": {
+                "item_id": "brass_key",
+                "from_id": "foyer",
+                "to_id": "player",
+                "quantity": 1
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "archive"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            }
+          ]
+        },
+        {
+          "status": "succeeded",
+          "actionId": "ri_2",
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You try to take Brass key.\n\nYou make your way toward Archiv.\n\nYou say, “I made it.”",
+      "inventory": [
+        "Brass key"
+      ],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "You try to take Brass key.\n\nYou make your way toward Archiv.\n\nYou say, “I made it.”",
+        "action_resolution": {
+          "kind": "physical",
+          "status": "resolved",
+          "outcome": "You try to take Brass key."
+        },
+        "scene": {
+          "player_location_id": "archive",
+          "player_location_changed": true,
+          "present_character_ids": []
+        },
+        "events": [
+          {
+            "type": "inventory",
+            "actor_id": "player",
+            "status": "completed",
+            "action": "take",
+            "item": "Brass key",
+            "id": "ri_e0_0",
+            "action_id": "ri_0",
+            "passage_id": "ri_p0",
+            "evidence": "You try to take Brass key."
+          },
+          {
+            "type": "movement",
+            "actor_id": "player",
+            "from_location_id": "foyer",
+            "to_location_id": "archive",
+            "status": "completed",
+            "id": "ri_e1_1",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You make your way toward Archiv."
+          },
+          {
+            "type": "observation",
+            "actor_id": "mara",
+            "status": "completed",
+            "observation": "I made it.",
+            "source_type": "told",
+            "source_npc_id": "player",
+            "confidence": 1,
+            "visibility": "private",
+            "allowed_to_share": true,
+            "witnessed_by": [
+              "mara"
+            ],
+            "evidence": "I made it.",
+            "action_id": "ri_2",
+            "id": "evt_wsess_1794239486888_1_2"
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "ri_2",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "item_transfer",
+            "payload": {
+              "item_id": "brass_key",
+              "from_id": "foyer",
+              "to_id": "player",
+              "quantity": 1
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          },
+          {
+            "action_id": "ri_1",
+            "source": "player",
+            "type": "actor_move",
+            "payload": {
+              "actor_id": "player",
+              "to_location_id": "archive"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              1
+            ]
+          }
+        ],
+        "check_results": [],
+        "speech_attributions": [
+          {
+            "speaker": "player",
+            "statement": "I made it.",
+            "listeners": [
+              "mara"
+            ],
+            "action_id": "ri_2",
+            "passage_id": "ri_p2"
+          }
+        ],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p0",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "ri_p2",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "Take the brass key, pass through the iron gate, then tell Mara \"I made it.\"",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "Take the brass key",
+              "kind": "transfer",
+              "operation": "take",
+              "item_id": "brass_key",
+              "quantity": 1
+            },
+            {
+              "source_quote": ", pass through the iron gate",
+              "kind": "travel",
+              "destination_id": "archive"
+            },
+            {
+              "source_quote": ", then tell Mara \"I made it.\"",
+              "kind": "speech",
+              "target_ids": [
+                "mara"
+              ],
+              "utterance": "I made it."
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 3,
+          "travelTargets": [
+            {
+              "sourceQuote": ", pass through the iron gate",
+              "targetId": "archive",
+              "stepIndex": 1
+            }
+          ],
+          "travelPreflight": [
+            {
+              "request": ", pass through the iron gate",
+              "targetId": "archive",
+              "fromId": "foyer",
+              "route": [
+                "foyer",
+                "archive"
+              ],
+              "status": "route_found"
+            }
+          ]
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 1,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_1",
+        "commitStatus": "committed",
+        "start": {
+          "version": 0,
+          "location": "foyer",
+          "cast": []
+        },
+        "end": {
+          "version": 1,
+          "location": "archive",
+          "cast": []
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You try to take Brass key."
+            },
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You make your way toward Archiv."
+            },
+            {
+              "id": "ri_p2",
+              "action_id": "ri_2",
+              "text": "You say, “I made it.”"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "Take the brass key",
+              "kind": "physical",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {
+                "item_transfer": [
+                  {
+                    "item_id": "brass_key",
+                    "from_id": "foyer",
+                    "to_id": "player",
+                    "quantity": 1
+                  }
+                ]
+              }
+            },
+            {
+              "action_id": "ri_1",
+              "request": ", pass through the iron gate",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {
+                "actor_move": [
+                  {
+                    "actor_id": "player",
+                    "to_location_id": "archive"
+                  }
+                ]
+              }
+            },
+            {
+              "action_id": "ri_2",
+              "request": ", then tell Mara \"I made it.\"",
+              "kind": "speech",
+              "status": "resolved",
+              "response_id": "ri_p2",
+              "action_effects": {}
+            }
+          ],
+          "events": [
+            {
+              "type": "inventory",
+              "actor_id": "player",
+              "status": "completed",
+              "action": "take",
+              "item": "Brass key",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0"
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "foyer",
+              "to_location_id": "archive",
+              "status": "completed",
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "speech": [
+            {
+              "speaker": "player",
+              "listeners": [
+                "mara"
+              ],
+              "quote": "I made it.",
+              "action_id": "ri_2",
+              "passage_id": "ri_p2"
+            }
+          ],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "You try to take Brass key.\n\nYou make your way toward Archiv.\n\nYou say, “I made it.”",
+          "action_resolution": {
+            "kind": "physical",
+            "status": "resolved",
+            "outcome": "You try to take Brass key."
+          },
+          "scene": {
+            "player_location_id": "archive",
+            "player_location_changed": true,
+            "present_character_ids": []
+          },
+          "events": [
+            {
+              "type": "inventory",
+              "actor_id": "player",
+              "status": "completed",
+              "action": "take",
+              "item": "Brass key",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0",
+              "evidence": "You try to take Brass key."
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "foyer",
+              "to_location_id": "archive",
+              "status": "completed",
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1",
+              "evidence": "You make your way toward Archiv."
+            },
+            {
+              "type": "observation",
+              "actor_id": "mara",
+              "status": "completed",
+              "observation": "I made it.",
+              "source_type": "told",
+              "source_npc_id": "player",
+              "confidence": 1,
+              "visibility": "private",
+              "allowed_to_share": true,
+              "witnessed_by": [
+                "mara"
+              ],
+              "evidence": "I made it.",
+              "action_id": "ri_2",
+              "id": "evt_wsess_1794239486888_1_2"
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_2",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "item_transfer",
+              "payload": {
+                "item_id": "brass_key",
+                "from_id": "foyer",
+                "to_id": "player",
+                "quantity": 1
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            },
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "archive"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            }
+          ],
+          "check_results": [],
+          "speech_attributions": [
+            {
+              "speaker": "player",
+              "statement": "I made it.",
+              "listeners": [
+                "mara"
+              ],
+              "action_id": "ri_2",
+              "passage_id": "ri_p2"
+            }
+          ],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p0",
+              "speaker_id": null
+            },
+            {
+              "passage_id": "ri_p1",
+              "speaker_id": null
+            },
+            {
+              "passage_id": "ri_p2",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 1,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_2",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 3,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 1,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "entity:player",
+            "history",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:worldClock",
+            "session:inventory",
+            "entity:brass_key",
+            "session:playerLocation",
+            "location:foyer",
+            "location:archive"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_1",
+            "diagnosticId": "wsess_1794239486888_1_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [
+              {
+                "type": "item_transfer",
+                "action_id": "ri_0",
+                "result": "changed",
+                "payload": "{\"item_id\":\"brass_key\",\"from_id\":\"foyer\",\"to_id\":\"player\",\"quantity\":1}"
+              },
+              {
+                "type": "actor_move",
+                "action_id": "ri_1",
+                "result": "changed",
+                "payload": "{\"actor_id\":\"player\",\"to_location_id\":\"archive\"}"
+              }
+            ],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1604,
+                "usage": {
+                  "input": 561,
+                  "output": 80,
+                  "total": 641
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1123,
+                "usage": {
+                  "input": 587,
+                  "output": 62,
+                  "total": 649
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1604,
+            "usage": {
+              "input": 561,
+              "output": 80,
+              "total": 641
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1123,
+            "usage": {
+              "input": 587,
+              "output": 62,
+              "total": 649
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2815,
+          "mainPromptCharacters": 53987,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 1,
+          "firstContentMs": 1,
+          "localValidationMs": 4,
+          "generationMs": 2727,
+          "outputCharacters": 1897,
+          "estimatedInputTokens": 16871,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2815,
+            "locationDescription": 42,
+            "npcPerspectives": 901,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 75,
+            "schema": 23429,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2815,
+                "estimatedTokens": 880
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 901,
+                "estimatedTokens": 282
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 75,
+                "estimatedTokens": 24
+              },
+              "schema": {
+                "characters": 23429,
+                "estimatedTokens": 7322
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11280
+          }
+        },
+        "durationMs": 2881,
+        "at": "2026-11-09T15:51:29.835Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Take the brass key\",\"kind\":\"transfer\",\"item_id\":\"brass_key\",\"quantity\":1,\"activity\":\"take\"},{\"source_quote\":\"pass through the iron gate\",\"kind\":\"travel\",\"destination_id\":\"archive\"},{\"source_quote\":\"tell Mara 'I made it.'\",\"kind\":\"speech\",\"utterance\":\"I made it.\"}]}"
+      ]
+    },
+    {
+      "name": "blocked_then_speech",
+      "location": "foyer",
+      "setup": {
+        "route": null,
+        "inventory": [],
+        "unlockedExits": {}
+      },
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "",
+      "status": [
+        "blocked",
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "blocked",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "Try to enter the sealed east gallery",
+                "kind": "travel",
+                "destination_id": "east_gallery"
+              },
+              {
+                "source_quote": ", then ask Mara about the map.",
+                "kind": "question",
+                "target_ids": [
+                  "mara"
+                ],
+                "utterance": "about the map"
+              }
+            ]
+          },
+          "reason": "unreachable_or_denied",
+          "effects": []
+        },
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You approach the sealed east gallery, but the door remains firmly shut despite your efforts. Mara, who has been observing you, steps forward and asks if you need help understanding the map. You ask Mara about the map, and she offers to explain its details to you.",
+      "inventory": [],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "The way to Ostgalerie is not accessible right now.\n\nYou say, “about the map”",
+        "action_resolution": {
+          "kind": "travel",
+          "status": "resolved",
+          "outcome": "You make your way toward Ostgalerie."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "mara"
+          ]
+        },
+        "events": [
+          {
+            "type": "observation",
+            "actor_id": "mara",
+            "status": "completed",
+            "observation": "about the map",
+            "source_type": "told",
+            "source_npc_id": "player",
+            "confidence": 1,
+            "visibility": "private",
+            "allowed_to_share": true,
+            "witnessed_by": [
+              "mara"
+            ],
+            "evidence": "about the map",
+            "action_id": "ri_1",
+            "id": "evt_wsess_1794239486888_2_0"
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "blocked"
+          },
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [
+          {
+            "speaker": "player",
+            "statement": "about the map",
+            "listeners": [
+              "mara"
+            ],
+            "action_id": "ri_1",
+            "passage_id": "ri_p1"
+          }
+        ],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "Try to enter the sealed east gallery, then ask Mara about the map.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "Try to enter the sealed east gallery",
+              "kind": "travel",
+              "destination_id": "east_gallery"
+            },
+            {
+              "source_quote": ", then ask Mara about the map.",
+              "kind": "question",
+              "target_ids": [
+                "mara"
+              ],
+              "utterance": "about the map"
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 2,
+          "travelTargets": [
+            {
+              "sourceQuote": "Try to enter the sealed east gallery",
+              "targetId": "east_gallery",
+              "stepIndex": 0
+            }
+          ],
+          "travelPreflight": [
+            {
+              "request": "Try to enter the sealed east gallery",
+              "targetId": "east_gallery",
+              "fromId": "foyer",
+              "status": "blocked"
+            }
+          ]
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 2,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_2",
+        "commitStatus": "committed",
+        "start": {
+          "version": 1,
+          "location": "foyer",
+          "cast": []
+        },
+        "end": {
+          "version": 2,
+          "location": "foyer",
+          "cast": [
+            "mara"
+          ]
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You make your way toward Ostgalerie."
+            },
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You say, “about the map”"
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "Try to enter the sealed east gallery",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {}
+            },
+            {
+              "action_id": "ri_1",
+              "request": ", then ask Mara about the map.",
+              "kind": "question",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {}
+            }
+          ],
+          "events": [],
+          "speech": [
+            {
+              "speaker": "player",
+              "listeners": [
+                "mara"
+              ],
+              "quote": "about the map",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "The way to Ostgalerie is not accessible right now.\n\nYou say, “about the map”",
+          "action_resolution": {
+            "kind": "travel",
+            "status": "resolved",
+            "outcome": "You make your way toward Ostgalerie."
+          },
+          "scene": {
+            "player_location_id": "foyer",
+            "player_location_changed": false,
+            "present_character_ids": [
+              "mara"
+            ]
+          },
+          "events": [
+            {
+              "type": "observation",
+              "actor_id": "mara",
+              "status": "completed",
+              "observation": "about the map",
+              "source_type": "told",
+              "source_npc_id": "player",
+              "confidence": 1,
+              "visibility": "private",
+              "allowed_to_share": true,
+              "witnessed_by": [
+                "mara"
+              ],
+              "evidence": "about the map",
+              "action_id": "ri_1",
+              "id": "evt_wsess_1794239486888_2_0"
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "blocked"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [],
+          "check_results": [],
+          "speech_attributions": [
+            {
+              "speaker": "player",
+              "statement": "about the map",
+              "listeners": [
+                "mara"
+              ],
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p1",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 2,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "blocked"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 1,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 2,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "location:archive",
+            "history",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:worldClock"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_2",
+            "diagnosticId": "wsess_1794239486888_2_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 3204,
+                "usage": {
+                  "input": 570,
+                  "output": 196,
+                  "total": 766
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 976,
+                "usage": {
+                  "input": 369,
+                  "output": 55,
+                  "total": 424
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 3204,
+            "usage": {
+              "input": 570,
+              "output": 196,
+              "total": 766
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 976,
+            "usage": {
+              "input": 369,
+              "output": 55,
+              "total": 424
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2884,
+          "mainPromptCharacters": 55129,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 0,
+          "firstContentMs": 0,
+          "localValidationMs": 0,
+          "generationMs": 4180,
+          "outputCharacters": 1637,
+          "estimatedInputTokens": 17228,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2884,
+            "locationDescription": 42,
+            "npcPerspectives": 1197,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 282,
+            "schema": 23429,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2884,
+                "estimatedTokens": 902
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 1197,
+                "estimatedTokens": 375
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 282,
+                "estimatedTokens": 89
+              },
+              "schema": {
+                "characters": 23429,
+                "estimatedTokens": 7322
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11460
+          }
+        },
+        "durationMs": 4227,
+        "at": "2026-11-09T15:51:34.079Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Try to enter the sealed east gallery\",\n      \"kind\": \"interaction\",\n      \"operation\": \"open\",\n      \"target_id\": \"door:east_gallery::foyer:foyer:0\",\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    },\n    {\n      \"source_quote\": \"Try to enter the sealed east gallery\",\n      \"kind\": \"travel\",\n      \"destination_id\": \"east_gallery\",\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    },\n    {\n      \"source_quote\": \"ask Mara about the map\",\n      \"kind\": \"speech\",\n      \"utterance\": \"about the map\"\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "name": "already_there_then_action",
+      "location": "garden",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "",
+      "status": [
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "I am already in the garden",
+                "kind": "context"
+              },
+              {
+                "source_quote": ", then wave to Mara.",
+                "kind": "gesture"
+              }
+            ]
+          },
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You are already in the tranquil garden, surrounded by the serene beauty of nature. Mara stands nearby, her presence adding a calm and comforting atmosphere to the setting. You wave to her, and she returns the gesture with a warm smile, acknowledging your greeting.",
+      "inventory": [],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "You make a small gesture.",
+        "action_resolution": {
+          "kind": "physical",
+          "status": "resolved",
+          "outcome": "You make a small gesture."
+        },
+        "scene": {
+          "player_location_id": "garden",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "mara"
+          ]
+        },
+        "events": [
+          {
+            "type": "interaction",
+            "actor_id": "player",
+            "status": "completed",
+            "action": ", then wave to Mara.",
+            "id": "ri_e1_0",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You make a small gesture."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "I am already in the garden, then wave to Mara.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "I am already in the garden",
+              "kind": "context"
+            },
+            {
+              "source_quote": ", then wave to Mara.",
+              "kind": "gesture"
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 2,
+          "travelTargets": []
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 3,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_3",
+        "commitStatus": "committed",
+        "start": {
+          "version": 2,
+          "location": "garden",
+          "cast": []
+        },
+        "end": {
+          "version": 3,
+          "location": "garden",
+          "cast": [
+            "mara"
+          ]
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You make a small gesture."
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_1",
+              "request": ", then wave to Mara.",
+              "kind": "physical",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {}
+            }
+          ],
+          "events": [
+            {
+              "type": "interaction",
+              "actor_id": "player",
+              "status": "completed",
+              "action": ", then wave to Mara.",
+              "id": "ri_e1_0",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "speech": [],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "You make a small gesture.",
+          "action_resolution": {
+            "kind": "physical",
+            "status": "resolved",
+            "outcome": "You make a small gesture."
+          },
+          "scene": {
+            "player_location_id": "garden",
+            "player_location_changed": false,
+            "present_character_ids": [
+              "mara"
+            ]
+          },
+          "events": [
+            {
+              "type": "interaction",
+              "actor_id": "player",
+              "status": "completed",
+              "action": ", then wave to Mara.",
+              "id": "ri_e1_0",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1",
+              "evidence": "You make a small gesture."
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [],
+          "check_results": [],
+          "speech_attributions": [],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p1",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 3,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 1,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 3,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "location:garden",
+            "history",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:worldClock"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_3",
+            "diagnosticId": "wsess_1794239486888_3_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1755,
+                "usage": {
+                  "input": 502,
+                  "output": 97,
+                  "total": 599
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 864,
+                "usage": {
+                  "input": 310,
+                  "output": 52,
+                  "total": 362
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1755,
+            "usage": {
+              "input": 502,
+              "output": 97,
+              "total": 599
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 864,
+            "usage": {
+              "input": 310,
+              "output": 52,
+              "total": 362
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2210,
+          "mainPromptCharacters": 54777,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 0,
+          "firstContentMs": 0,
+          "localValidationMs": 1,
+          "generationMs": 2619,
+          "outputCharacters": 1056,
+          "estimatedInputTokens": 17118,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2210,
+            "locationDescription": 42,
+            "npcPerspectives": 1333,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 762,
+            "schema": 23429,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2210,
+                "estimatedTokens": 691
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 1333,
+                "estimatedTokens": 417
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 762,
+                "estimatedTokens": 239
+              },
+              "schema": {
+                "characters": 23429,
+                "estimatedTokens": 7322
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11441
+          }
+        },
+        "durationMs": 2672,
+        "at": "2026-11-09T15:51:36.759Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I am already in the garden\",\n      \"kind\": \"context\",\n      \"utterance\": \"I am already in the garden\"\n    },\n    {\n      \"source_quote\": \"wave to Mara\",\n      \"kind\": \"gesture\",\n      \"target_id\": \"mara\",\n      \"utterance\": \"wave to Mara\"\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "name": "invalid_intent_fail_closed",
+      "location": "garden",
+      "versionDelta": 0,
+      "historyDelta": 0,
+      "inputValue": "Break the moon.",
+      "error": "I could not reliably interpret that action just now. Please rephrase it.",
+      "status": [
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "I am already in the garden",
+                "kind": "context"
+              },
+              {
+                "source_quote": ", then wave to Mara.",
+                "kind": "gesture"
+              }
+            ]
+          },
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You are already in the tranquil garden, surrounded by the serene beauty of nature. Mara stands nearby, her presence adding a calm and comforting atmosphere to the setting. You wave to her, and she returns the gesture with a warm smile, acknowledging your greeting.",
+      "inventory": [],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "You make a small gesture.",
+        "action_resolution": {
+          "kind": "physical",
+          "status": "resolved",
+          "outcome": "You make a small gesture."
+        },
+        "scene": {
+          "player_location_id": "garden",
+          "player_location_changed": false,
+          "present_character_ids": [
+            "mara"
+          ]
+        },
+        "events": [
+          {
+            "type": "interaction",
+            "actor_id": "player",
+            "status": "completed",
+            "action": ", then wave to Mara.",
+            "id": "ri_e1_0",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You make a small gesture."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "Break the moon.",
+        "provider": "local",
+        "model": "fixture/model",
+        "turnId": "99d46b8f-dfb6-4faf-ab61-90ca03625088",
+        "commitStatus": "failed",
+        "start": {
+          "version": 3,
+          "location": "garden"
+        },
+        "end": {
+          "version": 3,
+          "location": "garden"
+        },
+        "proposal": null,
+        "receipt": null,
+        "failures": [],
+        "repairs": [],
+        "intentValidation": {
+          "accepted": false,
+          "reason": "[{\"reason\":\"unknown_intent_destination\",\"step_index\":0}]"
+        },
+        "error": "I could not reliably interpret that action just now. Please rephrase it.",
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 0,
+            "usage": null,
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 0,
+          "mainPromptCharacters": 0,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": null,
+          "firstContentMs": null,
+          "localValidationMs": 0,
+          "generationMs": 0,
+          "outputCharacters": 126,
+          "estimatedInputTokens": 0,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null
+        },
+        "durationMs": 30,
+        "at": "2026-11-09T15:51:36.797Z",
+        "binding": null,
+        "validation": null
+      },
+      "callKinds": [
+        "resolved_intent_v1"
+      ],
+      "intentResponses": []
+    },
+    {
+      "name": "free_multi_leg_route",
+      "location": "garden",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "I could not reliably interpret that action just now. Please rephrase it.",
+      "status": [
+        "succeeded",
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "Go through the hall",
+                "kind": "travel",
+                "destination_id": "hall"
+              },
+              {
+                "source_quote": " to the garden.",
+                "kind": "travel",
+                "destination_id": "garden"
+              }
+            ]
+          },
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "hall"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "time_advance",
+              "payload": {
+                "minutes": 2
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            },
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "garden"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                2
+              ]
+            }
+          ]
+        }
+      ],
+      "text": "You make your way toward Flur.\n\nYou make your way toward Garten.",
+      "inventory": [],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "You make your way toward Flur.\n\nYou make your way toward Garten.",
+        "action_resolution": {
+          "kind": "travel",
+          "status": "resolved",
+          "outcome": "You make your way toward Flur."
+        },
+        "scene": {
+          "player_location_id": "garden",
+          "player_location_changed": true,
+          "present_character_ids": [
+            "mara"
+          ]
+        },
+        "events": [
+          {
+            "type": "movement",
+            "actor_id": "player",
+            "from_location_id": "foyer",
+            "to_location_id": "hall",
+            "status": "completed",
+            "id": "ri_e0_0",
+            "action_id": "ri_0",
+            "passage_id": "ri_p0",
+            "evidence": "You make your way toward Flur."
+          },
+          {
+            "type": "time",
+            "actor_id": "player",
+            "status": "completed",
+            "minutes_elapsed": 2,
+            "id": "ri_e1_1",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You make your way toward Garten."
+          },
+          {
+            "type": "movement",
+            "actor_id": "player",
+            "from_location_id": "hall",
+            "to_location_id": "garden",
+            "status": "completed",
+            "id": "ri_e1_2",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You make your way toward Garten."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "actor_move",
+            "payload": {
+              "actor_id": "player",
+              "to_location_id": "hall"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          },
+          {
+            "action_id": "ri_1",
+            "source": "player",
+            "type": "time_advance",
+            "payload": {
+              "minutes": 2
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              1
+            ]
+          },
+          {
+            "action_id": "ri_1",
+            "source": "player",
+            "type": "actor_move",
+            "payload": {
+              "actor_id": "player",
+              "to_location_id": "garden"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              2
+            ]
+          }
+        ],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p0",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "Go through the hall to the garden.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "Go through the hall",
+              "kind": "travel",
+              "destination_id": "hall"
+            },
+            {
+              "source_quote": " to the garden.",
+              "kind": "travel",
+              "destination_id": "garden"
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 2,
+          "travelTargets": [
+            {
+              "sourceQuote": "Go through the hall",
+              "targetId": "hall",
+              "stepIndex": 0
+            },
+            {
+              "sourceQuote": " to the garden.",
+              "targetId": "garden",
+              "stepIndex": 1
+            }
+          ],
+          "travelPreflight": [
+            {
+              "request": "Go through the hall",
+              "targetId": "hall",
+              "fromId": "foyer",
+              "route": [
+                "foyer",
+                "hall"
+              ],
+              "status": "route_found"
+            },
+            {
+              "request": " to the garden.",
+              "targetId": "garden",
+              "fromId": "hall",
+              "route": [
+                "hall",
+                "garden"
+              ],
+              "status": "route_found"
+            }
+          ]
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 5,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_5",
+        "commitStatus": "committed",
+        "start": {
+          "version": 4,
+          "location": "foyer",
+          "cast": []
+        },
+        "end": {
+          "version": 5,
+          "location": "garden",
+          "cast": [
+            "mara"
+          ]
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You make your way toward Flur."
+            },
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You make your way toward Garten."
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "Go through the hall",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {
+                "actor_move": [
+                  {
+                    "actor_id": "player",
+                    "to_location_id": "hall"
+                  }
+                ]
+              }
+            },
+            {
+              "action_id": "ri_1",
+              "request": " to the garden.",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {
+                "time_advance": [
+                  {
+                    "minutes": 2
+                  }
+                ],
+                "actor_move": [
+                  {
+                    "actor_id": "player",
+                    "to_location_id": "garden"
+                  }
+                ]
+              }
+            }
+          ],
+          "events": [
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "foyer",
+              "to_location_id": "hall",
+              "status": "completed",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0"
+            },
+            {
+              "type": "time",
+              "actor_id": "player",
+              "status": "completed",
+              "minutes_elapsed": 2,
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "hall",
+              "to_location_id": "garden",
+              "status": "completed",
+              "id": "ri_e1_2",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "speech": [],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "You make your way toward Flur.\n\nYou make your way toward Garten.",
+          "action_resolution": {
+            "kind": "travel",
+            "status": "resolved",
+            "outcome": "You make your way toward Flur."
+          },
+          "scene": {
+            "player_location_id": "garden",
+            "player_location_changed": true,
+            "present_character_ids": [
+              "mara"
+            ]
+          },
+          "events": [
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "foyer",
+              "to_location_id": "hall",
+              "status": "completed",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0",
+              "evidence": "You make your way toward Flur."
+            },
+            {
+              "type": "time",
+              "actor_id": "player",
+              "status": "completed",
+              "minutes_elapsed": 2,
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1",
+              "evidence": "You make your way toward Garten."
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "hall",
+              "to_location_id": "garden",
+              "status": "completed",
+              "id": "ri_e1_2",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1",
+              "evidence": "You make your way toward Garten."
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "hall"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            },
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "time_advance",
+              "payload": {
+                "minutes": 2
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            },
+            {
+              "action_id": "ri_1",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "garden"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                2
+              ]
+            }
+          ],
+          "check_results": [],
+          "speech_attributions": [],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p0",
+              "speaker_id": null
+            },
+            {
+              "passage_id": "ri_p1",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 5,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 3,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 5,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "history",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:worldClock",
+            "entity:player",
+            "session:playerLocation",
+            "location:foyer",
+            "location:hall",
+            "location:garden"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_5",
+            "diagnosticId": "wsess_1794239486888_5_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [
+              {
+                "type": "actor_move",
+                "action_id": "ri_0",
+                "result": "changed",
+                "payload": "{\"actor_id\":\"player\",\"to_location_id\":\"hall\"}"
+              },
+              {
+                "type": "time_advance",
+                "action_id": "ri_1",
+                "result": "changed",
+                "payload": "{\"minutes\":2}"
+              },
+              {
+                "type": "actor_move",
+                "action_id": "ri_1",
+                "result": "changed",
+                "payload": "{\"actor_id\":\"player\",\"to_location_id\":\"garden\"}"
+              }
+            ],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 2338,
+                "usage": {
+                  "input": 545,
+                  "output": 143,
+                  "total": 688
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 957,
+                "usage": {
+                  "input": 536,
+                  "output": 52,
+                  "total": 588
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 2338,
+            "usage": {
+              "input": 545,
+              "output": 143,
+              "total": 688
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 957,
+            "usage": {
+              "input": 536,
+              "output": 52,
+              "total": 588
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 3150,
+          "mainPromptCharacters": 55612,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 0,
+          "firstContentMs": 0,
+          "localValidationMs": 0,
+          "generationMs": 3295,
+          "outputCharacters": 1901,
+          "estimatedInputTokens": 17379,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 3150,
+            "locationDescription": 42,
+            "npcPerspectives": 0,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 1246,
+            "schema": 23340,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 3150,
+                "estimatedTokens": 985
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 1246,
+                "estimatedTokens": 390
+              },
+              "schema": {
+                "characters": 23340,
+                "estimatedTokens": 7294
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11441
+          }
+        },
+        "durationMs": 3388,
+        "at": "2026-11-09T15:51:42.222Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Go through the hall to the garden.\",\n      \"kind\": \"travel\",\n      \"destination_id\": \"hall\",\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    },\n    {\n      \"source_quote\": \"Go through the hall to the garden.\",\n      \"kind\": \"travel\",\n      \"destination_id\": \"garden\",\n      \"depends_on\": [\n        {\n          \"step_index\": 1,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "name": "typed_fare",
+      "location": "market",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "I could not reliably interpret that action just now. Please rephrase it.",
+      "status": [
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "Take the ferry to the market.",
+                "kind": "travel",
+                "destination_id": "market"
+              }
+            ]
+          },
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "time_advance",
+              "payload": {
+                "minutes": 3
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            },
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "market"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            }
+          ]
+        }
+      ],
+      "text": "You board the ferry and spend a few minutes crossing the water to the bustling market. The rhythmic motion of the boat and the sound of seagulls overhead give way to the vibrant energy of the market as you step off the ferry and onto the bustling marketplace. Vendors call out, offering fresh produce, colorful textiles, and other goods, and the air is filled with the mingled scents of spices and sea salt.",
+      "inventory": [],
+      "coins": 2,
+      "fareLedger": [
+        "[\"resolved_intent_fixture\",\"wsess_1794239486888\",6,\"ri_0\",\"player\",\"dock\",\"market\",\"coins\",3]"
+      ],
+      "receipt": {
+        "summary": "You make your way toward Markt.",
+        "action_resolution": {
+          "kind": "travel",
+          "status": "resolved",
+          "outcome": "You make your way toward Markt."
+        },
+        "scene": {
+          "player_location_id": "market",
+          "player_location_changed": true,
+          "present_character_ids": []
+        },
+        "events": [
+          {
+            "type": "time",
+            "actor_id": "player",
+            "status": "completed",
+            "minutes_elapsed": 3,
+            "id": "ri_e0_0",
+            "action_id": "ri_0",
+            "passage_id": "ri_p0",
+            "evidence": "You make your way toward Markt."
+          },
+          {
+            "type": "movement",
+            "actor_id": "player",
+            "from_location_id": "dock",
+            "to_location_id": "market",
+            "status": "completed",
+            "id": "ri_e0_1",
+            "action_id": "ri_0",
+            "passage_id": "ri_p0",
+            "evidence": "You make your way toward Markt."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "time_advance",
+            "payload": {
+              "minutes": 3
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          },
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "actor_move",
+            "payload": {
+              "actor_id": "player",
+              "to_location_id": "market"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              1
+            ]
+          }
+        ],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p0",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "Take the ferry to the market.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "Take the ferry to the market.",
+              "kind": "travel",
+              "destination_id": "market"
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 1,
+          "travelTargets": [
+            {
+              "sourceQuote": "Take the ferry to the market.",
+              "targetId": "market",
+              "stepIndex": 0
+            }
+          ],
+          "travelPreflight": [
+            {
+              "request": "Take the ferry to the market.",
+              "targetId": "market",
+              "fromId": "dock",
+              "route": [
+                "dock",
+                "market"
+              ],
+              "status": "route_found"
+            }
+          ]
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 6,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_6",
+        "commitStatus": "committed",
+        "start": {
+          "version": 5,
+          "location": "dock",
+          "cast": []
+        },
+        "end": {
+          "version": 6,
+          "location": "market",
+          "cast": []
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You make your way toward Markt."
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "Take the ferry to the market.",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {
+                "time_advance": [
+                  {
+                    "minutes": 3
+                  }
+                ],
+                "actor_move": [
+                  {
+                    "actor_id": "player",
+                    "to_location_id": "market"
+                  }
+                ]
+              }
+            }
+          ],
+          "events": [
+            {
+              "type": "time",
+              "actor_id": "player",
+              "status": "completed",
+              "minutes_elapsed": 3,
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0"
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "dock",
+              "to_location_id": "market",
+              "status": "completed",
+              "id": "ri_e0_1",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0"
+            }
+          ],
+          "speech": [],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "You make your way toward Markt.",
+          "action_resolution": {
+            "kind": "travel",
+            "status": "resolved",
+            "outcome": "You make your way toward Markt."
+          },
+          "scene": {
+            "player_location_id": "market",
+            "player_location_changed": true,
+            "present_character_ids": []
+          },
+          "events": [
+            {
+              "type": "time",
+              "actor_id": "player",
+              "status": "completed",
+              "minutes_elapsed": 3,
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0",
+              "evidence": "You make your way toward Markt."
+            },
+            {
+              "type": "movement",
+              "actor_id": "player",
+              "from_location_id": "dock",
+              "to_location_id": "market",
+              "status": "completed",
+              "id": "ri_e0_1",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0",
+              "evidence": "You make your way toward Markt."
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "time_advance",
+              "payload": {
+                "minutes": 3
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            },
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "actor_move",
+              "payload": {
+                "actor_id": "player",
+                "to_location_id": "market"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                1
+              ]
+            }
+          ],
+          "check_results": [],
+          "speech_attributions": [],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p0",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 6,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 2,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 6,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "location:dock",
+            "history",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:worldClock",
+            "session:playerStats",
+            "session:resourceCostLedger",
+            "event",
+            "entity:player",
+            "session:playerLocation",
+            "location:market"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_6",
+            "diagnosticId": "wsess_1794239486888_6_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [
+              {
+                "type": "time_advance",
+                "action_id": "ri_0",
+                "result": "changed",
+                "payload": "{\"minutes\":3}"
+              },
+              {
+                "type": "actor_move",
+                "action_id": "ri_0",
+                "result": "changed",
+                "payload": "{\"actor_id\":\"player\",\"to_location_id\":\"market\"}"
+              }
+            ],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1514,
+                "usage": {
+                  "input": 541,
+                  "output": 81,
+                  "total": 622
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1409,
+                "usage": {
+                  "input": 409,
+                  "output": 87,
+                  "total": 496
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1514,
+            "usage": {
+              "input": 541,
+              "output": 81,
+              "total": 622
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1409,
+            "usage": {
+              "input": 409,
+              "output": 87,
+              "total": 496
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2618,
+          "mainPromptCharacters": 55547,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 0,
+          "firstContentMs": 0,
+          "localValidationMs": 0,
+          "generationMs": 2923,
+          "outputCharacters": 1415,
+          "estimatedInputTokens": 17359,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2618,
+            "locationDescription": 42,
+            "npcPerspectives": 0,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 1739,
+            "schema": 23340,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2618,
+                "estimatedTokens": 819
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 1739,
+                "estimatedTokens": 544
+              },
+              "schema": {
+                "characters": 23340,
+                "estimatedTokens": 7294
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11429
+          }
+        },
+        "durationMs": 3015,
+        "at": "2026-11-09T15:51:45.245Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"Take the ferry to the market.\",\n      \"kind\": \"travel\",\n      \"destination_id\": \"market\",\n      \"depends_on\": [\n        {\n          \"step_index\": 0,\n          \"outcome\": \"succeeded\"\n        }\n      ]\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "name": "appearance_and_activity",
+      "location": "market",
+      "outfit": "red cloak",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "I could not reliably interpret that action just now. Please rephrase it.",
+      "status": [
+        "succeeded",
+        "succeeded"
+      ],
+      "outcomes": [
+        {
+          "status": "succeeded",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "I put on the red cloak",
+                "kind": "appearance",
+                "outfit": "red cloak"
+              },
+              {
+                "source_quote": ", then sit by the fire.",
+                "kind": "activity",
+                "activity": "sit by the fire"
+              }
+            ]
+          },
+          "reason": null,
+          "effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "outfit_set",
+              "payload": {
+                "actor_id": "player",
+                "outfit": "red cloak"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            }
+          ]
+        },
+        {
+          "status": "succeeded",
+          "actionId": "ri_1",
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You slip on the red cloak, feeling its soft material envelop you as you adjust it to fit perfectly. The vibrant red contrasts against the bustling market, drawing a few curious glances. You then move to sit by the crackling fire in the center of the market square, its warmth a welcome relief from the chill of the morning air. As you settle down, the firelight casts flickering shadows around you, creating a cozy atmosphere amidst the lively market scene.",
+      "inventory": [],
+      "coins": 2,
+      "fareLedger": [
+        "[\"resolved_intent_fixture\",\"wsess_1794239486888\",6,\"ri_0\",\"player\",\"dock\",\"market\",\"coins\",3]"
+      ],
+      "receipt": {
+        "summary": "You change into red cloak.\n\nYou settle into: sit by the fire.",
+        "action_resolution": {
+          "kind": "physical",
+          "status": "resolved",
+          "outcome": "You change into red cloak."
+        },
+        "scene": {
+          "player_location_id": "market",
+          "player_location_changed": false,
+          "present_character_ids": []
+        },
+        "events": [
+          {
+            "type": "outfit",
+            "actor_id": "player",
+            "status": "completed",
+            "outfit": "red cloak",
+            "id": "ri_e0_0",
+            "action_id": "ri_0",
+            "passage_id": "ri_p0",
+            "evidence": "You change into red cloak."
+          },
+          {
+            "type": "activity",
+            "actor_id": "player",
+            "status": "completed",
+            "activity": "sit by the fire",
+            "id": "ri_e1_1",
+            "action_id": "ri_1",
+            "passage_id": "ri_p1",
+            "evidence": "You settle into: sit by the fire."
+          }
+        ],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "succeeded"
+          },
+          {
+            "action_id": "ri_1",
+            "outcome": "succeeded"
+          }
+        ],
+        "confirmed_effects": [
+          {
+            "action_id": "ri_0",
+            "source": "player",
+            "type": "outfit_set",
+            "payload": {
+              "actor_id": "player",
+              "outfit": "red cloak"
+            },
+            "origin": "proposal",
+            "result": "changed",
+            "event_indices": [
+              0
+            ]
+          }
+        ],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": [
+          {
+            "passage_id": "ri_p0",
+            "speaker_id": null
+          },
+          {
+            "passage_id": "ri_p1",
+            "speaker_id": null
+          }
+        ]
+      },
+      "debug": {
+        "input": "I put on the red cloak, then sit by the fire.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "I put on the red cloak",
+              "kind": "appearance",
+              "outfit": "red cloak"
+            },
+            {
+              "source_quote": ", then sit by the fire.",
+              "kind": "activity",
+              "activity": "sit by the fire"
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 2,
+          "travelTargets": []
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 7,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_7",
+        "commitStatus": "committed",
+        "start": {
+          "version": 6,
+          "location": "market",
+          "cast": []
+        },
+        "end": {
+          "version": 7,
+          "location": "market",
+          "cast": []
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You change into red cloak."
+            },
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You settle into: sit by the fire."
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "I put on the red cloak",
+              "kind": "physical",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {
+                "outfit_set": [
+                  {
+                    "actor_id": "player",
+                    "outfit": "red cloak"
+                  }
+                ]
+              }
+            },
+            {
+              "action_id": "ri_1",
+              "request": ", then sit by the fire.",
+              "kind": "physical",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {}
+            }
+          ],
+          "events": [
+            {
+              "type": "outfit",
+              "actor_id": "player",
+              "status": "completed",
+              "outfit": "red cloak",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0"
+            },
+            {
+              "type": "activity",
+              "actor_id": "player",
+              "status": "completed",
+              "activity": "sit by the fire",
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "speech": [],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "You change into red cloak.\n\nYou settle into: sit by the fire.",
+          "action_resolution": {
+            "kind": "physical",
+            "status": "resolved",
+            "outcome": "You change into red cloak."
+          },
+          "scene": {
+            "player_location_id": "market",
+            "player_location_changed": false,
+            "present_character_ids": []
+          },
+          "events": [
+            {
+              "type": "outfit",
+              "actor_id": "player",
+              "status": "completed",
+              "outfit": "red cloak",
+              "id": "ri_e0_0",
+              "action_id": "ri_0",
+              "passage_id": "ri_p0",
+              "evidence": "You change into red cloak."
+            },
+            {
+              "type": "activity",
+              "actor_id": "player",
+              "status": "completed",
+              "activity": "sit by the fire",
+              "id": "ri_e1_1",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1",
+              "evidence": "You settle into: sit by the fire."
+            }
+          ],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "confirmed_effects": [
+            {
+              "action_id": "ri_0",
+              "source": "player",
+              "type": "outfit_set",
+              "payload": {
+                "actor_id": "player",
+                "outfit": "red cloak"
+              },
+              "origin": "proposal",
+              "result": "changed",
+              "event_indices": [
+                0
+              ]
+            }
+          ],
+          "check_results": [],
+          "speech_attributions": [],
+          "passage_speakers": [
+            {
+              "passage_id": "ri_p0",
+              "speaker_id": null
+            },
+            {
+              "passage_id": "ri_p1",
+              "speaker_id": null
+            }
+          ]
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 7,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "succeeded"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "succeeded"
+            }
+          ],
+          "accepted": 2,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 7,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "location:market",
+            "history",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:worldClock",
+            "event",
+            "session:outfit"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_7",
+            "diagnosticId": "wsess_1794239486888_7_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [
+              {
+                "type": "outfit_set",
+                "action_id": "ri_0",
+                "result": "changed",
+                "payload": "{\"actor_id\":\"player\",\"outfit\":\"red cloak\"}"
+              }
+            ],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1472,
+                "usage": {
+                  "input": 492,
+                  "output": 86,
+                  "total": 578
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1487,
+                "usage": {
+                  "input": 411,
+                  "output": 94,
+                  "total": 505
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1472,
+            "usage": {
+              "input": 492,
+              "output": 86,
+              "total": 578
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1487,
+            "usage": {
+              "input": 411,
+              "output": 94,
+              "total": 505
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2071,
+          "mainPromptCharacters": 56111,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 0,
+          "firstContentMs": 0,
+          "localValidationMs": 1,
+          "generationMs": 2959,
+          "outputCharacters": 1615,
+          "estimatedInputTokens": 17535,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2071,
+            "locationDescription": 42,
+            "npcPerspectives": 0,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 413,
+            "recentHistory": 1973,
+            "schema": 23429,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2071,
+                "estimatedTokens": 648
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 413,
+                "estimatedTokens": 130
+              },
+              "recentHistory": {
+                "characters": 1973,
+                "estimatedTokens": 617
+              },
+              "schema": {
+                "characters": 23429,
+                "estimatedTokens": 7322
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11489
+          }
+        },
+        "durationMs": 3043,
+        "at": "2026-11-09T15:51:48.297Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\n  \"protocol\": \"resolved_intent_v1\",\n  \"steps\": [\n    {\n      \"source_quote\": \"I put on the red cloak\",\n      \"kind\": \"appearance\",\n      \"outfit\": \"red cloak\"\n    },\n    {\n      \"source_quote\": \"then sit by the fire\",\n      \"kind\": \"activity\",\n      \"activity\": \"sit by the fire\"\n    }\n  ]\n}"
+      ]
+    },
+    {
+      "name": "conditional_block_skips_dependent_action",
+      "location": "foyer",
+      "versionDelta": 1,
+      "historyDelta": 2,
+      "inputValue": "",
+      "error": "I could not reliably interpret that action just now. Please rephrase it.",
+      "status": [
+        "blocked",
+        "skipped"
+      ],
+      "outcomes": [
+        {
+          "status": "blocked",
+          "actionId": "ri_0",
+          "intent": {
+            "protocol": "resolved_intent_v1",
+            "steps": [
+              {
+                "source_quote": "Try to enter the sealed east gallery",
+                "kind": "travel",
+                "destination_id": "east_gallery"
+              },
+              {
+                "source_quote": "; if that succeeds, take the brass key.",
+                "kind": "transfer",
+                "operation": "take",
+                "item_id": "brass_key",
+                "depends_on": [
+                  {
+                    "step_index": 0,
+                    "outcome": "succeeded"
+                  }
+                ]
+              }
+            ]
+          },
+          "reason": "unreachable_or_denied",
+          "effects": []
+        },
+        {
+          "status": "skipped",
+          "actionId": "ri_1",
+          "reason": null,
+          "effects": []
+        }
+      ],
+      "text": "You approach the sealed entrance to the east gallery, but the door remains firmly shut despite your efforts. It seems there is no way for you to enter at this moment.",
+      "inventory": [],
+      "coins": 5,
+      "fareLedger": [],
+      "receipt": {
+        "summary": "The way to Ostgalerie is not accessible right now.",
+        "action_resolution": {
+          "kind": "travel",
+          "status": "resolved",
+          "outcome": "You make your way toward Ostgalerie."
+        },
+        "scene": {
+          "player_location_id": "foyer",
+          "player_location_changed": false,
+          "present_character_ids": []
+        },
+        "events": [],
+        "entity_updates": [],
+        "state_updates": {},
+        "action_results": [
+          {
+            "action_id": "ri_0",
+            "outcome": "blocked"
+          },
+          {
+            "action_id": "ri_1",
+            "outcome": "skipped"
+          }
+        ],
+        "confirmed_effects": [],
+        "check_results": [],
+        "speech_attributions": [],
+        "passage_speakers": []
+      },
+      "debug": {
+        "input": "Try to enter the sealed east gallery; if that succeeds, take the brass key.",
+        "provider": "local",
+        "processingPath": "deterministic",
+        "intent": {
+          "protocol": "resolved_intent_v1",
+          "steps": [
+            {
+              "source_quote": "Try to enter the sealed east gallery",
+              "kind": "travel",
+              "destination_id": "east_gallery"
+            },
+            {
+              "source_quote": "; if that succeeds, take the brass key.",
+              "kind": "transfer",
+              "operation": "take",
+              "item_id": "brass_key",
+              "depends_on": [
+                {
+                  "step_index": 0,
+                  "outcome": "succeeded"
+                }
+              ]
+            }
+          ]
+        },
+        "canonicalTarget": null,
+        "preflightResult": "deterministic",
+        "ruleReason": "resolved_intent_compiled_and_checked_by_linked_executor",
+        "intentValidation": {
+          "accepted": true,
+          "stepCount": 2,
+          "travelTargets": [
+            {
+              "sourceQuote": "Try to enter the sealed east gallery",
+              "targetId": "east_gallery",
+              "stepIndex": 0
+            }
+          ],
+          "travelPreflight": [
+            {
+              "request": "Try to enter the sealed east gallery",
+              "targetId": "east_gallery",
+              "fromId": "foyer",
+              "status": "blocked"
+            }
+          ]
+        },
+        "executionStatus": "succeeded",
+        "worldVersion": 4,
+        "model": "fixture/model",
+        "turnId": "wsess_1794239486888_4",
+        "commitStatus": "committed",
+        "start": {
+          "version": 3,
+          "location": "foyer",
+          "cast": []
+        },
+        "end": {
+          "version": 4,
+          "location": "foyer",
+          "cast": []
+        },
+        "proposal": {
+          "protocol": "scene_draft_v3",
+          "narrative": [
+            {
+              "id": "ri_p0",
+              "action_id": "ri_0",
+              "text": "You make your way toward Ostgalerie."
+            },
+            {
+              "id": "ri_p1",
+              "action_id": "ri_1",
+              "text": "You try to take Brass key."
+            }
+          ],
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "request": "Try to enter the sealed east gallery",
+              "kind": "travel",
+              "status": "resolved",
+              "response_id": "ri_p0",
+              "action_effects": {}
+            },
+            {
+              "action_id": "ri_1",
+              "request": "; if that succeeds, take the brass key.",
+              "kind": "physical",
+              "status": "resolved",
+              "response_id": "ri_p1",
+              "action_effects": {
+                "item_transfer": [
+                  {
+                    "item_id": "brass_key",
+                    "from_id": "foyer",
+                    "to_id": "player",
+                    "quantity": 1
+                  }
+                ]
+              },
+              "depends_on": [
+                {
+                  "action_id": "ri_0",
+                  "outcome": "succeeded"
+                }
+              ]
+            }
+          ],
+          "events": [
+            {
+              "type": "inventory",
+              "actor_id": "player",
+              "status": "completed",
+              "action": "take",
+              "item": "Brass key",
+              "id": "ri_e1_0",
+              "action_id": "ri_1",
+              "passage_id": "ri_p1"
+            }
+          ],
+          "speech": [],
+          "effects": {},
+          "commitments": []
+        },
+        "receipt": {
+          "summary": "The way to Ostgalerie is not accessible right now.",
+          "action_resolution": {
+            "kind": "travel",
+            "status": "resolved",
+            "outcome": "You make your way toward Ostgalerie."
+          },
+          "scene": {
+            "player_location_id": "foyer",
+            "player_location_changed": false,
+            "present_character_ids": []
+          },
+          "events": [],
+          "entity_updates": [],
+          "state_updates": {},
+          "action_results": [
+            {
+              "action_id": "ri_0",
+              "outcome": "blocked"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "skipped"
+            }
+          ],
+          "confirmed_effects": [],
+          "check_results": [],
+          "speech_attributions": [],
+          "passage_speakers": []
+        },
+        "failures": [],
+        "repairs": [],
+        "binding": null,
+        "validation": {
+          "turn": 4,
+          "protocol": "scene_draft_v3",
+          "actions": [
+            {
+              "action_id": "ri_0",
+              "outcome": "blocked"
+            },
+            {
+              "action_id": "ri_1",
+              "outcome": "skipped"
+            }
+          ],
+          "accepted": 0,
+          "informational": 0,
+          "rejected": [],
+          "world_state_version": 4,
+          "cast_checksum_match": true,
+          "dirtyKeys": [
+            "entity:mara",
+            "history",
+            "session:_worldEpoch",
+            "session:worldModelAttempts",
+            "session:worldModelTotals",
+            "session:playstyle",
+            "session:lastLivingWorldTick",
+            "time",
+            "session:lastNpcSimulationMinute",
+            "session:livingWorldActivity",
+            "session:worldClock"
+          ],
+          "compilerRepairs": [],
+          "repairCount": 0,
+          "turnResolution": {
+            "status": "clean",
+            "turnId": "wsess_1794239486888_4",
+            "diagnosticId": "wsess_1794239486888_4_diag",
+            "model": "fixture/model",
+            "originalFailure": null,
+            "failures": [],
+            "repairResults": [],
+            "discarded": null,
+            "confirmedEffects": [],
+            "calls": [
+              {
+                "kind": "resolvedIntent",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 1342,
+                "usage": {
+                  "input": 562,
+                  "output": 75,
+                  "total": 637
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              },
+              {
+                "kind": "resolvedIntentNarration",
+                "provider": "local",
+                "outcome": "ok",
+                "model": "fixture/model",
+                "status": 200,
+                "durationMs": 624,
+                "usage": {
+                  "input": 295,
+                  "output": 35,
+                  "total": 330
+                },
+                "providerTiming": {
+                  "promptTokens": null,
+                  "outputTokens": null,
+                  "loadMs": null,
+                  "promptEvalMs": null,
+                  "outputEvalMs": null
+                }
+              }
+            ]
+          }
+        },
+        "calls": [
+          {
+            "kind": "resolvedIntent",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 1342,
+            "usage": {
+              "input": 562,
+              "output": 75,
+              "total": 637
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          },
+          {
+            "kind": "resolvedIntentNarration",
+            "provider": "local",
+            "outcome": "ok",
+            "model": "fixture/model",
+            "status": 200,
+            "durationMs": 624,
+            "usage": {
+              "input": 295,
+              "output": 35,
+              "total": 330
+            },
+            "providerTiming": {
+              "promptTokens": null,
+              "outputTokens": null,
+              "loadMs": null,
+              "promptEvalMs": null,
+              "outputEvalMs": null
+            }
+          }
+        ],
+        "metrics": {
+          "loreCharacters": 2674,
+          "mainPromptCharacters": 54685,
+          "repairPromptCharacters": 0,
+          "firstTokenMs": 1,
+          "firstContentMs": 1,
+          "localValidationMs": 0,
+          "generationMs": 1966,
+          "outputCharacters": 1328,
+          "estimatedInputTokens": 17090,
+          "tokenEstimateMethod": "characters / 3.2",
+          "earlyAbortReason": null,
+          "contextSources": {
+            "lore": 2674,
+            "locationDescription": 42,
+            "npcPerspectives": 0,
+            "ledgerAndArchive": 0,
+            "memoryMatrix": 0,
+            "sourceLinkedRecall": 0,
+            "recentHistory": 1046,
+            "schema": 23429,
+            "sceneGuidance": 8824
+          },
+          "contextBudget": {
+            "basis": "estimated_from_characters",
+            "tokenDivisor": 3.2,
+            "parts": {
+              "lore": {
+                "characters": 2674,
+                "estimatedTokens": 836
+              },
+              "locationDescription": {
+                "characters": 42,
+                "estimatedTokens": 14
+              },
+              "npcPerspectives": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "ledgerAndArchive": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "memoryMatrix": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "sourceLinkedRecall": {
+                "characters": 0,
+                "estimatedTokens": 0
+              },
+              "recentHistory": {
+                "characters": 1046,
+                "estimatedTokens": 327
+              },
+              "schema": {
+                "characters": 23429,
+                "estimatedTokens": 7322
+              },
+              "sceneGuidance": {
+                "characters": 8824,
+                "estimatedTokens": 2758
+              }
+            },
+            "estimatedTokens": 11257
+          }
+        },
+        "durationMs": 2020,
+        "at": "2026-11-09T15:51:38.823Z"
+      },
+      "callKinds": [
+        "resolved_intent_v1",
+        "narration"
+      ],
+      "intentResponses": [
+        "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Try to enter the sealed east gallery\",\"kind\":\"travel\",\"destination_id\":\"east_gallery\",\"depends_on\": [{\"step_index\": 2, \"outcome\": \"succeeded\"}]},{\"source_quote\":\"take the brass key\",\"kind\":\"transfer\",\"operation\":\"take\",\"target_id\":\"brass_key\"}]}"
+      ]
+    }
+  ]
+}

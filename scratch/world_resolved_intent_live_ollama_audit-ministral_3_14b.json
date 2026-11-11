@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-11-09T12:28:10.166Z",
+  "models": [
+    "ministral-3:14b"
+  ],
+  "results": [
+    {
+      "model": "ministral-3:14b",
+      "case": "take, travel, speech",
+      "accepted": true,
+      "durationMs": 3062,
+      "steps": [
+        {
+          "quote": "Pick up the brass key",
+          "kind": "transfer",
+          "operation": "take",
+          "item_id": "brass_key"
+        },
+        {
+          "quote": "go through the iron gate",
+          "kind": "travel",
+          "destination_id": "archive"
+        },
+        {
+          "quote": "tell Mara, 'I made it.'",
+          "kind": "speech",
+          "utterance": "I made it."
+        }
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "case": "blocked travel then observation",
+      "accepted": true,
+      "durationMs": 1588,
+      "steps": [
+        {
+          "quote": "I try to enter the locked library",
+          "kind": "travel",
+          "destination_id": "library"
+        },
+        {
+          "quote": "read the notice beside the entrance",
+          "kind": "observation"
+        }
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "case": "already there then gesture and question",
+      "accepted": true,
+      "durationMs": 1802,
+      "steps": [
+        {
+          "quote": "Wave to Mara",
+          "kind": "gesture"
+        },
+        {
+          "quote": "ask whether she saw the courier",
+          "kind": "question",
+          "utterance": "whether she saw the courier"
+        }
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "case": "free multi-leg route",
+      "accepted": true,
+      "durationMs": 2164,
+      "steps": [
+        {
+          "quote": "Head through the conservatory",
+          "kind": "travel",
+          "destination_id": "conservatory"
+        },
+        {
+          "quote": "cross the gallery",
+          "kind": "travel",
+          "destination_id": "gallery"
+        },
+        {
+          "quote": "finish in the observatory",
+          "kind": "travel",
+          "destination_id": "observatory"
+        }
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "case": "fare route",
+      "accepted": true,
+      "durationMs": 938,
+      "steps": [
+        {
+          "quote": "Take the ferry to the market.",
+          "kind": "travel",
+          "destination_id": "market"
+        }
+      ]
+    },
+    {
+      "model": "ministral-3:14b",
+      "case": "partial block with independent follow-up",
+      "accepted": true,
+      "durationMs": 1933,
+      "steps": [
+        {
+          "quote": "I try to enter the sealed east door",
+          "kind": "interaction",
+          "operation": "use",
+          "target_id": "east_door"
+        },
+        {
+          "quote": "ask Mara, 'Have you seen the map?'",
+          "kind": "question",
+          "utterance": "Have you seen the map?"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "ministral-3:14b": {
+      "passed": 6,
+      "total": 6,
+      "avgMs": 1915
+    }
+  }
+}

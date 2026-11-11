@@ -1,0 +1,128 @@
+{
+  "generatedAt": "2026-11-09T13:52:10.413Z",
+  "models": [
+    "qwen2.5:14b"
+  ],
+  "results": [
+    {
+      "model": "qwen2.5:14b",
+      "case": "take, travel, speech",
+      "accepted": true,
+      "durationMs": 10488,
+      "steps": [
+        {
+          "quote": "Pick up the brass key",
+          "kind": "transfer",
+          "operation": "take",
+          "item_id": "brass_key"
+        },
+        {
+          "quote": "go through the iron gate",
+          "kind": "travel",
+          "destination_id": "archive"
+        },
+        {
+          "quote": "tell Mara, 'I made it.'",
+          "kind": "speech",
+          "utterance": "I made it."
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b",
+      "case": "blocked travel then observation",
+      "accepted": true,
+      "durationMs": 1020,
+      "steps": [
+        {
+          "quote": "enter the locked library",
+          "kind": "travel",
+          "destination_id": "library"
+        },
+        {
+          "quote": "read the notice beside the entrance",
+          "kind": "observation",
+          "target_id": "notice"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b",
+      "case": "already there then gesture and question",
+      "accepted": true,
+      "durationMs": 1847,
+      "steps": [
+        {
+          "quote": "Wave to Mara",
+          "kind": "gesture"
+        },
+        {
+          "quote": "ask whether she saw the courier",
+          "kind": "question",
+          "utterance": "whether she saw the courier"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b",
+      "case": "free multi-leg route",
+      "accepted": true,
+      "durationMs": 1271,
+      "steps": [
+        {
+          "quote": "Head through the conservatory",
+          "kind": "travel",
+          "destination_id": "conservatory"
+        },
+        {
+          "quote": "cross the gallery",
+          "kind": "travel",
+          "destination_id": "gallery"
+        },
+        {
+          "quote": "finish in the observatory",
+          "kind": "travel",
+          "destination_id": "observatory"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b",
+      "case": "fare route",
+      "accepted": true,
+      "durationMs": 2255,
+      "steps": [
+        {
+          "quote": "Take the ferry to the market.",
+          "kind": "travel",
+          "destination_id": "market"
+        }
+      ]
+    },
+    {
+      "model": "qwen2.5:14b",
+      "case": "partial block with independent follow-up",
+      "accepted": true,
+      "durationMs": 1443,
+      "steps": [
+        {
+          "quote": "enter the sealed east door",
+          "kind": "travel",
+          "destination_id": "east_gallery"
+        },
+        {
+          "quote": "ask Mara, 'Have you seen the map?",
+          "kind": "question",
+          "utterance": "Have you seen the map?"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "qwen2.5:14b": {
+      "passed": 6,
+      "total": 6,
+      "avgMs": 3054
+    }
+  }
+}

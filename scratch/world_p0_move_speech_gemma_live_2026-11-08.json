@@ -1,0 +1,71 @@
+[
+  {
+    "id": "MOVE_SPEECH",
+    "model": "gemma4:31b-it-q4_K_M",
+    "input": "I move to the Round Room and say \"Ready.\"",
+    "background": null,
+    "turns": [
+      {
+        "index": 1,
+        "input": "I move to the Round Room and say \"Ready.\"",
+        "durationMs": 300062,
+        "error": "World turn reached its five-minute limit. No World changes were saved. Your action is still in the input box.",
+        "audit": null,
+        "turnEvents": [],
+        "inventory": [],
+        "playerLocation": "foyer",
+        "npcObservations": {
+          "linda": []
+        }
+      }
+    ],
+    "turnDurationMs": 300064,
+    "lifecycle": null,
+    "error": "World turn reached its five-minute limit. No World changes were saved. Your action is still in the input box.",
+    "audit": null,
+    "live": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "itemIds": [
+        "key"
+      ],
+      "historyLength": 0
+    },
+    "saved": {
+      "inventory": [],
+      "playerLocation": "foyer",
+      "playerStats": {},
+      "entityStates": {
+        "linda": {
+          "location": "foyer",
+          "observations": []
+        },
+        "key": {
+          "location": "foyer"
+        }
+      },
+      "historyLength": 0,
+      "turnEvents": [],
+      "worldTurnReceipts": []
+    },
+    "calls": [
+      {
+        "durationMs": 300034,
+        "error": "TimeoutError: The operation was aborted due to timeout"
+      }
+    ],
+    "bindingResponses": [],
+    "pageErrors": [],
+    "pass": false
+  }
+]

@@ -1,0 +1,107 @@
+[
+  {
+    "input": "Ich schaue mich um.",
+    "ms": 2003,
+    "status": 200,
+    "data": {
+      "id": "chatcmpl-712",
+      "object": "chat.completion",
+      "created": 1794352200,
+      "model": "gemma4:31b-it-q4_K_M",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Ich schaue mich um.\",\"kind\":\"observation\"}]}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 446,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 31,
+        "total_tokens": 477
+      }
+    },
+    "validation": {
+      "ok": true,
+      "errors": [],
+      "intent": {
+        "protocol": "resolved_intent_v1",
+        "steps": [
+          {
+            "source_quote": "Ich schaue mich um.",
+            "kind": "observation"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "input": "Ich gehe in die Küche zu Jonas, begrüße ihn und frage, was er heute vorhat. Währenddessen schaue ich mich in der Küche um.",
+    "ms": 2729,
+    "status": 200,
+    "data": {
+      "id": "chatcmpl-893",
+      "object": "chat.completion",
+      "created": 1794352202,
+      "model": "gemma4:31b-it-q4_K_M",
+      "system_fingerprint": "fp_ollama",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "{\"protocol\":\"resolved_intent_v1\",\"steps\":[{\"source_quote\":\"Ich gehe in die Küche\",\"kind\":\"travel\",\"destination_id\":\"kitchen\"},{\"source_quote\":\"zu Jonas,\",\"kind\":\"context\"},{\"source_quote\":\"begrüße ihn\",\"kind\":\"speech\",\"utterance\":\"begrüße ihn\"},{\"source_quote\":\"und frage, was er heute vorhat.\",\"kind\":\"question\",\"utterance\":\"was er heute vorhat\"},{\"source_quote\":\"Währenddessen schaue ich mich in der Küche um.\",\"kind\":\"observation\"}]}"
+          },
+          "finish_reason": "stop"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 473,
+        "prompt_tokens_details": {
+          "cached_tokens": 0
+        },
+        "completion_tokens": 118,
+        "total_tokens": 591
+      }
+    },
+    "validation": {
+      "ok": true,
+      "errors": [],
+      "intent": {
+        "protocol": "resolved_intent_v1",
+        "steps": [
+          {
+            "source_quote": "Ich gehe in die Küche",
+            "kind": "travel",
+            "destination_id": "kitchen"
+          },
+          {
+            "source_quote": "zu Jonas,",
+            "kind": "context"
+          },
+          {
+            "source_quote": "begrüße ihn",
+            "kind": "speech",
+            "utterance": "begrüße ihn"
+          },
+          {
+            "source_quote": "und frage, was er heute vorhat.",
+            "kind": "question",
+            "utterance": "was er heute vorhat"
+          },
+          {
+            "source_quote": "Währenddessen schaue ich mich in der Küche um.",
+            "kind": "observation"
+          }
+        ]
+      }
+    }
+  }
+]

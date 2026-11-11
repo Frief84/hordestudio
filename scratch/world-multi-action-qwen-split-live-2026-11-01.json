@@ -1,0 +1,197 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I kneel, then wave to Linda and say \"Hello.\"",
+  "generationMs": 7141,
+  "validationMs": 40,
+  "durationMs": 7181,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 151,
+    "prompt_tokens_details": {
+      "cached_tokens": 150
+    },
+    "completion_tokens": 352,
+    "total_tokens": 503
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I kneel",
+        "kind": "physical",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You kneel down in the kitchen.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "kneeling"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "wave to Linda",
+        "kind": "physical",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You wave to Linda.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "waving"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "request": "say \"Hello.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You say \"Hello.\"",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "player",
+                "status": "completed",
+                "label": "speaking",
+                "contradicted": false,
+                "witnessed_by": [
+                  "linda"
+                ]
+              }
+            ],
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "linda"
+                ],
+                "quote": "Hello."
+              }
+            ]
+          },
+          {
+            "text": "Linda waves back and smiles.",
+            "events": [
+              {
+                "type": "activity",
+                "actor_id": "linda",
+                "status": "completed",
+                "label": "waving"
+              },
+              {
+                "type": "activity",
+                "actor_id": "linda",
+                "status": "completed",
+                "label": "smiling"
+              }
+            ]
+          }
+        ],
+        "effects": []
+      }
+    ]
+  },
+  "repairCount": 7,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I kneel, then ",
+      "response_id": "turn_508cc7f9215f11acdb50f797_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "wave to Linda and ",
+      "response_id": "turn_508cc7f9215f11acdb50f797_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_2",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "say \"Hello.\"",
+      "response_id": "turn_508cc7f9215f11acdb50f797_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "kneeling",
+      "activity": "kneeling",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_0",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_0_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "waving",
+      "activity": "waving",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_1",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_1_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "player",
+      "status": "completed",
+      "label": "speaking",
+      "contradicted": false,
+      "witnessed_by": [
+        "linda"
+      ],
+      "activity": "speaking",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_2",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_2_p0"
+    },
+    {
+      "type": "activity",
+      "actor_id": "linda",
+      "status": "completed",
+      "label": "waving",
+      "activity": "waving",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_2",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_2_p1"
+    },
+    {
+      "type": "activity",
+      "actor_id": "linda",
+      "status": "completed",
+      "label": "smiling",
+      "activity": "smiling",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_2",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_2_p1"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Hello.",
+      "action_id": "turn_508cc7f9215f11acdb50f797_action_2",
+      "passage_id": "turn_508cc7f9215f11acdb50f797_action_2_p0"
+    }
+  ],
+  "complete": true
+}

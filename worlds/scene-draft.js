@@ -14,6 +14,8 @@ const hasReadableText = value => !!String(value || '').trim()
     && !/^[\s"'“”„‘’«»]+$/u.test(String(value));
 const registryApi = typeof module !== 'undefined' && module.exports
     ? require('./effect-registry') : root.HordeEffectRegistry;
+const intentApi = typeof module !== 'undefined' && module.exports
+    ? require('./resolved-intent') : root.HordeResolvedIntent;
 const text = (description, maxLength = 2000) => ({ type: 'string', description, maxLength });
 const list = items => ({ type: 'array', items, maxItems: 32 });
 const shape = (properties, required = Object.keys(properties)) =>
@@ -97,7 +99,7 @@ function validateDeclaredShape(value, spec, path, fail) {
 // instead of requiring an exact character-for-character echo. Direction,
 // negation, actors and verbs remain mandatory.
 function requestWords(value, stripLeadingSubject = false) {
-    const optional = new Set(['a', 'an', 'the', 'and', 'then', 'ein', 'eine', 'einen',
+    const optional = new Set(['a', 'an', 'the', 'and', 'then', 'to', 'try', 'attempt', 'ein', 'eine', 'einen',
         'der', 'die', 'das', 'den', 'dem', 'und', 'dann']);
     const subjects = new Set(['i', 'you', 'we', 'ich', 'du', 'wir']);
     const words = [...String(value || '').matchAll(/[\p{L}\p{N}]+/gu)]
@@ -191,7 +193,7 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
         protocol: { type: 'string', enum: ['scene_draft_v2'] },
         narrative: { type: 'array', minItems: 1, maxItems: 16,
             description: 'The player-facing continuation in ordered passages. Begin immediately with a consequence, NPC response, or new event; never recap or re-voice the player input. Write each passage once and reference its ID below. For a pending check stop before its outcome.',
-            items: shape({ id: text('Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.', 80), text: text('One paragraph of new player-facing narrative or attributed NPC dialogue, never a player-action preamble.', 4000) }) },
+            items: shape({ id: text('Unique passage ID, e.g. p1. Copy this exact string into every response_id or passage_id reference.', 80), text: text('One paragraph of new player-facing narrative or attributed NPC dialogue, never a player-action preamble.', 5200) }) },
         actions: list(shape({
             request: text('Exact contiguous excerpt of the player input. In order, requests must cover the complete input; split compound actions where useful.', 16000),
             kind: { type: 'string', enum: kinds },
@@ -203,8 +205,9 @@ function schema(legacy, protocol = 'scene_draft_v2', options = {}) {
             description: 'Only changed fields listed in this effects schema are supported. Use {} for no lasting change. Put actor movement, inventory and outfit changes in events, not in invented effect keys.' },
         speech: list(shape({
             speaker: text('Exact present NPC ID or player', 120),
-            listeners: list(text('Exact present listener ID or player', 120)),
-            quote: text('Exact spoken words contained in the linked passage; omit only when the entire passage is speech.', 1200),
+            listeners: { ...list(text('Exact present listener ID or player', 120)),
+                description: 'IDs of actual present listeners. Use [] when nobody hears the speech; do not invent an audience.' },
+            quote: text('Exact spoken words contained in the linked passage; omit only when the entire passage is speech.', 5000),
             passage_id: passage
         }, ['speaker', 'listeners', 'passage_id'])),
         commitments: { ...list(shape({
@@ -1049,7 +1052,7 @@ function compile(draft, context) {
     draft.speech.forEach((speech, index) => {
         const listeners = speech?.listeners;
         if (!object(speech) || !present.has(speech.speaker) || !Array.isArray(listeners)
-            || !listeners.length || listeners.length > 32 || listeners.some(id => !present.has(id))
+            || listeners.length > 32 || listeners.some(id => !present.has(id))
             || typeof speech.statement !== 'string' || !speech.statement.trim()
             || !narrative.includes(speech.statement)) {
             fail(`speech.${index}`, 'invalid_witnessed_speech'); return;
@@ -1148,7 +1151,14 @@ function compile(draft, context) {
     if (errors.length) return { ok: false, errors };
     // Derived observations are persistent events too. Keep them in the linked
     // plan so the executor and saved receipt see the same event stream.
-    if (linkedPlan) linkedPlan.events.push(...copy(events.slice(derivedEventStart)));
+    if (linkedPlan) {
+        linkedPlan.events.push(...copy(events.slice(derivedEventStart)));
+        // Preserve a small, state-free interpretation alongside the validated
+        // linked plan. This is diagnostic/transport metadata only; reducers
+        // still consume the original typed effects and canonical references.
+        const intent = intentApi?.fromLinkedActions(linkedPlan.actions, context.input);
+        if (intent?.ok) linkedPlan.resolvedIntent = intent.intent;
+    }
     const first = actions[0];
     return { ok: true, narrative, actions: copy(actions), speech: copy(draft.speech), commitments, resolutions,
         linkedPlan, repairs: linkedPlan?.repairs || [], repairCount: linkedPlan?.repairs?.length || 0,
@@ -1266,7 +1276,7 @@ function streamValidator(contract) {
 }
 
 root.HordeWorldSceneDraft = { schema, compile, isDraft, decode, transportFailureReason,
-    completionFailureReason, hasReadableText,
+    completionFailureReason, hasReadableText, playerRequestCoverage,
     alignInstructions, streamValidator, simpleRequest, localInteraction };
 if (typeof module !== 'undefined') module.exports = root.HordeWorldSceneDraft;
 })(globalThis);

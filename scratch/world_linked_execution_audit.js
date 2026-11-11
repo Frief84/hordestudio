@@ -58,6 +58,66 @@ const blocked = executeLinkedActions(blockedPlan, world, session, { canMove });
 assert(blocked.ok, JSON.stringify(blocked.errors));
 assert.deepEqual(Object.fromEntries(blocked.outcomes), { move: 'blocked', next: 'skipped' });
 assert(!blocked.narrative.includes('change clothes'));
+const mistakenSuccess = structuredClone(blockedPlan);
+mistakenSuccess.actions[0].status = 'resolved';
+mistakenSuccess.narrative[0].text = 'You pass through the locked gate.';
+const correctedBlockage = executeLinkedActions(mistakenSuccess, world, session, { canMove });
+assert(correctedBlockage.ok, JSON.stringify(correctedBlockage.errors));
+assert.equal(correctedBlockage.outcomes.get('move'), 'blocked');
+assert.match(correctedBlockage.narrative, /not possible under the current conditions/);
+assert(!correctedBlockage.narrative.includes('pass through'));
+assert.equal(correctedBlockage.working.getSession('playerLocation'), 'foyer');
+const compoundAfterBlocked = executeLinkedActions({ actions: [
+    { action_id: 'blocked_move', kind: 'travel', status: 'blocked',
+        request: 'I go to the Archive.', action_effects: {} },
+    { action_id: 'speak', kind: 'speech', status: 'resolved',
+        request: 'I say "Wait here."', action_effects: {} },
+    { action_id: 'adjust', kind: 'physical', status: 'resolved',
+        request: 'I adjust my coat.', action_effects: {
+            outfit_set: [{ actor_id: 'player', outfit: 'blue coat' }] } }
+], events: [], narrative: [
+    { action_id: 'blocked_move', text: 'You enter the Archive.' },
+    { action_id: 'speak', text: 'You say "Wait here."' },
+    { action_id: 'adjust', text: 'You adjust your coat.' }
+] }, world, session, {
+    preflightTravel: (_candidate, step) => step.action_id === 'blocked_move'
+        ? { status: 'blocked', targetName: 'Archive', reason: 'locked_exit' } : null,
+    outcomeFallback: status => status === 'blocked'
+        ? 'Le passage vers Archive est fermé.' : 'Le résultat reste incertain.'
+});
+assert(compoundAfterBlocked.ok, JSON.stringify(compoundAfterBlocked.errors));
+assert.deepEqual(Object.fromEntries(compoundAfterBlocked.outcomes), {
+    blocked_move: 'blocked', speak: 'succeeded', adjust: 'succeeded' });
+assert.equal(compoundAfterBlocked.working.getSession('playerLocation'), 'foyer');
+assert.equal(compoundAfterBlocked.working.getSession('outfit'), 'blue coat');
+assert(compoundAfterBlocked.narrative.startsWith('Le passage vers Archive est fermé.'));
+assert(!compoundAfterBlocked.narrative.includes('You enter the Archive.'));
+const redundantBeforeSpeech = executeLinkedActions({ actions: [
+    { action_id: 'redundant', kind: 'travel', status: 'resolved',
+        request: 'I return to the Foyer.', action_effects: {} },
+    { action_id: 'speak', kind: 'speech', status: 'resolved',
+        request: 'I say "Hello."', action_effects: {} }
+], events: [], narrative: [
+    { action_id: 'redundant', text: 'You walk into the Foyer.' },
+    { action_id: 'speak', text: 'You say "Hello."' }
+] }, world, session, {
+    preflightTravel: () => ({ status: 'already_satisfied', targetName: 'Foyer' }),
+    outcomeFallback: () => 'Vous êtes déjà dans le Foyer.'
+});
+assert(redundantBeforeSpeech.ok, JSON.stringify(redundantBeforeSpeech.errors));
+assert.deepEqual(Object.fromEntries(redundantBeforeSpeech.outcomes), {
+    redundant: 'already_satisfied', speak: 'succeeded' });
+assert(redundantBeforeSpeech.narrative.startsWith('Vous êtes déjà dans le Foyer.'));
+assert.equal(redundantBeforeSpeech.working.getSession('playerLocation'), 'foyer');
+const unprovedPhysical = executeLinkedActions({ actions: [{ action_id: 'touch',
+    kind: 'physical', status: 'resolved', request: 'I touch the handle.',
+    response_id: 'touch_p', action_effects: {} }],
+events: [], narrative: [{ id: 'touch_p', action_id: 'touch',
+    text: 'The handle moves.' }] }, world, session, { allowPartialRecovery: true });
+assert(unprovedPhysical.ok, JSON.stringify(unprovedPhysical.errors));
+assert.equal(unprovedPhysical.outcomes.get('touch'), 'unresolved');
+assert.match(unprovedPhysical.narrative, /not confirmed/);
+assert(!unprovedPhysical.narrative.includes('handle moves'));
 const onFailure = structuredClone(blockedPlan);
 onFailure.actions[1].depends_on[0].outcome = 'blocked';
 onFailure.actions[1].status = 'resolved';

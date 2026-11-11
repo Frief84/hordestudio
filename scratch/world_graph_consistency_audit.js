@@ -102,6 +102,7 @@ test('deleting a location removes dangling name exits and invalid future session
     const state = { worldInstances: { w: { sessions: [] } } };
     const context = buildContext(vm, ['removeWorldLocationRecord'], {
         state,
+        showToast: () => {},
         isPlainObject: value => value && typeof value === 'object' && !Array.isArray(value)
     });
     const session = {

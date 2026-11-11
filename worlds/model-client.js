@@ -31,6 +31,62 @@ function abortReason(signal) {
     return error;
 }
 
+function failureOutcome(error, signal) {
+    const reason = signal?.aborted ? signal.reason : error;
+    if (reason?.name === 'TimeoutError' || reason?.code === 'WORLD_MODEL_TIMEOUT') return 'timeout';
+    if (signal?.aborted || reason?.name === 'AbortError') return 'aborted';
+    if (reason?.cause?.code === 'ECONNREFUSED' || reason?.code === 'ECONNREFUSED') return 'server_unreachable';
+    return 'network_error';
+}
+
+function responseError(response, data) {
+    const detail = String(data?.error?.message || data?.error || response.statusText || 'Provider request failed');
+    const error = new Error(`Model server HTTP ${response.status}: ${detail}`);
+    error.status = response.status;
+    error.code = /model.*(?:not found|not loaded|does not exist)/i.test(detail)
+        ? 'WORLD_MODEL_UNAVAILABLE' : response.status === 504
+            ? 'WORLD_MODEL_TIMEOUT' : 'WORLD_MODEL_PROVIDER_ERROR';
+    return error;
+}
+
+// Ollama's native empty-chat request loads a model without generating a turn.
+// Probe only the standard Ollama port; other OpenAI-compatible servers retain
+// their normal request path. Loading is cancellable, outside the turn budget.
+async function prepareLocalModel({ url, model, signal, headers = {}, fetcher = root.fetch,
+    onLoading = () => {}, onLoaded = () => {} }) {
+    const base = new URL(url);
+    if (base.port !== '11434') return false;
+    const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(5000)].filter(Boolean));
+    const status = await awaitAbortable(() => fetcher(`${base.origin}/api/ps`, {
+        headers, signal: probeSignal
+    }), probeSignal);
+    if (status.status === 404) return false;
+    const listed = await awaitAbortable(() => status.json(), probeSignal);
+    if (!status.ok) throw responseError(status, listed);
+    if (!Array.isArray(listed.models)) return false;
+    if (listed.models.some(entry => entry.name === model || entry.model === model)) return false;
+    onLoading();
+    try {
+        const response = await awaitAbortable(() => fetcher(`${base.origin}/api/chat`, {
+            method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, signal,
+            body: JSON.stringify({ model, messages: [], stream: false })
+        }), signal);
+        const data = await awaitAbortable(() => response.json(), signal);
+        if (!response.ok || data.error) throw responseError(response, data);
+        if (data.done !== true) throw new Error('Ollama did not confirm that the model finished loading.');
+        return true;
+    } catch (error) {
+        if (!signal?.aborted) {
+            const wrapped = new Error(`Local model loading failed: ${error.message}`, { cause: error });
+            wrapped.code = error.code === 'WORLD_MODEL_UNAVAILABLE'
+                ? error.code : 'WORLD_MODEL_LOAD_FAILED';
+            wrapped.status = error.status;
+            throw wrapped;
+        }
+        throw error;
+    } finally { onLoaded(); }
+}
+
 // Some OpenAI-compatible servers send HTTP 200 and then never finish the JSON
 // body. Fetch abort normally rejects response.text(), but it is not reliable
 // for every browser/proxy combination. Settle our own await on abort as well.
@@ -95,6 +151,7 @@ async function json({ url, body, init = {}, fetcher = root.fetch, now = clockNow
             if (response.ok) {
                 const error = new Error('The model provider returned invalid JSON. Retry this turn or choose another model.');
                 error.code = 'WORLD_MODEL_INVALID_JSON';
+                error.stage = 'parsing';
                 throw error;
             }
             data = {};
@@ -109,9 +166,11 @@ async function json({ url, body, init = {}, fetcher = root.fetch, now = clockNow
         if (outcome !== 'invalid_json') outcome = response.ok ? 'ok' : 'http_error';
         return { response, data };
     } catch (error) {
-        if (error?.code === 'WORLD_MODEL_TIMEOUT') outcome = 'timeout';
-        else if (error?.name === 'AbortError') outcome = 'aborted';
+        const failure = failureOutcome(error, requestInit.signal);
+        if (failure === 'timeout' || failure === 'aborted' || failure === 'server_unreachable') outcome = failure;
         else if (response && outcome === 'network_error') outcome = 'body_error';
+        if (!error.code && outcome === 'network_error') error.code = 'WORLD_MODEL_NETWORK_ERROR';
+        if (!error.code && outcome === 'server_unreachable') error.code = 'WORLD_MODEL_SERVER_UNREACHABLE';
         throw error;
     } finally {
         if (timeoutId) clearTimeout(timeoutId);
@@ -134,11 +193,55 @@ async function stream({ url, body, init = {}, fetcher = root.fetch, now = clockN
         return { response, startedAt };
     } catch (error) {
         if (onFailure) {
-            try { onFailure(attempt(error?.name === 'AbortError' ? 'aborted' : 'network_error', null, startedAt, now)); }
+            try { onFailure(attempt(failureOutcome(error, init.signal), null, startedAt, now)); }
             catch (diagnosticError) { root.console?.warn?.('World model diagnostics failed:', diagnosticError?.message || diagnosticError); }
         }
         throw error;
     }
+}
+
+// All configured text providers expose chat completions (the Horde adapter
+// does so as well). Normalize content at this boundary, never reasoning text.
+function contentText(content) {
+    if (typeof content === 'string') return content;
+    if (!Array.isArray(content)) return '';
+    return content.filter(part => part && (!part.type || ['text', 'output_text'].includes(part.type)))
+        .map(part => typeof part.text === 'string' ? part.text : '').join('');
+}
+
+function structuredCompletion(data) {
+    const choice = data?.choices?.[0];
+    const message = choice?.message || choice?.delta || {};
+    const fail = (code, message, stage) => {
+        const error = new Error(message);
+        Object.assign(error, { code, stage });
+        throw error;
+    };
+    if (choice?.finish_reason === 'length') fail('WORLD_INTENT_TRUNCATED',
+        'The intent model exhausted its output token budget before completing the response.', 'parsing');
+    if (message.refusal || choice?.finish_reason === 'content_filter') fail('WORLD_INTENT_REFUSED',
+        'The model declined to resolve this action.', 'semantic');
+    const calls = (message.tool_calls || []).filter(call => call?.function?.arguments != null);
+    if (calls.length > 1) fail('WORLD_INTENT_AMBIGUOUS_RESPONSE',
+        'The intent model returned multiple structured results; one result is required.', 'schema');
+    const source = calls[0]?.function?.arguments ?? message.function_call?.arguments
+        ?? message.parsed ?? contentText(message.content);
+    if (source && typeof source === 'object' && !Array.isArray(source)) return source;
+    if (typeof source !== 'string' || !source.trim()) fail('WORLD_INTENT_EMPTY_RESPONSE',
+        'The intent model returned no structured action content.', 'parsing');
+    // Accept a single whole-response Markdown fence, not arbitrary JSON scraped
+    // from prose or a reasoning trace. Ambiguous/truncated output stays invalid.
+    const text = source.trim().replace(/^```(?:json)?\s*\r?\n([\s\S]*?)\r?\n```$/i, '$1').trim();
+    try { return JSON.parse(text); }
+    catch (_) { return fail('WORLD_INTENT_INVALID_JSON',
+        'The intent model returned malformed JSON. Retry the turn.', 'parsing'); }
+}
+
+function structuredFormatUnsupported(response, data) {
+    return [400, 422].includes(response?.status)
+        && /response_format|json_schema|structured.?outputs?/i.test(String(data?.error?.message || data?.error || ''))
+        && /unsupported|not supported|does not support|not available|unknown|unrecognized/i
+            .test(String(data?.error?.message || data?.error || ''));
 }
 
 function decodeCompletionBody(raw) {
@@ -147,6 +250,7 @@ function decodeCompletionBody(raw) {
     catch (_) {
         const error = new Error('The model provider returned neither streaming events nor a valid JSON chat completion. Retry or choose another model.');
         error.code = 'WORLD_MODEL_INVALID_COMPLETION';
+        error.stage = 'parsing';
         throw error;
     }
     if (data?.error) {
@@ -158,9 +262,15 @@ function decodeCompletionBody(raw) {
         || !data.choices.some(choice => choice && (choice.message || choice.delta))) {
         const error = new Error('The model provider returned no chat-completion choices. Retry or choose another model.');
         error.code = 'WORLD_MODEL_EMPTY_COMPLETION';
+        error.stage = 'parsing';
         throw error;
     }
-    return data;
+    return { ...data, choices: data.choices.map(choice => ({ ...choice,
+        ...(choice.message ? { message: { ...choice.message,
+            content: contentText(choice.message.content) } } : {}),
+        ...(choice.delta ? { delta: { ...choice.delta,
+            content: contentText(choice.delta.content) } } : {})
+    })) };
 }
 
 // Compatible providers differ on whether a streamed field is a delta or the
@@ -203,8 +313,11 @@ function latencySummary(history) {
 }
 
 root.HordeWorldModelClient = {
+    prepareLocalModel,
+    failureOutcome, responseError,
     latencySummary,
     json, stream, decodeCompletionBody, mergeStreamText,
+    contentText, structuredCompletion, structuredFormatUnsupported,
     runAbortable: awaitAbortable,
     readText: (response, signal) => awaitAbortable(() => response.text(), signal),
     readChunk: (reader, signal) => awaitAbortable(() => reader.read(), signal)

@@ -1,0 +1,119 @@
+{
+  "model": "qwen2.5:14b-instruct-q4_K_M",
+  "input": "I pirouette, then signal to Linda and murmur \"Ready.\"",
+  "generationMs": 4677,
+  "validationMs": 31,
+  "durationMs": 4708,
+  "httpStatus": 200,
+  "usage": {
+    "prompt_tokens": 155,
+    "prompt_tokens_details": {
+      "cached_tokens": 154
+    },
+    "completion_tokens": 247,
+    "total_tokens": 402
+  },
+  "proposal": {
+    "protocol": "scene_draft_v3",
+    "actions": [
+      {
+        "request": "I pirouette",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You pirouette gracefully in the kitchen.",
+            "speech": []
+          }
+        ]
+      },
+      {
+        "request": "signal to Linda",
+        "kind": "gesture",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You make a hand signal to Linda.",
+            "speech": []
+          }
+        ]
+      },
+      {
+        "request": "murmur \"Ready.\"",
+        "kind": "speech",
+        "status": "resolved",
+        "response": [
+          {
+            "text": "You murmur softly: \"Ready.\"",
+            "speech": [
+              {
+                "speaker": "player",
+                "listeners": [
+                  "Linda"
+                ],
+                "quote": "Ready."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "repairCount": 3,
+  "executorOk": true,
+  "actions": [
+    {
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_0",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "I pirouette, then ",
+      "response_id": "turn_09ac0876018e031e8d9f9006_action_0_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_1",
+      "kind": "physical",
+      "status": "resolved",
+      "request": "signal to Linda and ",
+      "response_id": "turn_09ac0876018e031e8d9f9006_action_1_p0",
+      "action_effects": {}
+    },
+    {
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_2",
+      "kind": "speech",
+      "status": "resolved",
+      "request": "murmur \"Ready.\"",
+      "response_id": "turn_09ac0876018e031e8d9f9006_action_2_p0",
+      "action_effects": {}
+    }
+  ],
+  "events": [
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "I pirouette, then ",
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_0",
+      "passage_id": "turn_09ac0876018e031e8d9f9006_action_0_p0"
+    },
+    {
+      "type": "interaction",
+      "actor_id": "player",
+      "status": "completed",
+      "action": "signal to Linda and ",
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_1",
+      "passage_id": "turn_09ac0876018e031e8d9f9006_action_1_p0"
+    }
+  ],
+  "speech": [
+    {
+      "speaker": "player",
+      "listeners": [
+        "linda"
+      ],
+      "quote": "Ready.",
+      "action_id": "turn_09ac0876018e031e8d9f9006_action_2",
+      "passage_id": "turn_09ac0876018e031e8d9f9006_action_2_p0"
+    }
+  ]
+}

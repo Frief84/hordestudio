@@ -1,0 +1,33 @@
+{
+  "generatedAt": "2026-11-09T12:55:30.304Z",
+  "models": [
+    "gpt-oss:20b"
+  ],
+  "results": [
+    {
+      "model": "gpt-oss:20b",
+      "case": "take, travel, speech",
+      "accepted": false,
+      "durationMs": 90089,
+      "steps": null,
+      "failure": {
+        "errors": [
+          {
+            "reason": "transport_error:The operation was aborted due to timeout"
+          }
+        ],
+        "coverage": {
+          "ok": false
+        },
+        "response": ""
+      }
+    }
+  ],
+  "summary": {
+    "gpt-oss:20b": {
+      "passed": 0,
+      "total": 1,
+      "avgMs": 90089
+    }
+  }
+}
