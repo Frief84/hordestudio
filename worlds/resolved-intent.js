@@ -407,6 +407,13 @@ function validate(intent, context = {}) {
             fail('unknown_intent_operation', index);
         if (step.kind === 'travel' && !step.destination_id)
             fail('travel_destination_required', index);
+        // A model may preserve the player's condition in source_quote while
+        // omitting its dependency. Do not execute the dependent step as a
+        // separate action after the first one fails.
+        if (index > 0 && step.kind !== 'context'
+            && /\bif\s+(?:that|this|it)\s+(?:succeeds|works|is successful)\b|\bwenn\s+das\s+(?:gelingt|klappt|funktioniert)\b/iu
+                .test(step.source_quote)
+            && !step.depends_on?.length) fail('conditional_dependency_required', index);
         if (step.kind === 'transfer' && (!['take', 'drop', 'give', 'consume'].includes(step.operation)
             || !step.item_id || step.operation === 'give' && !step.recipient_id))
             fail('invalid_transfer_intent', index);

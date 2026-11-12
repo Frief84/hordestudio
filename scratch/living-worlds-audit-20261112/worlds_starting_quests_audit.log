@@ -1,0 +1,10 @@
+PASS template normalization strips played state and resolves duplicate IDs
+PASS new timeline receives active objectives but no setup reward
+PASS seeding the same timeline again cannot duplicate quests
+PASS completion pays once and survives a save/reload normalization
+PASS old world files with no startingQuests remain valid
+PASS two quest payouts of the same item add two inventory units
+PASS inventory objectives count units in an imported quantity stack
+PASS invalid quest stat reward stays pending, then a corrected reward pays exactly once
+PASS finding the courier requires witnessed confirmation and an explicit manual receipt
+9/9 starting quest checks passed

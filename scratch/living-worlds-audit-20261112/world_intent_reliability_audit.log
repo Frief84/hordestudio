@@ -1,0 +1,20 @@
+✓ generic building movement resolves against the unique local scene
+✓ step inside and through the door use the same contextual resolver
+✓ movement after a first-person action still updates the canonical room
+✓ compound travel prose from the reported guest-wing case commits movement
+✓ a pronoun cannot fuzzy-teleport the player past a later explicit destination
+✓ a generic building never guesses between two plausible doors
+✓ proper authored names beat generic map categories
+✓ compound office travel never mistakes the person left behind for a destination
+✓ a coordinated command to another person does not move the player
+✓ visible engine pseudo-calls and provider thought channels never reach players
+✓ player outfit replacement, addition and removal preserve the right state
+✓ natural first-person outfit declarations update state without a model tool call
+✓ quoted clothing dialogue does not alter player state
+✓ attempted, refused and negated clothing actions never become canon
+✓ stream chunks without indexes keep distinct provider tool-call ids
+✓ complete argument objects and slightly truncated JSON are repaired
+✓ mentioned absent characters are pulled by title, first name, surname and alias
+✓ narrated arrival is pinned so schedules cannot immediately remove it
+
+18 contextual intent + tool reliability checks passed.

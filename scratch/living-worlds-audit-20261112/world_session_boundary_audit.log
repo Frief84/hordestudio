@@ -1,0 +1,7 @@
+✓ session lookup is read-only even for an unprepared legacy instance
+✓ preparation recovers a stale selected timeline without replacing saved timelines
+✓ legacy flat-world data migrates only at explicit preparation
+✓ chosen starting life keeps its own opening location
+✓ entry and timeline switches explicitly prepare before rendering
+
+5/5 world session boundary checks passed.

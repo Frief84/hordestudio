@@ -1,0 +1,536 @@
+[
+  {
+    "name": "living_world_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 1490
+  },
+  {
+    "name": "living_world_stress_test",
+    "exit": 0,
+    "error": null,
+    "ms": 12662
+  },
+  {
+    "name": "living_worlds_editor_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 5551
+  },
+  {
+    "name": "living_worlds_map_browser_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 2311
+  },
+  {
+    "name": "map_editor_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 310
+  },
+  {
+    "name": "movement_ledger_stress_test",
+    "exit": 1,
+    "error": null,
+    "ms": 151
+  },
+  {
+    "name": "quest_engine_stress_test",
+    "exit": 0,
+    "error": null,
+    "ms": 658
+  },
+  {
+    "name": "rules_engine_stress_test",
+    "exit": 0,
+    "error": null,
+    "ms": 116
+  },
+  {
+    "name": "world_action_resolution_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 268
+  },
+  {
+    "name": "world_agent_transaction_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 328
+  },
+  {
+    "name": "world_architect_agent_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 376
+  },
+  {
+    "name": "world_architect_batch_resume_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 376
+  },
+  {
+    "name": "world_command_boundary_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 295
+  },
+  {
+    "name": "world_command_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3160
+  },
+  {
+    "name": "world_communication_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 121
+  },
+  {
+    "name": "world_direct_move_contract_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 154
+  },
+  {
+    "name": "world_general_turn_matrix_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 610
+  },
+  {
+    "name": "world_generalized_response_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 321
+  },
+  {
+    "name": "world_graph_consistency_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 324
+  },
+  {
+    "name": "world_intent_reliability_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 452
+  },
+  {
+    "name": "world_knowledge_share_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 222
+  },
+  {
+    "name": "world_linked_chain_browser_audit",
+    "exit": 1,
+    "error": null,
+    "ms": 2674
+  },
+  {
+    "name": "world_linked_contract_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 152
+  },
+  {
+    "name": "world_linked_execution_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 127
+  },
+  {
+    "name": "world_linked_generalization_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 110
+  },
+  {
+    "name": "world_linked_hardening_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 201
+  },
+  {
+    "name": "world_local_scene_schema_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 4651
+  },
+  {
+    "name": "world_long_memory_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 90
+  },
+  {
+    "name": "world_lore_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 329
+  },
+  {
+    "name": "world_lore_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3828
+  },
+  {
+    "name": "world_map_stress_test",
+    "exit": 0,
+    "error": null,
+    "ms": 4144
+  },
+  {
+    "name": "world_mobile_play_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3888
+  },
+  {
+    "name": "world_model_client_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 273
+  },
+  {
+    "name": "world_model_inheritance_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 325
+  },
+  {
+    "name": "world_npc_debugger_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2421
+  },
+  {
+    "name": "world_npc_free_goal_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2834
+  },
+  {
+    "name": "world_npc_goal_actions_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 105
+  },
+  {
+    "name": "world_npc_goal_progress_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 91
+  },
+  {
+    "name": "world_npc_goal_tick_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2432
+  },
+  {
+    "name": "world_npc_knowledge_recall_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 97
+  },
+  {
+    "name": "world_npc_multi_goal_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2925
+  },
+  {
+    "name": "world_npc_reactions_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 126
+  },
+  {
+    "name": "world_npc_reactions_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2301
+  },
+  {
+    "name": "world_p42_resource_cost_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 132
+  },
+  {
+    "name": "world_p42_resource_cost_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 4239
+  },
+  {
+    "name": "world_p43h_discovery_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 184
+  },
+  {
+    "name": "world_p43h_performance_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 1052
+  },
+  {
+    "name": "world_perception_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 97
+  },
+  {
+    "name": "world_perception_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2324
+  },
+  {
+    "name": "world_phase4_routes_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3959
+  },
+  {
+    "name": "world_phase4_time_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 7939
+  },
+  {
+    "name": "world_physical_reachability_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 118
+  },
+  {
+    "name": "world_presentation_reliability_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 349
+  },
+  {
+    "name": "world_render_purity_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2700
+  },
+  {
+    "name": "world_resolved_intent_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 5529
+  },
+  {
+    "name": "world_resolved_intent_contract_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 334
+  },
+  {
+    "name": "world_route_fare_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 91
+  },
+  {
+    "name": "world_scene_draft_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 96
+  },
+  {
+    "name": "world_scene_items_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 124
+  },
+  {
+    "name": "world_schema_migration_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 305
+  },
+  {
+    "name": "world_session_boundary_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 289
+  },
+  {
+    "name": "world_speech_contract_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 131
+  },
+  {
+    "name": "world_systems_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 290
+  },
+  {
+    "name": "world_temporary_interaction_contract_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 129
+  },
+  {
+    "name": "world_transaction_feedback_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 292
+  },
+  {
+    "name": "world_turn_context_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 83
+  },
+  {
+    "name": "world_turn_transaction_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 295
+  },
+  {
+    "name": "world_urgent_deadline_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 542
+  },
+  {
+    "name": "world_wait_fallback_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 316
+  },
+  {
+    "name": "world_working_state_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 127
+  },
+  {
+    "name": "worlds2_atomic_turn_persistence_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3633
+  },
+  {
+    "name": "worlds2_campaign_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 32295
+  },
+  {
+    "name": "worlds2_check_transaction_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 305
+  },
+  {
+    "name": "worlds2_escort_handoff_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 313
+  },
+  {
+    "name": "worlds2_exit_unlock_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3136
+  },
+  {
+    "name": "worlds2_inventory_consequence_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 299
+  },
+  {
+    "name": "worlds2_manual_gate_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2864
+  },
+  {
+    "name": "worlds2_negated_movement_receipt_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2861
+  },
+  {
+    "name": "worlds2_persistence_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 7779
+  },
+  {
+    "name": "worlds2_pickup_receipt_replay_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2580
+  },
+  {
+    "name": "worlds2_provider_response_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3846
+  },
+  {
+    "name": "worlds2_receipt_boundary_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 2929
+  },
+  {
+    "name": "worlds2_route_escort_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 360
+  },
+  {
+    "name": "worlds2_stacked_inventory_regression",
+    "exit": 0,
+    "error": null,
+    "ms": 597
+  },
+  {
+    "name": "worlds2_startup_recovery_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 5210
+  },
+  {
+    "name": "worlds2_storage_migration_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 3738
+  },
+  {
+    "name": "worlds_rpg_release_contract_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 485
+  },
+  {
+    "name": "worlds_starting_quests_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 314
+  },
+  {
+    "name": "worlds_starting_quests_browser_audit",
+    "exit": 0,
+    "error": null,
+    "ms": 7045
+  }
+]

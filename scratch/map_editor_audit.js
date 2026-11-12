@@ -52,7 +52,7 @@ assert.equal(ctx.worldExitRequirement({ inventory: ['Brass key'] }, door.entries
     'a later lock-state edit must use the configured key without treating an initially open door as locked');
 door.entries[0].exit.lockState = 'unlocked';
 assert.equal(oneWay.entries[0].exit.travelTime, 3);
-assert.throws(() => editor.setConnectionLock(world, door, { lockable: true, key: '', locked: true }), /Schlüssel/);
+assert.throws(() => editor.setConnectionLock(world, door, { lockable: true, key: '', locked: true }), /key\/item/);
 const history = editor.history(world, () => {});
 let before = history.capture(false); world.mapLayout.nodes.a.x += 20; history.commit(before, false);
 history.undo(); assert.equal(world.mapLayout.nodes.a.x, before.layout.nodes.a.x);
@@ -60,7 +60,7 @@ history.redo(); assert.equal(world.mapLayout.nodes.a.x, before.layout.nodes.a.x 
 before = history.capture(true); world.locations.push({ id: 'new', name: 'New room', exits: [] }); history.commit(before, true);
 history.undo(); assert.equal(world.locations.length, 3); history.redo(); assert.equal(world.locations.length, 4);
 world.locations[0].description = 'An unrelated edit';
-assert.throws(() => history.undo(), /außerhalb/); assert.equal(world.locations[0].description, 'An unrelated edit');
+assert.throws(() => history.undo(), /outside the map/); assert.equal(world.locations[0].description, 'An unrelated edit');
 const ids = new Map([['a', 'copied_a'], ['b', 'copied_b'], ['c', 'copied_c']]);
 const copy = structuredClone(world); copy.mapLayout = editor.remap(copy.mapLayout, ids);
 copy.locations.forEach(loc => { loc.id = ids.get(loc.id) || loc.id; loc.exits.forEach(exit => exit.targetLocationId = ids.get(exit.targetLocationId) || exit.targetLocationId); });

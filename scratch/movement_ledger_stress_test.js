@@ -73,6 +73,7 @@ function sourceBlock(startMarker, endMarker) {
 
 const toasts = [];
 const context = {
+    HordeWorldLore: require('../assets/worlds/world-lore.js'),
     console: { log() {}, warn() {}, error: console.error },
     Map,
     Set,
@@ -108,6 +109,7 @@ const context = {
 };
 vm.createContext(context);
 const composedSource = [
+    functionSource('normalizeWorldPlayerCommandPronoun'),
     sourceBlock('function getExitTargetName', 'function checkExitTarget'),
     sourceBlock('const WORLD_TRAVEL_MODES', 'const worldRecordInspector'),
     sourceBlock('function getExitTravelTime', '// An NPC moved by the narrative'),

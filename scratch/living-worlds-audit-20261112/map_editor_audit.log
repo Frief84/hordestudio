@@ -1,0 +1,2 @@
+PASS: map geometry, round trip through real import/normalization, shared doors, keys, NPC access, one-way routes, guarded undo/redo and ID remapping
+PASS: 2,000-room manual layout and 1,999 connections normalized twice in 22ms

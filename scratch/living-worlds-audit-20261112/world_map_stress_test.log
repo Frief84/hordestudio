@@ -1,0 +1,6 @@
+✓ hierarchy, type inference, edge simplification, and one-way direction
+✓ nested building layout contains rooms without exact node overlap
+✓ manual region → street → buildings → rooms hierarchy stays fully visible
+✓ cartographic paths keep all connections, anchor to place boundaries, and round turns
+✓ 2,000-location limit laid out in 47ms and routed in 3959ms
+✓ map background placement, portable data, legacy assets, view switching, and clearing

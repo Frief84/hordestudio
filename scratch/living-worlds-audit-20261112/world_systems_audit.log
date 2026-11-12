@@ -1,0 +1,18 @@
+✓ a hand-made world gets every module on by default
+✓ a currency stat named "$$$" is recognised as currency
+✓ currency detection survives the names authors really use
+✓ something that is not money is not mistaken for it
+✓ buying with a stated price moves the money, with no market defined
+✓ selling with a stated price credits the purse and removes the item
+✓ an open-market purchase still cannot be afforded out of thin air
+✓ selling something the player does not own is refused
+✓ a priceless transaction with no market is refused, not silently dropped
+✓ a defined market still governs stock and price
+✓ the transaction schema demands a price and explains why
+✓ the quest ledger tells the DM WHEN to open a quest
+✓ a quest can be opened from a title alone and shows up
+✓ quest objectives complete and rewards land exactly once
+✓ every profile that claims a system actually enables it
+✓ disabling stats cascades so commerce cannot half-work
+
+16 world system checks passed.

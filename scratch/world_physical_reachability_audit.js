@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { executeLinkedActions } = require('../worlds/linked-world-actions');
+const { executeFullyAppliedActions: executeLinkedActions } = require('./world_action_test_result');
 const world = { id: 'physical_reach', entities: [
     { id: 'chest', name: 'Chest', type: 'item', locationId: 'room', interactable: {
         initialState: 'locked', transitions: [

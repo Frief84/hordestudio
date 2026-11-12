@@ -1,0 +1,1 @@
+{"disabled":{"coldMs":17.667,"warmMedianMs":3.577,"warmP95Ms":5.437,"heapRangeMiB":7.92},"enabled":{"coldMs":5.04,"warmMedianMs":3.495,"warmP95Ms":5.59,"heapRangeMiB":7.72},"searchWith500ContainersMs":15.655,"relativeWarmPercent":-2.3}

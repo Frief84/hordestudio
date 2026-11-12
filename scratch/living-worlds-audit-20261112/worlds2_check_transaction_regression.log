@@ -1,0 +1,1 @@
+✓ check outcomes and save failures roll back atomically; retries retain the same die

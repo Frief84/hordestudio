@@ -1,0 +1,25 @@
+PASS reject unknown state-update keys before accepting a turn
+PASS reject an unknown event type rather than converting it to other
+PASS reject missing or mistyped event status rather than completing it
+PASS reject an unsupported entity patch that claims health changed
+PASS reject a completed chemical burn with no health or condition change
+PASS reject consuming a named inventory item with no inventory removal
+PASS hypothetical harm and a spoken item question need no mutation
+PASS hurting another actor or an object does not imply player injury
+PASS drinking water does not consume a separately mentioned healing draught
+PASS taking a captain’s advice is not an inventory pickup
+PASS completed strap pickup requires a matching typed inventory-add event
+PASS refusal and hypothetical strap wording do not demand an inventory event
+PASS trim only the dangling speaker line after complete prose
+PASS post-check consequence gets receipt repair
+PASS strip provider pseudo-tool calls before transcript display
+PASS resolve live RPG causeway movement wording to the mapped destination
+PASS authored gate stays locked until a successful check opens its route
+PASS World Audit flags prose-only locks without flagging a configured gate
+PASS authored courier obligation seeds once as a tracked quest
+PASS absolute and incremental quest progress in one receipt never double-count
+PASS an explicitly structured quest completes and grants its reward once
+PASS duplicate pickups count as two units and one consumption leaves one
+PASS consuming an absent inventory item is a rejected candidate action
+PASS ambiguous draught removal refuses to consume an arbitrary item
+24/24 release contract probes passed

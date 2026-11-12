@@ -1,0 +1,7 @@
+✓ bundled Worlds do not pin provider-specific text models
+✓ new Worlds inherit Settings until deliberately pinned
+✓ World Studio preserves blank inheritance rather than materializing the default
+✓ World gameplay resolves an inherited model at request time
+✓ legacy migration clears only exact shipped pins and runs once
+
+5 World model-inheritance checks passed.

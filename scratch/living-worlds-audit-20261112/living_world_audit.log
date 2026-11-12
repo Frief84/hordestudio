@@ -1,0 +1,93 @@
+✓ a due event fires once, records news, and does not re-fire
+✓ an overdue event still fires (catch-up after the module is re-enabled)
+✓ a turn-repeating event reschedules from the firing turn
+✓ a minute-repeating event reschedules on the world clock
+✓ an event at the player location queues narration; a remote one does not
+✓ an event applies its location condition with the right expiry
+✓ an event influence change is bounded and applies to its faction
+✓ an NPC agenda advances off-screen and completes at 100
+✓ an advancing agenda reports the concrete beat it reached, not a progress bar
+✓ each beat is reported once, in order
+✓ a free agenda without executable actions never fabricates milestones
+✓ authored prose beats alone cannot certify an agenda or publish private facts
+✓ the shipped campaign gives its goal-bearing NPCs authored beats
+✓ an NPC sharing the scene with the player does not advance off-screen
+✓ a dead NPC keeps no agenda and no appointments
+✓ a missed agenda deadline fails the goal exactly once
+✓ a paused agenda never advances
+✓ faction goals progress and complete without exceeding bounds
+✓ defeated factions are inert and hidden from the prompt
+✓ market stock regenerates up to its ceiling, only with commerce enabled
+✓ a schedule before the first block of the day uses the previous block
+✓ a narrative pin outranks the timetable until it expires
+✓ schedule arrivals and departures across the player scene are narrated
+✓ turns freeze scheduled presence before simulation and never resync after prose
+✓ message observations prefer an explicit committed witness set
+✓ a timeline schedule override wins over the world template
+✓ schedules disabled means no movement at all
+✓ playstyle inference ranks dominant signals and stays advisory
+✓ playstyle ignores empty input but records every substantive turn
+✓ normalization drops state for deleted locations and NPCs
+✓ normalization repairs hostile and malformed state
+✓ normalization rejects malformed schedule blocks
+✓ world news is capped and deduplicated within a turn
+✓ no dangling faction reference survives normalization
+✓ the tick advances at most once per turn
+✓ replaying a turn from a restored snapshot reproduces it exactly
+✓ scene population is deterministic enough to survive a reroll
+✓ a mid-turn clock jump fires clock-due events without re-advancing the turn
+✓ background clock steps match explicit clock steps and preserve turn-only work
+✓ one large explicit skip keeps the existing repeat-from-observation rule
+✓ a clock-due route closure blocks the same NPC schedule in a turn and background
+✓ a paused clock waits for an explicit advance before triggering minute-due events
+✓ out-of-range times are rejected from world templates, not just overrides
+✓ the living world module gate silences every subsystem
+✓ the DM prompt exposes state without leaking it as public knowledge
+✓ a beat performed alone is known only to its actor
+✓ a remote fact stays out of reach while nobody who knows it is present
+✓ the fact becomes tellable once the character who knows it shares the scene
+✓ rumour travels between characters who share a room
+✓ a public event is witnessed by the whole room, and by the player if present
+✓ knowledge tracking survives a save/load round trip
+✓ news predating knowledge tracking is treated as common talk, not sealed away
+✓ the discovery split does not leak dark facts into the tellable line
+✓ co-located NPCs drift; separated NPCs never do
+✓ drift never rewrites an authored relationship label or reason
+✓ drift skips the player's own room and the relationships module gate
+✓ a confirmed agenda yields to its pool goal without repeating either action
+✓ an NPC with no pool stays resolved instead of thrashing
+✓ the shipped campaign gives every goal-bearing NPC a follow-up agenda
+✓ relations are symmetric — a one-sided grudge is impossible
+✓ standing reads allies, enemies and contested ground
+✓ an unopposed faction outpaces one fighting for its ground
+✓ a victory takes ground, weakens the rival, and provokes an answer
+✓ an achieved aim is remembered and replaced, never leaving the power idle
+✓ an authored follow-up aim is preferred over a derived stance
+✓ politics keeps moving across a long campaign
+✓ coexistence alone cannot cause open war
+✓ a shared border sours relations; a common enemy warms them
+✓ an event — not mere coexistence — tips two powers into open war
+✓ a crossing into open hostility is announced once, not every point
+✓ faction causation is deterministic and skipped on a clock catch-up
+✓ the DM prompt states who stands with whom
+✓ a harmful condition makes a place dangerous and poorer over time
+✓ a calming condition is not treated as trouble
+✓ danger eases back to calm once the cause is gone — the world does not only ratchet
+✓ contested ground is dangerous ground
+✓ firm single control settles a place; a collapsing holder does not
+✓ a turning tide is announced, and only to those who can see it
+✓ prices rise with danger and scarcity, and stay anchored to their base
+✓ a thriving town undercuts a failing one for the same good
+✓ place drift is deterministic and skipped on a clock catch-up
+✓ the world agent is off unless deliberately enabled, and bounded when on
+✓ the world agent fires on its interval, never on a reroll
+✓ the world agent can never reach the player, whatever it returns
+✓ sanitizing tolerates junk and drops empties
+✓ the agent payload parser survives fences, prose, and reasoning preambles
+✓ the digest carries what is in motion, and warns off the player
+✓ a faction named in a tool call is built ready to simulate
+✓ a standing the DM declares is mutual, as it is everywhere else
+✓ the tick alone never conjures a faction from nothing
+✓ once two powers exist they fight their war without anyone scripting it
+
+91 living world checks passed.

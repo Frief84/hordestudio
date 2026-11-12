@@ -1,0 +1,12 @@
+AssertionError [ERR_ASSERTION]: failed editor save must not publish an unsaved world to the live library
+
+false !== true
+
+    at N:\Horde Studio\app\scratch\living_worlds_editor_regression.js:38:10 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: 'strictEqual',
+  diff: 'simple'
+}

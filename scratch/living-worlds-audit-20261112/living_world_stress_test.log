@@ -1,0 +1,2 @@
+PASS exact-limit stress: 2,000 locations, 5,000 NPCs, 500 events, 200 factions, 120 turns in 12271ms
+PASS living-world regression suite

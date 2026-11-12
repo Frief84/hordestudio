@@ -29,7 +29,7 @@ buildContext(vm, [
     'normalizeQuestState', 'applyQuestUpdates', 'getQuestPrompt',
     'evaluateQuestProgress', 'evaluateQuestObjective', 'grantQuestRewards',
     'formatQuestRewardSummary', 'normalizeQuestObjective', 'normalizeQuestRewards',
-    'makeQuestId', 'findSessionQuest', 'findInventoryMatchIndices',
+    'makeQuestId', 'findSessionQuest',
     'stableWorldRoll', 'relationshipKey', 'isVisibleToSession', 'sessionNpcs',
     'isNpcActive', 'getWorldTimeData', 'isValidScheduleTime', 'getLocationRef',
     'questTextKey', 'livingClamp', 'livingId'
@@ -190,10 +190,10 @@ test('the quest ledger tells the DM WHEN to open a quest', () => {
     assert(prompt.includes('[PLAYER QUEST LEDGER'), 'the quest ledger is missing entirely');
     assert(/WHEN TO OPEN A QUEST/i.test(prompt),
         'nothing ever tells the DM to create a quest, so none are ever created');
-    assert(/promise|errand|favour|favor|goal/i.test(prompt),
-        'quest creation guidance names no everyday trigger');
-    assert(/do not wait for the player to ask/i.test(prompt),
-        'the DM is not told to open quests unprompted');
+    assert(/knowingly accepts a concrete objective|explicitly sets one/i.test(prompt),
+        'quest creation requires a player-accepted objective');
+    assert(/Keep proposals in dialogue until accepted/i.test(prompt),
+        'unaccepted NPC proposals must not become player obligations');
 });
 
 test('a quest can be opened from a title alone and shows up', () => {

@@ -317,6 +317,9 @@ function resolveDependencies(seeds, options = {}) {
  * so a test can reach a helper it never named without the suite listing it.
  */
 function buildContext(vm, seeds, context = {}, options = {}) {
+    context.structuredClone ||= structuredClone;
+    context.HordeWorldModelClient ||= require('../worlds/model-client.js');
+    context.HordeWorldTurnContext ||= require('../worlds/turn-context.js');
     context.HordeWorldTime ||= require('../worlds/world-time.js');
     context.HordeHumanPackage ||= require('../human-package.js');
     context.Blob ||= Blob;

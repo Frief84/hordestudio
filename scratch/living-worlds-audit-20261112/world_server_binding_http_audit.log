@@ -1,0 +1,4 @@
+[bridge] 127.0.0.1 "POST /worlds/bind-turn HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "POST /worlds/bind-turn HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "POST /worlds/bind-turn HTTP/1.1" 200 -
+PASS real HTTP route: stable server IDs, structural binding, model-supplied IDs replaced

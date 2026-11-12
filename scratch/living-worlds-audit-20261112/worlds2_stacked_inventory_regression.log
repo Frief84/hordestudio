@@ -1,0 +1,8 @@
+PASS open-market sale of one from quantity two leaves one unit and credits one
+PASS open-market sale of two from quantity two removes both and credits two
+PASS defined-market sale of one from quantity two keeps the second unit
+PASS defined-market sale of two from quantity two credits both units
+PASS failed check removes one unit of a quantity-two stack
+PASS failed check can remove both units from one quantity-two stack
+PASS two structured removals consume both units of a quantity-two stack
+7/7 stacked-inventory probes passed

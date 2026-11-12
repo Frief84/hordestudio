@@ -17397,17 +17397,24 @@ async function saveWorld() {
     }
 
     const idx = state.worlds.findIndex(world => world.id === w.id);
-    if (idx !== -1) {
-        state.worlds[idx] = JSON.parse(JSON.stringify(w));
-    } else {
-        state.worlds.push(JSON.parse(JSON.stringify(w)));
-    }
+    const previousWorld = idx !== -1 ? state.worlds[idx] : null;
+    const savedCandidate = JSON.parse(JSON.stringify(w));
+    if (idx !== -1) state.worlds[idx] = savedCandidate;
+    else state.worlds.push(savedCandidate);
 
     worldMediaDirty = true;
     try {
         await saveState();
         await verifyWorldPersisted(w);
     } catch (error) {
+        // Keep the editor draft for retry without publishing a failed save to
+        // gameplay or allowing an unrelated later save to persist it silently.
+        // A newer replacement must not be overwritten by this older failure.
+        const candidateIndex = state.worlds.indexOf(savedCandidate);
+        if (candidateIndex !== -1) {
+            if (previousWorld) state.worlds[candidateIndex] = previousWorld;
+            else state.worlds.splice(candidateIndex, 1);
+        }
         showToast(`World was not saved: ${error.message || error}`, 'error');
         throw error;
     }
@@ -43596,11 +43603,12 @@ function runLivingWorldTick(world, sess, options = {}) {
         }
         });
         const conversations = buildNpcLocationIndex(world, sess);
+        let conversationSpeakers = new Map(sessionNpcs(world, sess).map(npc => [npc.id, npc]));
         for (const [place, occupants] of conversations) {
             if (place === sess.playerLocation || occupants.length < 2) continue;
             let delivered = false;
             for (const speakerId of occupants) {
-                const speaker = sessionNpcs(world, sess).find(npc => npc.id === speakerId);
+                const speaker = conversationSpeakers.get(speakerId);
                 if (!speaker) continue;
                 const options = globalThis.HordeNpcGoalActions?.npcGoalOptions(speaker,
                     worldForSession(world, sess), sess) || [];
@@ -43617,6 +43625,9 @@ function runLivingWorldTick(world, sess, options = {}) {
                     if (!result?.ok) continue;
                     Object.assign(world, result.candidate.world);
                     Object.assign(sess, result.candidate.session);
+                    // A committed action replaces definitions; subsequent
+                    // conversations must use those new records, not stale ones.
+                    conversationSpeakers = new Map(sessionNpcs(world, sess).map(npc => [npc.id, npc]));
                     sess.turnEvents ||= [];
                     for (const event of result.events || [result.event]) sess.turnEvents.push({
                         ...event, turn, location_id: place, committed: true,

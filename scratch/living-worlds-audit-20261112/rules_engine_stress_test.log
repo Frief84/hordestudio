@@ -1,0 +1,4 @@
+✓ bounded stats, fail-forward incapacitation, recovery, and lethal game over
+✓ atomic purchases and sales enforce currency, stock, ownership, and affordability
+✓ deterministic checks preserve rolls and apply declared failure costs
+✓ player-requested d6/d10/d12/d20 checks pause and consume the supplied roll

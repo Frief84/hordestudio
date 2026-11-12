@@ -5,6 +5,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { chromium, launchOptions } = require('./browser_runtime').browserRuntime();
 const root = path.resolve(__dirname, '..');
+const outputRoot = path.resolve(process.env.HORDE_AUDIT_OUTPUT_DIR || __dirname);
 const bound = process.env.HORDE_RESOLVED_BOUND === '1';
 const liveModel = String(process.env.HORDE_RESOLVED_LIVE_MODEL || '').trim();
 const skipLifecycle = process.env.HORDE_RESOLVED_SKIP_LIFECYCLE === '1';
@@ -526,7 +527,7 @@ const snippets = [
                 JSON.stringify({ model: liveModel || null, bound, result }, null, 2));
         if (liveModel) {
             const suffix = `${liveModel.replace(/[^a-z0-9]+/giu, '_').toLowerCase()}-${bound ? 'server_bound' : 'local_bind'}`;
-            fs.writeFileSync(path.join(__dirname,
+            fs.writeFileSync(path.join(outputRoot,
                 `world_resolved_intent_browser_live-${suffix}.json`),
             JSON.stringify({ model: liveModel, bound, result }, null, 2));
         }
@@ -585,7 +586,7 @@ const snippets = [
             JSON.stringify(conditionalBlock));
         assert.equal(conditionalBlock.inventory.length, 0, JSON.stringify(conditionalBlock));
         if (skipLifecycle) {
-            if (liveModel) fs.writeFileSync(path.join(__dirname,
+            if (liveModel) fs.writeFileSync(path.join(outputRoot,
                 `world_resolved_intent_browser_live-${liveModel.replace(/[^a-z0-9]+/giu, '_').toLowerCase()}-${bound ? 'server_bound' : 'local_bind'}-${outputLanguage}-actions.json`),
             JSON.stringify({ model: liveModel, bound, passed: true,
                 calls: result.calls, results: result.results }, null, 2));
@@ -630,7 +631,7 @@ const snippets = [
         assert.deepEqual(reloaded, { ...committed, rerolled: true });
         if (liveModel) {
             const suffix = `${liveModel.replace(/[^a-z0-9]+/giu, '_').toLowerCase()}-${bound ? 'server_bound' : 'local_bind'}${outputLanguage === 'de' ? '' : `-${outputLanguage}`}`;
-            fs.writeFileSync(path.join(__dirname,
+            fs.writeFileSync(path.join(outputRoot,
                 `world_resolved_intent_browser_live-${suffix}.json`),
             JSON.stringify({ model: liveModel, bound, passed: true,
                 saveReload: { committed, reloaded }, result }, null, 2));

@@ -37,7 +37,7 @@ const context = {
         return (world.entities || []).find(entity =>
             String(entity.id).toLowerCase() === key || String(entity.name).toLowerCase() === key)?.id || null;
     },
-    applyPlayerStatChanges(world, session, changes) {
+    applyPlayerStatChanges(world, session, changes, options = {}) {
         const result = { success: true, applied: [], rejected: [] };
         Object.entries(changes || {}).forEach(([key, change]) => {
             const definition = (world.hudConfig?.stats || []).find(stat => stat.id === key);
@@ -45,7 +45,7 @@ const context = {
             let next = current + Number(change || 0);
             if (definition?.max > 0) next = Math.min(next, definition.max);
             next = Math.max(definition?.min ?? 0, next);
-            session.playerStats[key] = next;
+            if (!options.dryRun) session.playerStats[key] = next;
             result.applied.push({ statId: key, previous: current, value: next, change: next - current });
         });
         return result;

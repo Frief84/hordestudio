@@ -1,0 +1,1 @@
+PASS: campaign/full-install ZIP round trips; binary VH2 checkpoint transport; legacy JSON imports; media dedup, history sharding, corruption rejection, atomic restore rollback

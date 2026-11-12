@@ -228,7 +228,12 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
                             effects: { outfit_set: [{ actor_id: 'story_person', outfit: 'blue coat' }] },
                             events: [{ type: 'outfit', actor_id: 'story_person', status: 'completed',
                                 outfit: 'blue coat' }] }] };
-                const body = JSON.parse(options.body), raw = JSON.stringify(draft);
+                const body = JSON.parse(options.body);
+                const raw = body.response_format?.json_schema?.name === 'resolved_intent_v1'
+                    ? JSON.stringify({ protocol: 'resolved_intent_v1', steps: draftIndex === 0
+                        ? [{ source_quote: 'What does the old map show?', kind: 'question', target_ids: ['story_person'], utterance: 'What does the old map show?' }]
+                        : [{ source_quote: 'I put on a red cloak.', kind: 'appearance', outfit: 'red cloak' }] })
+                    : draftIndex === 0 ? 'Ada recalls the old map.' : 'You put on a red cloak.';
                 if (body.stream) return new Response(`data: ${JSON.stringify({ choices: [{
                     delta: { content: raw }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
                 { headers: { 'Content-Type': 'text/event-stream' } });
@@ -260,13 +265,16 @@ async function importCampaign(page, bytes, name = 'roundtrip.horde_campaign') {
                 npcOutfit: session.entityStates.story_person.outfit,
                 persisted: !!saved, historyCount: session.history.length };
         }, imported.id);
-        assert.equal(continued.calls, 2, JSON.stringify({ callAudits: continued.callAudits,
+        assert.equal(continued.calls, 4, JSON.stringify({ callAudits: continued.callAudits,
             turnError: continued.turnError }).slice(0, 3500));
-        assert(continued.accepted && continued.persisted && continued.oldMemory && continued.definitionUnchanged);
+        assert(continued.accepted && continued.persisted && continued.oldMemory && continued.definitionUnchanged,
+            JSON.stringify({ accepted: continued.accepted, persisted: continued.persisted, oldMemory: continued.oldMemory,
+                definitionUnchanged: continued.definitionUnchanged, turnError: continued.turnError }));
+        assert.equal(continued.protocols.length, 4, 'two new receipts preserve both imported receipts');
         assert.deepEqual(continued.protocols.slice(0, 2), ['scene_draft_v2', 'scene_draft_v3']);
-        assert.equal(continued.protocols.length, 4);
+        assert.deepEqual(continued.protocols.slice(-2), ['scene_draft_v3', 'scene_draft_v3']);
         assert.equal(continued.playerOutfit, 'red cloak');
-        assert.equal(continued.npcOutfit, 'blue coat');
+        assert.equal(continued.npcOutfit, undefined, 'player clothing changes cannot change an NPC outfit');
         assert(continued.inventory.some(item => String(item?.name || item).includes('brass key')));
         assert.equal(continued.observations[0].text, 'Ada witnessed the greeting.');
         assert.equal(continued.relationship, 64);

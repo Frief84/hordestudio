@@ -1,0 +1,15 @@
+✓ presentation normalization preserves live editor references
+✓ image response decoder accepts dedicated and nested provider shapes
+✓ pronoun-tagged lines keep discourse focus instead of stealing a name from dialogue
+✓ ambiguous dialogue stays prose instead of receiving a false portrait
+✓ world speech alternates narration and the actual NPC lines
+✓ the complete Aslan and Lorne turn keeps every passage in speaker order
+✓ validated speech IDs keep one NPC voice through ambiguous narration
+✓ server-bound passage speech uses confirmed NPC IDs without guessing other quotes
+✓ full-turn playback begins with the matching player action and spoken words
+✓ World speech has one full-turn control and never starts on commit
+✓ the narrator profile is separate from the NPC fallback and legacy worlds still narrate
+✓ world identity layout has explicit non-collapsing columns
+✓ all world visual generators restore their button in finally blocks
+
+13 world-presentation reliability checks passed.

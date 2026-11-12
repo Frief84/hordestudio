@@ -1,0 +1,10 @@
+✓ canonical ids win over colliding display names and ambiguous names fail closed
+✓ session world view owns dynamic exits and timeline-created locations
+✓ renaming a location migrates authored and every live timeline reference
+✓ deleting a location removes dangling name exits and invalid future session work
+✓ turn snapshots restore only the active timeline dynamic geography
+✓ turn snapshots store the latest audit once and restore old snapshots
+✓ deleting one timeline removes only its story-born people and places
+✓ play and prompt paths resolve exits against the same session world view
+
+8/8 world graph consistency checks passed.

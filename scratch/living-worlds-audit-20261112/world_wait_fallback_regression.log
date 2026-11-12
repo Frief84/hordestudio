@@ -1,0 +1,1 @@
+✓ explicit wait fallback saves one time event and the settled cast across receipt and generation failures

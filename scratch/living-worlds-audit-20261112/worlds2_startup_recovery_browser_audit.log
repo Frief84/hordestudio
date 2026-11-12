@@ -1,0 +1,1 @@
+PASS: damaged World shard leaves data untouched and a full backup restores a working installation

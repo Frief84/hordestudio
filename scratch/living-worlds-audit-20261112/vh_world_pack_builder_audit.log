@@ -1,0 +1,10 @@
+test_car_and_pedestrian_directionality_are_separate (__main__.WalkingPack.test_car_and_pedestrian_directionality_are_separate) ... ok
+test_export_capacity_and_reciprocity_hold_at_largest_region_size (__main__.WalkingPack.test_export_capacity_and_reciprocity_hold_at_largest_region_size) ... ok
+test_nearest_neighbor_sparsification_keeps_return_to_peripheral_home (__main__.WalkingPack.test_nearest_neighbor_sparsification_keeps_return_to_peripheral_home) ... ok
+test_one_way_pedestrian_evidence_never_becomes_reverse_route (__main__.WalkingPack.test_one_way_pedestrian_evidence_never_becomes_reverse_route) ... ok
+test_xml_input_keeps_attribution_and_resolves_nodes_after_ways (__main__.WalkingPack.test_xml_input_keeps_attribution_and_resolves_nodes_after_ways) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 0.255s
+
+OK

@@ -1,0 +1,8 @@
+[bridge] 127.0.0.1 "GET /worlds/resolved-intent.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/model-client.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/universal-checks.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/dynamic-object-discovery.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/perception.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/npc-goal-actions.js?v=audit HTTP/1.1" 200 -
+[bridge] 127.0.0.1 "GET /worlds/horde-client.js?v=audit HTTP/1.1" 200 -
+PASS World JavaScript assets served over the local HTTP route

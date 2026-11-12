@@ -9,6 +9,11 @@ const { functionSource } = require('./app_source');
 const vm = require('node:vm');
 const references = ['player', 'kitchen', 'hall', 'garden', 'east_gallery', 'npc_mara', 'door_hall', 'brass_key']
     .map(id => ({ id, ...(id === 'brass_key' ? { type: 'item', name: 'brass key' } : {}) }));
+const missingDependency = intent.validate({protocol:'resolved_intent_v1',steps:[
+    {source_quote:'Try to enter the east gallery; ',kind:'travel',destination_id:'east_gallery'},
+    {source_quote:'if that succeeds, take the brass key.',kind:'transfer',operation:'take',item_id:'brass_key',depends_on:[]}
+]},{input:'Try to enter the east gallery; if that succeeds, take the brass key.',references});
+assert(!missingDependency.ok && missingDependency.errors.some(e=>e.reason==='conditional_dependency_required'));
 
 const cases = [
     { input: 'Pick up the brass key, pass through the hall door, and tell Mara “I am here.”',

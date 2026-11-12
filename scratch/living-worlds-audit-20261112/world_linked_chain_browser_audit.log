@@ -1,0 +1,39 @@
+AssertionError [ERR_ASSERTION]: {"at":"2026-11-12T10:49:25.213Z","reason":"The model provider returned invalid JSON. Retry this turn or choose another model.","turnId":"e978c630-e960-4be9-8c5b-95328cd133f1","diagnosticId":"wsess_1794480565127_1794480565213_failed","status":"failed","errorCode":"WORLD_MODEL_INVALID_JSON","model":"fixture/model","originalFailure":null,"failures":[],"repairResults":[],"discarded":null,"durationMs":22,"correctionReasons":[],"calls":[{"kind":"resolvedIntent","provider":"local","outcome":"invalid_json","model":"fixture/model","status":200,"durationMs":5,"usage":null}]}
++ actual - expected
+
++ {
++   at: '2026-11-12T10:49:25.213Z',
++   calls: [
++     {
++       durationMs: 5,
++       kind: 'resolvedIntent',
++       model: 'fixture/model',
++       outcome: 'invalid_json',
++       provider: 'local',
++       status: 200,
++       usage: null
++     }
++   ],
++   correctionReasons: [],
++   diagnosticId: 'wsess_1794480565127_1794480565213_failed',
++   discarded: null,
++   durationMs: 22,
++   errorCode: 'WORLD_MODEL_INVALID_JSON',
++   failures: [],
++   model: 'fixture/model',
++   originalFailure: null,
++   reason: 'The model provider returned invalid JSON. Retry this turn or choose another model.',
++   repairResults: [],
++   status: 'failed',
++   turnId: 'e978c630-e960-4be9-8c5b-95328cd133f1'
++ }
+- null
+
+    at N:\Horde Studio\app\scratch\world_linked_chain_browser_audit.js:154:16 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: [Object],
+  expected: null,
+  operator: 'strictEqual',
+  diff: 'simple'
+}

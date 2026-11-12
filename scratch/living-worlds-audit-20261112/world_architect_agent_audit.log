@@ -1,0 +1,38 @@
+✓ literal scale is preserved and divided into bounded batches
+✓ a planner cannot silently shrink an exact request
+✓ semantic planner labels cannot inherit unrelated exact counts by position
+✓ deletion and unknown free-form mutations are rejected at the boundary
+✓ group editing operations are typed while destructive world operations remain rejected
+✓ Architect normalizes common model vocabulary and flattened records
+✓ Architect repairs split and already-staged add records with meaningful IDs
+✓ the exact failed eight-character review can be staged after repair
+✓ pre-existing world defects do not deadlock unrelated staged changes
+✓ defects introduced by a proposed operation still block apply
+✓ staging resolves out-of-order dependencies inside one generated batch
+✓ relationship authoring uses a searchable picker with button and Enter support
+✓ Architect parser accepts fenced JSON and prose-wrapped reasoning output
+✓ Architect parser accepts bare arrays and nested provider wrappers
+✓ Architect recovers alternate envelopes and domain arrays
+✓ Architect reads tool-call arguments when message content is empty
+✓ exact item batches use a small valid index and an explicit operation contract
+✓ empty operations do not hide valid item records in another field
+✓ Architect structured requests retry malformed output before failing
+✓ batch counts distinguish rooms from other playable locations
+✓ room additions resolve parent and region references canonically
+✓ replaying a completed batch is idempotent
+✓ invalid references fail closed instead of creating broken records
+✓ connections are reciprocal unless explicitly one-way
+✓ fill-gaps never overwrites authored prose, while safe edits can
+✓ deleting a group keeps characters and clears dangling memberships
+✓ merging groups moves and deduplicates members and preserves useful details
+✓ Architect group deletion and merging require safe-edit permission
+✓ Architect updates group metadata under the configured change policy
+✓ Architect updates place access, door state and the World Lore index
+✓ Architect can add and revise lorebook knowledge links under the safe-edit policy
+✓ AI Builder can replace matching lore fields and fully overwrite the authored world
+✓ Explore World Structure exposes generation options and model-size-aware timeouts
+✓ Architect can revise complete place, person, faction and lore fields
+✓ job and undo metadata do not stale their own world fingerprint
+✓ staging validates an exact multi-record request without touching its source
+
+36 World Architect checks passed.

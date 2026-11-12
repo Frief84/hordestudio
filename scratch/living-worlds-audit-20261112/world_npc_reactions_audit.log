@@ -1,0 +1,1 @@
+PASS NPC reactions: perception, personal predicates, offscreen linked action, proof, interruption, resume, reload, idempotence, rollback; 40 NPC x 10 observations reaction 1.04 ms, goal update 4.91 ms, linked action 13.79 ms; repeat 0.13 ms / 200 evaluations

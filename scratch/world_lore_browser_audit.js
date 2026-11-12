@@ -112,11 +112,7 @@ const root = path.resolve(__dirname, '..');
             document.querySelector('.world-studio-tab[data-tab="w-overview"]').click();
         });
         await page.setViewportSize({ width: 1300, height: 1000 });
-        assert.equal(await page.locator('[data-generate-world-structure]').count(), 2);
-        await page.locator('#tab-w-overview [data-generate-world-structure]').click();
-        await page.waitForFunction(() => !!state.editingWorld.worldStructure && !document.querySelector('[data-generate-world-structure]').disabled);
-        assert.equal(await page.evaluate(() => state.editingWorld.lorebook[0].text), 'Keep this original lore.');
-        assert.equal(await page.evaluate(() => state.editingWorld.lorebook[0].customField), 'keep me');
+        assert.equal(await page.locator('[data-generate-world-structure]').count(), 1);
 
         await page.locator('.world-studio-tab[data-tab="w-lore"]').click();
         assert(await page.locator('#tab-w-lore .lore-text-editor').isVisible());

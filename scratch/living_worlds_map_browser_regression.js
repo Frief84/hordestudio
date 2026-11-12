@@ -1,0 +1,51 @@
+'use strict';
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const {chromium, launchOptions} = require('./browser_runtime').browserRuntime();
+const root = path.resolve(__dirname, '..');
+(async () => {
+ const browser = await chromium.launch(launchOptions);
+ try {
+  const page = await browser.newPage({viewport:{width:1280,height:900}});
+  const errors=[]; page.on('pageerror', e=>errors.push(e.message));
+  await page.route('**/*', route=>{
+   const url=new URL(route.request().url());
+   if(url.hostname!=='map-audit.test') return route.abort();
+   const file=path.resolve(root,'.'+url.pathname);
+   if(!file.startsWith(root+path.sep)||!fs.existsSync(file)) return route.fulfill({status:404,body:''});
+   return route.fulfill({contentType:{'.js':'text/javascript','.html':'text/html','.css':'text/css'}[path.extname(file)]||'application/octet-stream',body:fs.readFileSync(file)});
+  });
+  await page.goto('https://map-audit.test/scratch/map_editor_fixture.html');
+  await page.getByRole('button',{name:'Fit map',exact:true}).click();
+  const zoom=await page.locator('.world-map-zoom').innerText();
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  assert.notEqual(await page.locator('.world-map-zoom').innerText(),zoom);
+  await page.getByRole('button',{name:'Fit map',exact:true}).click();
+  const before=await page.evaluate(()=>JSON.stringify(world.locations));
+  const node=page.locator('[data-id="a"]'); const box=await node.boundingBox();
+  const position=await page.evaluate(()=>world.mapLayout.nodes.a.x);
+  await page.mouse.move(box.x+box.width/2,box.y+box.height/2); await page.mouse.down();
+  await page.mouse.move(box.x+box.width/2+35,box.y+box.height/2+20,{steps:5}); await page.mouse.up();
+  assert.notEqual(await page.evaluate(()=>world.mapLayout.nodes.a.x),position);
+  assert.equal(await page.evaluate(()=>JSON.stringify(world.locations)),before);
+  await page.getByRole('button',{name:'Undo',exact:true}).click();
+  assert.equal(await page.evaluate(()=>world.mapLayout.nodes.a.x),position);
+  await page.getByRole('button',{name:'Connect',exact:true}).click();
+  await page.locator('[data-id="b"]').click(); await page.locator('[data-id="c"]').click();
+  assert(await page.evaluate(()=>world.locations.find(l=>l.id==='b').exits.some(e=>e.targetLocationId==='c')));
+  await page.getByLabel('New room name').fill('Audit room');
+  await page.getByRole('button',{name:'Place room',exact:true}).click();
+  await page.locator('svg').click({position:{x:120,y:260}});
+  assert.equal(await page.evaluate(()=>world.locations.length),4);
+  await page.locator('#roundtrip').click();
+  assert.equal(await page.evaluate(()=>world.locations.length),4);
+  await page.locator('#play').click();
+  assert.equal(await page.getByLabel('New room name').count(),0);
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole('button',{name:'Fit map',exact:true}).click();
+  assert.deepEqual(errors,[]);
+  await page.screenshot({path:path.join(__dirname,'living-worlds-audit-20261112/map-mobile.png')});
+  console.log('PASS map UI: zoom, room drag, undo, connect, place, roundtrip, play and mobile fit');
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

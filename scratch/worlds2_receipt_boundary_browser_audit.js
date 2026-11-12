@@ -208,7 +208,7 @@ const root = path.resolve(__dirname, '..');
             assert.deepEqual(sample.finalConflicts, [], `final-prose audit wrongly rejected: ${sample.input}`);
         }
         assert.equal(result.frozenResult.source, 'frozen_no_receipt');
-        assert.match(result.frozenResult.text, /story text was discarded.*Reroll/i);
+        assert.match(result.frozenResult.text, /story text was discarded.*Reroll|Erzähltext wurde verworfen.*würfle/i);
         assert.equal(result.frozenResult.historyHasFalseFiction, false);
         assert.equal(result.frozenResult.ledger, '');
         assert.equal(result.frozenResult.turnCount, Math.max(1, Number(result.frozenResult.beforeTurnCount) || 1));
@@ -219,7 +219,7 @@ const root = path.resolve(__dirname, '..');
         assert.doesNotMatch(result.toolResult.transcript, /call:checks|<\|tool_call>/i);
         assert.doesNotMatch(result.conflictResult.text, /you drink the healing draught|your forearm burns/i,
             'a follow-up must not canonize consequences absent from its already accepted no-op receipt');
-        assert.match(result.conflictResult.text, /verif|conflict|discard|could not/i);
+        assert.match(result.conflictResult.text, /verif|conflict|discard|could not|widersprach.*verworfen/i);
         assert.equal(result.conflictResult.inventory, result.conflictResult.before.inventory);
         assert.equal(result.conflictResult.stats, result.conflictResult.before.stats);
         assert.equal(result.conflictResult.conditions, result.conflictResult.before.conditions);

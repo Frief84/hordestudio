@@ -1,0 +1,24 @@
+✓ legacy title/status quests migrate without disappearing
+✓ disabled quest module preserves dormant quests without evaluating or mutating them
+✓ large same-turn quest batches receive stable unique IDs
+✓ updates match existing quests and objectives case-insensitively
+✓ authoritative state completes every deterministic objective type
+✓ completion rewards are idempotent across repeated evaluation and reload normalization
+✓ manual progress completes incrementally while failed quests never pay
+✓ tool-free fallback extracts quest JSON and removes it from player prose
+✓ normalization enforces quest and objective caps under hostile backup input
+✓ 50,000 objective evaluations remain bounded and preserve quest count
+✓ quest prompt is authoritative, bounded, and contains exact IDs
+
+11 quest engine checks passed.
+Horde Engine: ignored invalid fallback quest update JSON. SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+    at JSON.parse (<anonymous>)
+    at Object.extractQuestUpdateDirective (evalmachine.<anonymous>:461:33)
+    at N:\Horde Studio\app\scratch\quest_engine_stress_test.js:226:30
+    at Object.<anonymous> (N:\Horde Studio\app\scratch\quest_engine_stress_test.js:277:9)
+    at Module._compile (node:internal/modules/cjs/loader:1761:14)
+    at Object..js (node:internal/modules/cjs/loader:1893:10)
+    at Module.load (node:internal/modules/cjs/loader:1481:32)
+    at Module._load (node:internal/modules/cjs/loader:1300:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)

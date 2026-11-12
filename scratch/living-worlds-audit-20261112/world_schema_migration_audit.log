@@ -1,0 +1,10 @@
+✓ migration is pure and stamps the current schema
+✓ legacy places, people, items and families move to separate directories
+✓ regions and room containment become canonical ids
+✓ custom and fantasy transport survives canonical travel conversion
+✓ blank and unresolved exits remain reviewable instead of blocking migration
+✓ linked homes and placements use canonical location ids
+✓ running the upgrader twice is structurally idempotent
+✓ product wiring upgrades definitions, installed built-ins and exposes rollback UI
+
+8 world schema migration checks passed.

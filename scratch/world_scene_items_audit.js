@@ -1,6 +1,6 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { executeLinkedActions } = require('../worlds/linked-world-actions');
+const { executeFullyAppliedActions: executeLinkedActions } = require('./world_action_test_result');
 const world = { id: 'scene_items', entities: [
     { id: 'book', name: 'Book', type: 'item', startLocation: 'room' },
     { id: 'keeper', name: 'Keeper', type: 'npc' }
